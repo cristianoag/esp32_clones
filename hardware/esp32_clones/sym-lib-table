@@ -1,0 +1,7 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "esp32") (type "KiCad") (uri "${KIPRJMOD}/libraries/symbols/esp32.kicad_sym") (options "") (descr ""))
+	(lib (name "Espressif") (type "KiCad") (uri "${KIPRJMOD}/libraries/symbols/Espressif.kicad_sym") (options "") (descr ""))
+	(lib (name "ps-12e05") (type "KiCad") (uri "${KIPRJMOD}/libraries/symbols/ps-12e05.kicad_sym") (options "") (descr ""))
+	(lib (name "ps-22f05") (type "KiCad") (uri "${KIPRJMOD}/libraries/symbols/ps-22f05.kicad_sym") (options "") (descr ""))
+)

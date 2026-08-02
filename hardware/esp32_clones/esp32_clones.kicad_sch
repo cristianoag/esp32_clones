@@ -6,7 +6,7 @@
 	(paper "A4")
 	(title_block
 		(title "ESP32 Clones")
-		(date "2026-06-18")
+		(date "2026-08-02")
 		(rev "1.0")
 		(company "The Retro Hacker")
 		(comment 2 "Commercial-ShareAlike 4.0 Internacional License")
@@ -4853,12 +4853,6 @@
 		(uuid "00f7716f-13c4-44f4-9553-fd111bb15400")
 	)
 	(junction
-		(at 107.95 62.23)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "025ee530-34ed-4b98-9143-598c2080e605")
-	)
-	(junction
 		(at 90.17 39.37)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -4869,6 +4863,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "0768901d-8bfd-44cd-86be-c49f8e6fd5e4")
+	)
+	(junction
+		(at 135.89 140.97)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "1cb554be-71c6-4fe6-9a6e-c723376ffd63")
 	)
 	(junction
 		(at 128.27 48.26)
@@ -4907,22 +4907,10 @@
 		(uuid "5059da59-895c-4ed5-b7e5-c2b15ffbc22c")
 	)
 	(junction
-		(at 78.74 125.73)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "53a361a9-7d4e-4d8c-8793-8ed01ebecc9a")
-	)
-	(junction
 		(at 83.82 109.22)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "5d77c095-89c1-4082-9087-edc57ba05c11")
-	)
-	(junction
-		(at 66.04 125.73)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "68bc99c7-1c77-4f63-b8a0-6b0f35a9f5ef")
 	)
 	(junction
 		(at 52.07 43.18)
@@ -4991,12 +4979,6 @@
 		(uuid "d1108f91-7575-415e-9d0a-0d065cb7bc32")
 	)
 	(junction
-		(at 133.35 140.97)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "d57c8c1f-19e9-4696-8a5b-23df26de4aec")
-	)
-	(junction
 		(at 227.33 114.3)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -5015,10 +4997,28 @@
 		(uuid "f35e34f8-a6ae-48f9-9c2f-006caee2ee85")
 	)
 	(junction
+		(at 83.82 125.73)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "f524118c-a5e0-4df4-8f43-3a04b9136012")
+	)
+	(junction
 		(at 97.79 77.47)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "f97f9e9c-7ab5-41d3-b939-15ffdf1eba92")
+	)
+	(junction
+		(at 107.95 62.23)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "fce4e12f-a443-427c-80e8-ef28aa0469bd")
+	)
+	(junction
+		(at 96.52 125.73)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "ffad1996-e61e-4de2-a9cc-81a1095968ac")
 	)
 	(no_connect
 		(at 152.4 93.98)
@@ -5085,10 +5085,6 @@
 		(uuid "9bbb0794-61eb-46c8-9bf6-11588d234c49")
 	)
 	(no_connect
-		(at 106.68 156.21)
-		(uuid "a065cb00-d501-4141-a752-80f96eb0c7f9")
-	)
-	(no_connect
 		(at 76.2 87.63)
 		(uuid "a1ee4cec-2084-4bf1-936f-705670694260")
 	)
@@ -5111,6 +5107,10 @@
 	(no_connect
 		(at 119.38 67.31)
 		(uuid "be29e662-8d73-4747-bcef-76c71d564244")
+	)
+	(no_connect
+		(at 111.76 156.21)
+		(uuid "c86187f4-8802-4222-81c5-bd07be679f49")
 	)
 	(no_connect
 		(at 257.81 101.6)
@@ -5230,7 +5230,7 @@
 	)
 	(wire
 		(pts
-			(xy 54.61 109.22) (xy 54.61 123.19)
+			(xy 67.31 109.22) (xy 67.31 123.19)
 		)
 		(stroke
 			(width 0)
@@ -5297,6 +5297,16 @@
 			(type default)
 		)
 		(uuid "151136bd-8ac3-4f28-8d8f-2ec11fe3ab5c")
+	)
+	(wire
+		(pts
+			(xy 58.42 130.81) (xy 58.42 138.43)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "1624ab96-b3a3-4416-bc8f-96087a4ba876")
 	)
 	(wire
 		(pts
@@ -5410,13 +5420,23 @@
 	)
 	(wire
 		(pts
-			(xy 66.04 125.73) (xy 66.04 137.16)
+			(xy 83.82 125.73) (xy 83.82 137.16)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
 		(uuid "2a78f292-5724-4387-9823-e05fb3552685")
+	)
+	(wire
+		(pts
+			(xy 83.82 142.24) (xy 83.82 144.78)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "2ad8b851-eae3-42c5-a6d3-36a3b99d514f")
 	)
 	(wire
 		(pts
@@ -5460,6 +5480,16 @@
 	)
 	(wire
 		(pts
+			(xy 109.22 156.21) (xy 109.22 153.67)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "31741720-4d59-43d5-9912-e004d6553048")
+	)
+	(wire
+		(pts
 			(xy 52.07 24.13) (xy 52.07 27.94)
 		)
 		(stroke
@@ -5470,7 +5500,7 @@
 	)
 	(wire
 		(pts
-			(xy 132.08 140.97) (xy 134.62 140.97)
+			(xy 132.08 140.97) (xy 135.89 140.97)
 		)
 		(stroke
 			(width 0)
@@ -5530,16 +5560,6 @@
 	)
 	(wire
 		(pts
-			(xy 66.04 142.24) (xy 66.04 144.78)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "40d1d33f-9824-4c9c-88c4-cbf623f3aa7b")
-	)
-	(wire
-		(pts
 			(xy 245.11 111.76) (xy 257.81 111.76)
 		)
 		(stroke
@@ -5547,16 +5567,6 @@
 			(type default)
 		)
 		(uuid "42e671f3-360f-49f9-97d4-a1319d9dd0d4")
-	)
-	(wire
-		(pts
-			(xy 116.84 153.67) (xy 111.76 153.67)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "434adc1f-2c41-47b2-b688-e4e4b6b37129")
 	)
 	(wire
 		(pts
@@ -5610,7 +5620,7 @@
 	)
 	(wire
 		(pts
-			(xy 49.53 125.73) (xy 55.88 125.73)
+			(xy 63.5 125.73) (xy 73.66 125.73)
 		)
 		(stroke
 			(width 0)
@@ -5720,7 +5730,7 @@
 	)
 	(wire
 		(pts
-			(xy 107.95 62.23) (xy 111.76 62.23)
+			(xy 107.95 62.23) (xy 113.03 62.23)
 		)
 		(stroke
 			(width 0)
@@ -5757,16 +5767,6 @@
 			(type default)
 		)
 		(uuid "66fc3b4c-4c4d-4442-b311-822422ba5b1b")
-	)
-	(wire
-		(pts
-			(xy 111.76 153.67) (xy 111.76 156.21)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "695b4527-03a1-44fe-b840-839e57649fdc")
 	)
 	(wire
 		(pts
@@ -5850,7 +5850,7 @@
 	)
 	(wire
 		(pts
-			(xy 133.35 140.97) (xy 133.35 146.05)
+			(xy 135.89 140.97) (xy 135.89 147.32)
 		)
 		(stroke
 			(width 0)
@@ -5910,16 +5910,6 @@
 	)
 	(wire
 		(pts
-			(xy 44.45 130.81) (xy 44.45 138.43)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "73d8595d-1b90-4340-9cbf-d3a7bf2c18d9")
-	)
-	(wire
-		(pts
 			(xy 156.21 129.54) (xy 156.21 114.3)
 		)
 		(stroke
@@ -5950,7 +5940,7 @@
 	)
 	(wire
 		(pts
-			(xy 54.61 123.19) (xy 49.53 123.19)
+			(xy 67.31 123.19) (xy 63.5 123.19)
 		)
 		(stroke
 			(width 0)
@@ -5990,6 +5980,16 @@
 	)
 	(wire
 		(pts
+			(xy 113.03 62.23) (xy 113.03 54.61)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7ed269f2-4490-45bc-8a82-90178ba9a116")
+	)
+	(wire
+		(pts
 			(xy 130.81 48.26) (xy 130.81 52.07)
 		)
 		(stroke
@@ -6010,7 +6010,7 @@
 	)
 	(wire
 		(pts
-			(xy 63.5 125.73) (xy 66.04 125.73)
+			(xy 81.28 125.73) (xy 83.82 125.73)
 		)
 		(stroke
 			(width 0)
@@ -6060,16 +6060,6 @@
 	)
 	(wire
 		(pts
-			(xy 134.62 140.97) (xy 137.16 140.97)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "8e6e4876-184a-4d28-a39a-9bb26bc565f5")
-	)
-	(wire
-		(pts
 			(xy 52.07 39.37) (xy 52.07 33.02)
 		)
 		(stroke
@@ -6097,6 +6087,16 @@
 			(type default)
 		)
 		(uuid "94ffd94d-5834-44db-81d7-573699bdd48d")
+	)
+	(wire
+		(pts
+			(xy 83.82 125.73) (xy 86.36 125.73)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "96ab92e6-d990-483d-bc8c-de2fc73f624c")
 	)
 	(wire
 		(pts
@@ -6140,16 +6140,6 @@
 	)
 	(wire
 		(pts
-			(xy 66.04 125.73) (xy 68.58 125.73)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "9eef3d93-c996-4c10-be72-da83590f4e98")
-	)
-	(wire
-		(pts
 			(xy 107.95 72.39) (xy 107.95 74.93)
 		)
 		(stroke
@@ -6170,7 +6160,7 @@
 	)
 	(wire
 		(pts
-			(xy 78.74 125.73) (xy 78.74 137.16)
+			(xy 96.52 125.73) (xy 96.52 137.16)
 		)
 		(stroke
 			(width 0)
@@ -6220,7 +6210,7 @@
 	)
 	(wire
 		(pts
-			(xy 73.66 109.22) (xy 54.61 109.22)
+			(xy 73.66 109.22) (xy 67.31 109.22)
 		)
 		(stroke
 			(width 0)
@@ -6240,6 +6230,16 @@
 	)
 	(wire
 		(pts
+			(xy 96.52 142.24) (xy 96.52 144.78)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a8f50e01-be30-4f46-9e66-c6398077c8c9")
+	)
+	(wire
+		(pts
 			(xy 191.77 109.22) (xy 191.77 119.38)
 		)
 		(stroke
@@ -6250,6 +6250,26 @@
 	)
 	(wire
 		(pts
+			(xy 96.52 125.73) (xy 100.33 125.73)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ab07e6ba-03a0-40dd-9a9b-6116fe60965c")
+	)
+	(wire
+		(pts
+			(xy 135.89 140.97) (xy 137.16 140.97)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ad06c3db-4f0c-49ba-9d0f-e792c97d60d9")
+	)
+	(wire
+		(pts
 			(xy 242.57 26.67) (xy 245.11 26.67)
 		)
 		(stroke
@@ -6257,16 +6277,6 @@
 			(type default)
 		)
 		(uuid "ada0baec-a386-4940-833e-e01c2344dd51")
-	)
-	(wire
-		(pts
-			(xy 78.74 125.73) (xy 90.17 125.73)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ae1ed9c1-565f-43be-96a9-a6625bcdf18d")
 	)
 	(wire
 		(pts
@@ -6300,7 +6310,7 @@
 	)
 	(wire
 		(pts
-			(xy 76.2 125.73) (xy 78.74 125.73)
+			(xy 93.98 125.73) (xy 96.52 125.73)
 		)
 		(stroke
 			(width 0)
@@ -6350,6 +6360,16 @@
 	)
 	(wire
 		(pts
+			(xy 109.22 153.67) (xy 116.84 153.67)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bb9ab283-c099-4371-bbb2-717f6b3530fe")
+	)
+	(wire
+		(pts
 			(xy 187.96 78.74) (xy 200.66 78.74)
 		)
 		(stroke
@@ -6380,7 +6400,7 @@
 	)
 	(wire
 		(pts
-			(xy 97.79 125.73) (xy 114.3 125.73)
+			(xy 107.95 125.73) (xy 114.3 125.73)
 		)
 		(stroke
 			(width 0)
@@ -6420,7 +6440,7 @@
 	)
 	(wire
 		(pts
-			(xy 96.52 153.67) (xy 109.22 153.67)
+			(xy 96.52 153.67) (xy 106.68 153.67)
 		)
 		(stroke
 			(width 0)
@@ -6530,6 +6550,16 @@
 	)
 	(wire
 		(pts
+			(xy 106.68 153.67) (xy 106.68 156.21)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d86cc41d-bdc0-4ebd-ad30-b93d53b11e82")
+	)
+	(wire
+		(pts
 			(xy 234.95 88.9) (xy 257.81 88.9)
 		)
 		(stroke
@@ -6537,16 +6567,6 @@
 			(type default)
 		)
 		(uuid "da5e9915-a012-4262-bc03-492be19d6d69")
-	)
-	(wire
-		(pts
-			(xy 109.22 153.67) (xy 109.22 156.21)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "da7e318d-033e-4b93-bc72-57d446e2d2a4")
 	)
 	(wire
 		(pts
@@ -6667,16 +6687,6 @@
 			(type default)
 		)
 		(uuid "e99563cc-8289-4606-ab63-373ab06e7d96")
-	)
-	(wire
-		(pts
-			(xy 78.74 142.24) (xy 78.74 144.78)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ec4c5afe-e782-4d09-a8d2-0f4429f41f87")
 	)
 	(wire
 		(pts
@@ -6948,7 +6958,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "0889297a-d9bd-483e-bfd8-e95894ccad89")
-		(property "Reference" "#PWR02"
+		(property "Reference" "#PWR017"
 			(at 215.9 29.21 0)
 			(hide yes)
 			(show_name no)
@@ -7009,7 +7019,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR02")
+					(reference "#PWR017")
 					(unit 1)
 				)
 			)
@@ -7027,7 +7037,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "120ec771-3f1d-478d-b1a9-0a57ebd9d1c2")
-		(property "Reference" "#PWR013"
+		(property "Reference" "#PWR018"
 			(at 227.33 33.02 0)
 			(hide yes)
 			(show_name no)
@@ -7087,7 +7097,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR013")
+					(reference "#PWR018")
 					(unit 1)
 				)
 			)
@@ -7186,7 +7196,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "1597ed7c-c251-4f20-bb85-a3b165259109")
-		(property "Reference" "R9"
+		(property "Reference" "R7"
 			(at 110.49 67.3099 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7197,7 +7207,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "10KR"
+		(property "Value" "10K"
 			(at 110.49 69.8499 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7250,7 +7260,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R9")
+					(reference "R7")
 					(unit 1)
 				)
 			)
@@ -7268,7 +7278,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "16f75e71-82cc-4404-beb6-1915628d32fc")
-		(property "Reference" "J5"
+		(property "Reference" "J2"
 			(at 52.705 99.06 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7351,7 +7361,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J5")
+					(reference "J2")
 					(unit 1)
 				)
 			)
@@ -7369,7 +7379,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "1810bf23-26ef-4a5b-a0cc-c2b0499dcd64")
-		(property "Reference" "R7"
+		(property "Reference" "R1"
 			(at 91.44 67.3099 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7380,7 +7390,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "10KR"
+		(property "Value" "10K"
 			(at 91.44 69.8499 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7433,7 +7443,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R7")
+					(reference "R1")
 					(unit 1)
 				)
 			)
@@ -7441,7 +7451,7 @@
 	)
 	(symbol
 		(lib_id "Device:C_Polarized")
-		(at 59.69 125.73 270)
+		(at 77.47 125.73 270)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -7450,8 +7460,8 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "19b3e9f3-021f-461f-bf75-388e26b0250c")
-		(property "Reference" "C8"
-			(at 59.69 132.334 90)
+		(property "Reference" "C3"
+			(at 77.47 132.334 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -7461,7 +7471,7 @@
 			)
 		)
 		(property "Value" "10UF"
-			(at 59.69 129.794 90)
+			(at 77.47 129.794 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -7471,7 +7481,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:CP_Elec_6.3x3"
-			(at 55.88 126.6952 0)
+			(at 73.66 126.6952 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7482,7 +7492,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 59.69 125.73 0)
+			(at 77.47 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7493,7 +7503,7 @@
 			)
 		)
 		(property "Description" "Polarized capacitor"
-			(at 59.69 125.73 0)
+			(at 77.47 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7512,7 +7522,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "C8")
+					(reference "C3")
 					(unit 1)
 				)
 			)
@@ -7530,7 +7540,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "1d6adbde-0a18-4274-9ccc-9804580d2be1")
-		(property "Reference" "#PWR07"
+		(property "Reference" "#PWR01"
 			(at 52.07 52.07 0)
 			(hide yes)
 			(show_name no)
@@ -7590,7 +7600,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR07")
+					(reference "#PWR01")
 					(unit 1)
 				)
 			)
@@ -7598,7 +7608,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 78.74 144.78 0)
+		(at 96.52 144.78 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -7608,8 +7618,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "20f4057b-def9-4c91-bacc-691a98c42780")
-		(property "Reference" "#PWR018"
-			(at 78.74 151.13 0)
+		(property "Reference" "#PWR08"
+			(at 96.52 151.13 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7620,7 +7630,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 78.74 149.86 0)
+			(at 96.52 149.86 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -7630,7 +7640,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 78.74 144.78 0)
+			(at 96.52 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7641,7 +7651,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 78.74 144.78 0)
+			(at 96.52 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7652,7 +7662,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 78.74 144.78 0)
+			(at 96.52 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7668,7 +7678,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR018")
+					(reference "#PWR08")
 					(unit 1)
 				)
 			)
@@ -7686,7 +7696,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "28389e28-5d61-42cc-9b4c-3b1af8a410e2")
-		(property "Reference" "R5"
+		(property "Reference" "R8"
 			(at 204.47 62.23 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7696,7 +7706,7 @@
 				)
 			)
 		)
-		(property "Value" "1.2KR"
+		(property "Value" "1.2K"
 			(at 204.47 64.77 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7748,7 +7758,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R5")
+					(reference "R8")
 					(unit 1)
 				)
 			)
@@ -7756,7 +7766,7 @@
 	)
 	(symbol
 		(lib_id "Device:R")
-		(at 72.39 125.73 270)
+		(at 90.17 125.73 270)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -7765,8 +7775,8 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "314d53df-b59f-410d-a712-6789e6c3c800")
-		(property "Reference" "R14"
-			(at 72.39 120.396 90)
+		(property "Reference" "R3"
+			(at 90.17 120.396 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -7775,8 +7785,8 @@
 				)
 			)
 		)
-		(property "Value" "330KR"
-			(at 72.39 122.936 90)
+		(property "Value" "330"
+			(at 90.17 122.936 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -7786,7 +7796,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
-			(at 72.39 123.952 90)
+			(at 90.17 123.952 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7797,7 +7807,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 72.39 125.73 0)
+			(at 90.17 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7808,7 +7818,7 @@
 			)
 		)
 		(property "Description" "Resistor"
-			(at 72.39 125.73 0)
+			(at 90.17 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -7827,7 +7837,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R14")
+					(reference "R3")
 					(unit 1)
 				)
 			)
@@ -7845,7 +7855,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "39508740-c0e3-43e7-84e6-591dcd0edade")
-		(property "Reference" "#PWR08"
+		(property "Reference" "#PWR05"
 			(at 90.17 40.64 0)
 			(hide yes)
 			(show_name no)
@@ -7905,7 +7915,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR08")
+					(reference "#PWR05")
 					(unit 1)
 				)
 			)
@@ -8003,7 +8013,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "3f508436-a254-4138-805b-3748398b60ca")
-		(property "Reference" "#PWR04"
+		(property "Reference" "#PWR09"
 			(at 90.17 153.67 0)
 			(hide yes)
 			(show_name no)
@@ -8064,7 +8074,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR04")
+					(reference "#PWR09")
 					(unit 1)
 				)
 			)
@@ -8082,7 +8092,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "42a98891-36d7-4270-9c99-b87d22618b93")
-		(property "Reference" "J8"
+		(property "Reference" "J5"
 			(at 114.3 161.2899 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8157,7 +8167,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J8")
+					(reference "J5")
 					(unit 1)
 				)
 			)
@@ -8175,7 +8185,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "46f6308b-6ae4-42ec-99af-6fc6afe9d237")
-		(property "Reference" "R1"
+		(property "Reference" "R13"
 			(at 204.47 113.03 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8185,7 +8195,7 @@
 				)
 			)
 		)
-		(property "Value" "560R"
+		(property "Value" "560"
 			(at 204.47 115.57 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8237,7 +8247,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R1")
+					(reference "R13")
 					(unit 1)
 				)
 			)
@@ -8462,7 +8472,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "4bf8909b-c2ad-4e85-a3a0-a206f7b77686")
-		(property "Reference" "J1"
+		(property "Reference" "J4"
 			(at 86.36 17.7799 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8531,7 +8541,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J1")
+					(reference "J4")
 					(unit 1)
 				)
 			)
@@ -8539,7 +8549,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 66.04 144.78 0)
+		(at 83.82 144.78 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -8549,8 +8559,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "56cb4c16-5170-4299-8c14-cc0cd2ccac50")
-		(property "Reference" "#PWR016"
-			(at 66.04 151.13 0)
+		(property "Reference" "#PWR04"
+			(at 83.82 151.13 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8561,7 +8571,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 66.04 149.86 0)
+			(at 83.82 149.86 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -8571,7 +8581,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 66.04 144.78 0)
+			(at 83.82 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8582,7 +8592,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 66.04 144.78 0)
+			(at 83.82 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8593,7 +8603,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 66.04 144.78 0)
+			(at 83.82 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8609,7 +8619,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR016")
+					(reference "#PWR04")
 					(unit 1)
 				)
 			)
@@ -8617,7 +8627,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 133.35 146.05 0)
+		(at 135.89 147.32 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -8627,8 +8637,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "61a5ff6b-29ca-4de5-bfa0-e8d970a55d58")
-		(property "Reference" "#PWR05"
-			(at 133.35 152.4 0)
+		(property "Reference" "#PWR012"
+			(at 135.89 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8639,7 +8649,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 133.35 151.13 0)
+			(at 135.89 152.4 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -8649,7 +8659,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 133.35 146.05 0)
+			(at 135.89 147.32 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8660,7 +8670,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 133.35 146.05 0)
+			(at 135.89 147.32 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8671,7 +8681,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 133.35 146.05 0)
+			(at 135.89 147.32 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8687,7 +8697,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR05")
+					(reference "#PWR012")
 					(unit 1)
 				)
 			)
@@ -8705,7 +8715,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "716a01e2-ef00-4579-9c70-2cdfafd2b61e")
-		(property "Reference" "#PWR010"
+		(property "Reference" "#PWR011"
 			(at 128.27 50.8 0)
 			(hide yes)
 			(show_name no)
@@ -8765,7 +8775,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR010")
+					(reference "#PWR011")
 					(unit 1)
 				)
 			)
@@ -8783,7 +8793,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "73ee1475-23e2-4fef-86c2-ce9c0be4801d")
-		(property "Reference" "#FLG02"
+		(property "Reference" "#FLG03"
 			(at 126.365 48.26 0)
 			(hide yes)
 			(show_name no)
@@ -8844,7 +8854,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#FLG02")
+					(reference "#FLG03")
 					(unit 1)
 				)
 			)
@@ -8862,7 +8872,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "8125b970-aef1-486b-92b0-e06b546eb06d")
-		(property "Reference" "#PWR020"
+		(property "Reference" "#PWR03"
 			(at 83.82 87.63 0)
 			(hide yes)
 			(show_name no)
@@ -8922,7 +8932,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR020")
+					(reference "#PWR03")
 					(unit 1)
 				)
 			)
@@ -8940,7 +8950,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "845c12e0-0ac0-4134-9078-c95118ff0c77")
-		(property "Reference" "#PWR012"
+		(property "Reference" "#PWR016"
 			(at 191.77 33.02 0)
 			(hide yes)
 			(show_name no)
@@ -9000,7 +9010,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR012")
+					(reference "#PWR016")
 					(unit 1)
 				)
 			)
@@ -9018,7 +9028,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "88295987-45c6-4457-9445-3a8461d7b1fd")
-		(property "Reference" "#PWR03"
+		(property "Reference" "#PWR015"
 			(at 181.61 29.21 0)
 			(hide yes)
 			(show_name no)
@@ -9079,7 +9089,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR03")
+					(reference "#PWR015")
 					(unit 1)
 				)
 			)
@@ -9097,7 +9107,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "89dcfcc4-1188-4bff-a9d1-394899952e2f")
-		(property "Reference" "#PWR01"
+		(property "Reference" "#PWR019"
 			(at 254 29.21 0)
 			(hide yes)
 			(show_name no)
@@ -9158,7 +9168,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR01")
+					(reference "#PWR019")
 					(unit 1)
 				)
 			)
@@ -9166,7 +9176,7 @@
 	)
 	(symbol
 		(lib_id "Device:C_Small")
-		(at 78.74 139.7 180)
+		(at 96.52 139.7 180)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -9176,8 +9186,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "8fc1e610-88c6-4630-a117-71d44e36ad47")
-		(property "Reference" "C6"
-			(at 76.2 140.9638 0)
+		(property "Reference" "C7"
+			(at 93.98 140.9638 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -9188,7 +9198,7 @@
 			)
 		)
 		(property "Value" "47NF"
-			(at 76.2 138.4238 0)
+			(at 93.98 138.4238 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -9199,7 +9209,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
-			(at 78.74 139.7 0)
+			(at 96.52 139.7 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9210,7 +9220,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 78.74 139.7 0)
+			(at 96.52 139.7 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9221,7 +9231,7 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor, small symbol"
-			(at 78.74 139.7 0)
+			(at 96.52 139.7 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9240,7 +9250,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "C6")
+					(reference "C7")
 					(unit 1)
 				)
 			)
@@ -9258,7 +9268,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "935ba249-f17a-4bd0-85e3-723ba4fc0bf4")
-		(property "Reference" "J7"
+		(property "Reference" "J9"
 			(at 270.51 102.8701 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9361,7 +9371,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J7")
+					(reference "J9")
 					(unit 1)
 				)
 			)
@@ -9379,7 +9389,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "941d673b-4674-4866-b0a9-a2455c872c8a")
-		(property "Reference" "#PWR09"
+		(property "Reference" "#PWR013"
 			(at 138.43 55.88 0)
 			(hide yes)
 			(show_name no)
@@ -9439,7 +9449,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR09")
+					(reference "#PWR013")
 					(unit 1)
 				)
 			)
@@ -9456,7 +9466,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "995afeec-6708-4f0d-84c9-43aedab6454a")
-		(property "Reference" "R12"
+		(property "Reference" "R5"
 			(at 104.14 103.886 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9466,7 +9476,7 @@
 				)
 			)
 		)
-		(property "Value" "300KR"
+		(property "Value" "330"
 			(at 104.14 106.426 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9518,7 +9528,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R12")
+					(reference "R5")
 					(unit 1)
 				)
 			)
@@ -9536,7 +9546,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "9dd5177b-8813-47f8-a656-6061207cbb27")
-		(property "Reference" "#PWR022"
+		(property "Reference" "#PWR06"
 			(at 96.52 82.55 0)
 			(hide yes)
 			(show_name no)
@@ -9596,7 +9606,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR022")
+					(reference "#PWR06")
 					(unit 1)
 				)
 			)
@@ -9604,7 +9614,7 @@
 	)
 	(symbol
 		(lib_id "Device:C_Small")
-		(at 66.04 139.7 180)
+		(at 83.82 139.7 180)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -9614,8 +9624,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "a0fddfaf-6aaf-4c6e-ad3b-fe4ff992abe5")
-		(property "Reference" "C7"
-			(at 63.5 140.9638 0)
+		(property "Reference" "C5"
+			(at 81.28 140.9638 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -9626,7 +9636,7 @@
 			)
 		)
 		(property "Value" "100NF"
-			(at 63.5 138.4238 0)
+			(at 81.28 138.4238 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -9637,7 +9647,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
-			(at 66.04 139.7 0)
+			(at 83.82 139.7 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9648,7 +9658,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 66.04 139.7 0)
+			(at 83.82 139.7 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9659,7 +9669,7 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor, small symbol"
-			(at 66.04 139.7 0)
+			(at 83.82 139.7 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9678,7 +9688,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "C7")
+					(reference "C5")
 					(unit 1)
 				)
 			)
@@ -9776,7 +9786,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "b60ec013-e3b3-4d95-85f8-c50c3c81cdcc")
-		(property "Reference" "#PWR019"
+		(property "Reference" "#PWR07"
 			(at 96.52 87.63 0)
 			(hide yes)
 			(show_name no)
@@ -9836,7 +9846,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR019")
+					(reference "#PWR07")
 					(unit 1)
 				)
 			)
@@ -9844,7 +9854,7 @@
 	)
 	(symbol
 		(lib_id "Connector_Audio:AudioJack2_Ground")
-		(at 44.45 125.73 0)
+		(at 58.42 125.73 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -9854,8 +9864,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "b71559b8-482d-40f2-9a45-74e611a7ddf2")
-		(property "Reference" "J9"
-			(at 43.815 116.84 0)
+		(property "Reference" "J3"
+			(at 57.785 116.84 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -9865,7 +9875,7 @@
 			)
 		)
 		(property "Value" "AudioJack2_Ground"
-			(at 43.815 119.38 0)
+			(at 57.785 119.38 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -9875,7 +9885,7 @@
 			)
 		)
 		(property "Footprint" "PJ307:PJ-307"
-			(at 44.45 125.73 0)
+			(at 58.42 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9886,7 +9896,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 44.45 125.73 0)
+			(at 58.42 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9897,7 +9907,7 @@
 			)
 		)
 		(property "Description" "Audio Jack, 2 Poles (Mono / TS), Grounded Sleeve"
-			(at 44.45 125.73 0)
+			(at 58.42 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -9919,7 +9929,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J9")
+					(reference "J3")
 					(unit 1)
 				)
 			)
@@ -9937,7 +9947,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "b9d84eb8-be3d-4e87-ae20-b4f5253c83fc")
-		(property "Reference" "#FLG03"
+		(property "Reference" "#FLG01"
 			(at 50.165 43.18 0)
 			(hide yes)
 			(show_name no)
@@ -9998,7 +10008,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#FLG03")
+					(reference "#FLG01")
 					(unit 1)
 				)
 			)
@@ -10006,7 +10016,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 44.45 138.43 0)
+		(at 58.42 138.43 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -10016,8 +10026,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "ba25d431-f729-4fd3-92cc-912446c5d755")
-		(property "Reference" "#PWR011"
-			(at 44.45 144.78 0)
+		(property "Reference" "#PWR02"
+			(at 58.42 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10028,7 +10038,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 44.45 143.51 0)
+			(at 58.42 143.51 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -10038,7 +10048,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 44.45 138.43 0)
+			(at 58.42 138.43 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10049,7 +10059,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 44.45 138.43 0)
+			(at 58.42 138.43 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10060,7 +10070,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 44.45 138.43 0)
+			(at 58.42 138.43 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10076,7 +10086,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR011")
+					(reference "#PWR02")
 					(unit 1)
 				)
 			)
@@ -10094,7 +10104,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "bc16be98-b884-4b0e-838e-6583b333e97b")
-		(property "Reference" "#PWR015"
+		(property "Reference" "#PWR020"
 			(at 251.46 146.05 0)
 			(hide yes)
 			(show_name no)
@@ -10154,7 +10164,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR015")
+					(reference "#PWR020")
 					(unit 1)
 				)
 			)
@@ -10172,7 +10182,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "bc5ef85b-993c-421a-ae64-c4570b7d75f1")
-		(property "Reference" "R2"
+		(property "Reference" "R12"
 			(at 204.47 102.87 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10182,7 +10192,7 @@
 				)
 			)
 		)
-		(property "Value" "1.2KR"
+		(property "Value" "1.2K"
 			(at 204.47 105.41 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10234,7 +10244,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R2")
+					(reference "R12")
 					(unit 1)
 				)
 			)
@@ -10252,7 +10262,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "bd809e34-c63c-4a17-ade9-a2c3049eb886")
-		(property "Reference" "R4"
+		(property "Reference" "R11"
 			(at 204.47 92.71 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10262,7 +10272,7 @@
 				)
 			)
 		)
-		(property "Value" "560R"
+		(property "Value" "560"
 			(at 204.47 95.25 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10314,7 +10324,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R4")
+					(reference "R11")
 					(unit 1)
 				)
 			)
@@ -10322,7 +10332,7 @@
 	)
 	(symbol
 		(lib_id "power:+3.3V")
-		(at 111.76 62.23 270)
+		(at 113.03 54.61 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -10332,8 +10342,8 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "d3912512-9975-4785-9bd5-cd063903e21c")
-		(property "Reference" "#PWR017"
-			(at 107.95 62.23 0)
+		(property "Reference" "#PWR010"
+			(at 113.03 58.42 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10344,7 +10354,7 @@
 			)
 		)
 		(property "Value" "+3.3V"
-			(at 115.57 62.2299 90)
+			(at 115.57 53.3399 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -10355,7 +10365,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 111.76 62.23 0)
+			(at 113.03 54.61 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10366,7 +10376,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 111.76 62.23 0)
+			(at 113.03 54.61 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10377,7 +10387,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3.3V\""
-			(at 111.76 62.23 0)
+			(at 113.03 54.61 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10393,7 +10403,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#PWR017")
+					(reference "#PWR010")
 					(unit 1)
 				)
 			)
@@ -10401,7 +10411,7 @@
 	)
 	(symbol
 		(lib_id "Device:R")
-		(at 93.98 125.73 270)
+		(at 104.14 125.73 270)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -10410,8 +10420,8 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "d5d6a14d-1458-4a5e-9970-d2db3de97c0b")
-		(property "Reference" "R13"
-			(at 93.98 128.778 90)
+		(property "Reference" "R6"
+			(at 104.14 128.778 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -10420,8 +10430,8 @@
 				)
 			)
 		)
-		(property "Value" "300KR"
-			(at 93.98 131.064 90)
+		(property "Value" "330"
+			(at 104.14 131.064 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -10431,7 +10441,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
-			(at 93.98 123.952 90)
+			(at 104.14 123.952 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10442,7 +10452,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 93.98 125.73 0)
+			(at 104.14 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10453,7 +10463,7 @@
 			)
 		)
 		(property "Description" "Resistor"
-			(at 93.98 125.73 0)
+			(at 104.14 125.73 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10472,7 +10482,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R13")
+					(reference "R6")
 					(unit 1)
 				)
 			)
@@ -10490,7 +10500,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "d8d3dfb3-4d05-4b4c-88aa-a7259b825ede")
-		(property "Reference" "R3"
+		(property "Reference" "R10"
 			(at 204.47 82.55 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10500,7 +10510,7 @@
 				)
 			)
 		)
-		(property "Value" "1.2KR"
+		(property "Value" "1.2K"
 			(at 204.47 85.09 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10552,7 +10562,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R3")
+					(reference "R10")
 					(unit 1)
 				)
 			)
@@ -10570,7 +10580,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "d9100e92-faf4-4b77-9b24-9c20446912af")
-		(property "Reference" "J4"
+		(property "Reference" "J8"
 			(at 223.52 27.9399 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10643,7 +10653,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J4")
+					(reference "J8")
 					(unit 1)
 				)
 			)
@@ -10660,7 +10670,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "d9c9b09b-90f6-4778-9601-e5094b4528c7")
-		(property "Reference" "R11"
+		(property "Reference" "R2"
 			(at 90.424 112.014 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10670,7 +10680,7 @@
 				)
 			)
 		)
-		(property "Value" "330KR"
+		(property "Value" "330"
 			(at 90.424 114.554 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10722,7 +10732,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R11")
+					(reference "R2")
 					(unit 1)
 				)
 			)
@@ -10740,7 +10750,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "dc1845be-7908-4002-8f31-43f07d492cac")
-		(property "Reference" "C5"
+		(property "Reference" "C6"
 			(at 93.98 101.5938 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10804,7 +10814,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "C5")
+					(reference "C6")
 					(unit 1)
 				)
 			)
@@ -10822,7 +10832,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "de3a8037-7500-4095-94c2-ed4bebe56d08")
-		(property "Reference" "J6"
+		(property "Reference" "J1"
 			(at 39.37 21.59 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10884,7 +10894,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J6")
+					(reference "J1")
 					(unit 1)
 				)
 			)
@@ -10903,7 +10913,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "e50458a5-5cdb-4bb1-9e51-a19721923097")
-		(property "Reference" "J3"
+		(property "Reference" "J7"
 			(at 187.96 27.9399 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -10976,7 +10986,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J3")
+					(reference "J7")
 					(unit 1)
 				)
 			)
@@ -10994,7 +11004,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "e7821054-a086-4b2b-bf26-4cd2ab91df21")
-		(property "Reference" "#FLG01"
+		(property "Reference" "#FLG02"
 			(at 92.075 27.94 0)
 			(hide yes)
 			(show_name no)
@@ -11055,7 +11065,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "#FLG01")
+					(reference "#FLG02")
 					(unit 1)
 				)
 			)
@@ -11073,7 +11083,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "ea71199a-9a65-4178-8e74-8d05060a7689")
-		(property "Reference" "R6"
+		(property "Reference" "R9"
 			(at 204.47 72.39 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11083,7 +11093,7 @@
 				)
 			)
 		)
-		(property "Value" "560R"
+		(property "Value" "560"
 			(at 204.47 74.93 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11135,7 +11145,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R6")
+					(reference "R9")
 					(unit 1)
 				)
 			)
@@ -11152,7 +11162,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "eacfd320-072c-49ed-b683-28cf7c8f48aa")
-		(property "Reference" "C3"
+		(property "Reference" "C2"
 			(at 77.47 115.824 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11214,7 +11224,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "C3")
+					(reference "C2")
 					(unit 1)
 				)
 			)
@@ -11232,7 +11242,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "f18ec50f-f3fd-4666-8e37-861127b3addf")
-		(property "Reference" "R8"
+		(property "Reference" "R4"
 			(at 100.33 67.3099 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11243,7 +11253,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "10KR"
+		(property "Value" "10K"
 			(at 100.33 69.8499 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11296,7 +11306,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "R8")
+					(reference "R4")
 					(unit 1)
 				)
 			)
@@ -11315,7 +11325,7 @@
 		(in_pos_files yes)
 		(dnp no)
 		(uuid "f34f7714-1cc9-4674-bc15-a97c69e5408b")
-		(property "Reference" "J2"
+		(property "Reference" "J6"
 			(at 152.4 27.9399 90)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11388,7 +11398,7 @@
 		(instances
 			(project "esp32_clones"
 				(path "/58acfa95-733f-4879-b033-9675282a29ba"
-					(reference "J2")
+					(reference "J6")
 					(unit 1)
 				)
 			)

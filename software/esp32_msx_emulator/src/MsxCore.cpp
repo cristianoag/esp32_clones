@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/stat.h>
 #ifdef ESP_PLATFORM
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -24,6 +25,7 @@ static uint32_t rgbPalette[256];
 static char biosDirectory[256];
 static unsigned audioFraction;
 static bool running;
+static bool allocationFailed;
 #ifdef ESP_PLATFORM
 static int64_t nextFrameDeadline;
 #endif
@@ -32,7 +34,9 @@ static void PutImage();
 
 extern "C" void* fmsxAllocate(size_t size)
 {
-  return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  void* p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!p) { allocationFailed = true; errno = ENOMEM; }
+  return p;
 }
 
 extern "C" FILE* fmsxOpen(const char* name, const char* mode)
@@ -108,7 +112,58 @@ extern "C" void PlayAllSound(int microseconds)
   if (samples) RenderAndPlayAudio(samples);
 }
 
-bool MsxCoreRun(const char* romDirectory, int model, int ramPages)
+bool MsxValidateCartridge(const char* path, char* error, size_t errorSize)
+{
+  if (error && errorSize) error[0] = 0;
+  if (!path || !*path) return true;
+  const char* problem = nullptr;
+  struct stat info;
+  if (path[0] != '/')
+    problem = "requires an absolute path";
+  else if (stat(path, &info) != 0 || !S_ISREG(info.st_mode))
+    problem = "file is missing or is not a regular file";
+  else if (info.st_size < 8192 || info.st_size > MSX_MAX_CART_BYTES ||
+           (info.st_size % 8192) != 0)
+    problem = "invalid ROM size (8 KiB multiples, maximum 2 MiB)";
+  if (!problem) {
+    FILE* file = fopen(path, "rb");
+    if (!file) problem = "cannot open cartridge ROM";
+    else {
+      bool signature = false;
+      const long offsets[] = {0, 0x4000, static_cast<long>(info.st_size) - 0x4000};
+      for (long offset : offsets) {
+        if (offset < 0 || offset + 2 > info.st_size) continue;
+        unsigned char header[2];
+        if (fseek(file, offset, SEEK_SET) != 0 ||
+            fread(header, 1, sizeof(header), file) != sizeof(header)) {
+          problem = "cannot read cartridge ROM header";
+          break;
+        }
+#ifdef ESP_PLATFORM
+        vTaskDelay(1);
+#endif
+        if (header[0] == 'A' && header[1] == 'B') { signature = true; break; }
+      }
+      if (!problem && !signature) problem = "invalid cartridge ROM (AB header not found)";
+      fclose(file);
+    }
+  }
+  if (problem && error && errorSize) snprintf(error, errorSize, "%s", problem);
+  return !problem;
+}
+
+static bool validateCartridge(const char* path, int slot)
+{
+  char error[128];
+  if (MsxValidateCartridge(path, error, sizeof(error))) return true;
+  char message[192];
+  snprintf(message, sizeof(message), "MSX slot %d: %s.", slot, error);
+  msxReportError(message);
+  return false;
+}
+
+bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
+                const char* slot1, const char* slot2)
 {
   if (running || !romDirectory || romDirectory[0] != '/' ||
       strlen(romDirectory) >= sizeof(biosDirectory) || model < 0 || model > 2 ||
@@ -116,7 +171,9 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages)
     msxReportError("Invalid MSX model, RAM size, BIOS directory, or concurrent run.");
     return false;
   }
+  if (!validateCartridge(slot1, 1) || !validateCartridge(slot2, 2)) return false;
   running = true;
+  allocationFailed = false;
   strcpy(biosDirectory, romDirectory);
   XBuf = static_cast<pixel*>(fmsxAllocate(WIDTH * HEIGHT * sizeof(pixel)));
   output = static_cast<uint8_t*>(fmsxAllocate(256 * HEIGHT));
@@ -149,19 +206,32 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages)
   Verbose = 0;
   UPeriod = 100;
   for (int i = 0; i < MAXCARTS; ++i) ROMName[i] = nullptr;
+  ROMName[0] = slot1 && *slot1 ? slot1 : nullptr;
+  ROMName[1] = slot2 && *slot2 ? slot2 : nullptr;
   for (int i = 0; i < MAXDRIVES; ++i) DSKName[i] = nullptr;
   SndName = PrnName = CasName = ComName = STAName = FNTName = nullptr;
   CPU.Trap = 0xFFFF;
   CPU.Trace = 0;
-  const bool result = StartMSX(model | MSX_NTSC, ramPages, model ? 8 : 2) != 0;
+  errno = 0;
+  const bool result = StartMSX(model | MSX_NTSC | MSX_GUESSA | MSX_GUESSB,
+                               ramPages, model ? 8 : 2) != 0;
+  const int bootError = errno;
   ResetVDP();
   TrashMSX();
+  for (int i = 0; i < MAXCARTS; ++i) ROMName[i] = nullptr;
   TrashSound();
   heap_caps_free(XBuf);
   heap_caps_free(output);
   XBuf = nullptr;
   output = nullptr;
   running = false;
-  if (!result) msxReportError("MSX boot failed: check BIOS filenames, sizes and free PSRAM.");
+  if (!result) {
+    if (bootError == ENOEXEC || bootError == EFBIG)
+      msxReportError("Invalid cartridge ROM: check the AB header and size (maximum 2 MiB).");
+    else if (allocationFailed || bootError == ENOMEM)
+      msxReportError("Not enough PSRAM to load the MSX BIOS, RAM or selected cartridges.");
+    else
+      msxReportError("MSX boot failed: could not fully load BIOS or selected cartridge files.");
+  }
   return result;
 }

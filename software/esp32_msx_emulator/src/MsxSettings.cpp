@@ -1,0 +1,84 @@
+#include "MsxSettings.h"
+#include <stdio.h>
+#include <string.h>
+
+static_assert(sizeof(MsxBootSettingsV1) == 40, "Keep compatibility with existing NVS settings.");
+
+bool MsxHasExtension(const char *name, const char *extension)
+{
+    const size_t nameLength = strlen(name), extensionLength = strlen(extension);
+    if (nameLength < extensionLength) return false;
+    name += nameLength - extensionLength;
+    for (size_t i = 0; i < extensionLength; ++i)
+    {
+        const char a = name[i] >= 'A' && name[i] <= 'Z' ? name[i] + ('a' - 'A') : name[i];
+        const char b = extension[i] >= 'A' && extension[i] <= 'Z' ? extension[i] + ('a' - 'A') : extension[i];
+        if (a != b) return false;
+    }
+    return true;
+}
+
+bool MsxValidSdPath(const char *path, bool allowEmpty)
+{
+    if (!path || strnlen(path, MsxSdPathCapacity) == MsxSdPathCapacity) return false;
+    if (!*path) return allowEmpty;
+    if (*path != '/' || path[1] == '\0') return false;
+    const char *component = path + 1;
+    for (const char *p = component;; ++p)
+    {
+        const unsigned char c = *p;
+        if (c && (c < 32 || c == 127 || c == '\\' || c == ':')) return false;
+        if (!c || c == '/')
+        {
+            const size_t length = p - component;
+            if (!length || (length == 1 && component[0] == '.') ||
+                (length == 2 && component[0] == '.' && component[1] == '.'))
+                return false;
+            if (!c) return true;
+            component = p + 1;
+        }
+    }
+}
+
+bool MsxJoinSdPath(const char *directory, const char *name, char *output, size_t capacity)
+{
+    if (!directory || !name || !output || !capacity ||
+        strchr(name, '/') || strchr(name, '\\') || !*name)
+        return false;
+    const int written = snprintf(output, capacity, "%s%s%s", directory,
+                                 !strcmp(directory, "/") ? "" : "/", name);
+    return written > 0 && static_cast<size_t>(written) < capacity && MsxValidSdPath(output);
+}
+
+void MsxParentSdPath(char *path)
+{
+    char *slash = strrchr(path, '/');
+    if (!slash || slash == path) strcpy(path, "/");
+    else *slash = '\0';
+}
+
+bool MsxDecodeSettings(const void *data, size_t size, MsxBootSettings &settings)
+{
+    settings = {};
+    if (!data || (size != sizeof(MsxBootSettingsV1) && size != sizeof(MsxBootSettings)))
+        return false;
+    MsxBootSettings candidate = {};
+    memcpy(&candidate, data, size);
+    const MsxBootSettingsV1 &machine = candidate.machine;
+    if ((size == sizeof(MsxBootSettingsV1) && machine.version != 1) ||
+        (size == sizeof(MsxBootSettings) && machine.version != 2) ||
+        !memchr(machine.profile, '\0', sizeof(machine.profile)) || !machine.profile[0] ||
+        (machine.ramPages != 4 && machine.ramPages != 8 && machine.ramPages != 16 && machine.ramPages != 32) ||
+        machine.sound > 1 || machine.autoBoot > 1)
+        return false;
+    for (const char *id = machine.profile; *id; ++id)
+        if (!((*id >= 'a' && *id <= 'z') || (*id >= 'A' && *id <= 'Z') ||
+              (*id >= '0' && *id <= '9') || *id == '-' || *id == '_'))
+            return false;
+    for (const auto &cartridge : candidate.cartridges)
+        if (!MsxValidSdPath(cartridge, true) || (*cartridge && !MsxHasExtension(cartridge, ".rom")))
+            return false;
+    candidate.machine.version = 2;
+    settings = candidate;
+    return true;
+}

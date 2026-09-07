@@ -19,7 +19,7 @@
 bool MsxKeyboardStart();
 // Atomic active-low snapshot; rows not present on the keyboard remain 0xff.
 void MsxKeyboardMatrix(uint8_t matrix[16]);
-// Press edges as HID usages: arrows, Enter, Escape and F12; zero when empty.
+// Menu press edges: arrows, Enter, Escape, F12, PgUp/PgDn, Delete, Y/N.
 uint8_t MsxKeyboardMenuKey();
 // Discards queued edges, without forgetting held keys or generating repeats.
 void MsxKeyboardClearEvents();

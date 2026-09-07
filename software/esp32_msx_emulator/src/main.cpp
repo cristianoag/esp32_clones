@@ -10,6 +10,9 @@
 #include "MsxKeyboard.h"
 #include "MsxPlatform.h"
 #include "MsxProfiles.h"
+#include "MsxFileBrowser.h"
+#include "MsxFirmwareUpdate.h"
+#include "MsxSettings.h"
 
 static VGA video;
 static uint8_t *screenBackup = nullptr;
@@ -22,18 +25,10 @@ static size_t selectedProfile = 0;
 static int selectedRamPages = 32;
 static bool soundEnabled = true;
 static bool autoBoot = true;
+static char selectedCartridges[2][MsxSdPathCapacity] = {};
 static char statusMessage[160] = "";
 static Preferences preferences;
 static bool preferencesReady = false;
-
-struct BootSettings
-{
-    uint32_t version;
-    char profile[33];
-    uint8_t ramPages;
-    uint8_t sound;
-    uint8_t autoBoot;
-};
 
 class MenuDisplay : public Adafruit_GFX
 {
@@ -80,9 +75,21 @@ static void messageLines(const char *message)
     }
 }
 
-static bool validRam(int pages)
+static bool validateCartridges()
 {
-    return pages == 4 || pages == 8 || pages == 16 || pages == 32;
+    for (unsigned slot = 0; slot < 2; ++slot)
+    {
+        if (!selectedCartridges[slot][0]) continue;
+        char path[MsxSdPathCapacity + 8], error[112];
+        snprintf(path, sizeof(path), "/sdcard%s", selectedCartridges[slot]);
+        if (!MsxValidateCartridge(path, error, sizeof(error)))
+        {
+            snprintf(statusMessage, sizeof(statusMessage), "Slot %u: %s", slot + 1, error);
+            Serial.println(statusMessage);
+            return false;
+        }
+    }
+    return true;
 }
 
 static void saveSettings()
@@ -93,19 +100,20 @@ static void saveSettings()
         Serial.println(statusMessage);
         return;
     }
-    BootSettings settings = {};
-    settings.version = 1;
-    snprintf(settings.profile, sizeof(settings.profile), "%s", MsxProfiles[selectedProfile].id);
-    settings.ramPages = selectedRamPages;
-    settings.sound = soundEnabled;
-    settings.autoBoot = autoBoot;
+    MsxBootSettings settings = {};
+    settings.machine.version = 2;
+    snprintf(settings.machine.profile, sizeof(settings.machine.profile), "%s", MsxProfiles[selectedProfile].id);
+    settings.machine.ramPages = selectedRamPages;
+    settings.machine.sound = soundEnabled;
+    settings.machine.autoBoot = autoBoot;
+    memcpy(settings.cartridges, selectedCartridges, sizeof(selectedCartridges));
     if (preferences.putBytes("boot", &settings, sizeof(settings)) != sizeof(settings))
     {
         snprintf(statusMessage, sizeof(statusMessage), "NVS write failed; settings were not saved.");
         Serial.println(statusMessage);
         return;
     }
-    snprintf(statusMessage, sizeof(statusMessage), "Boot profile and settings saved.");
+    snprintf(statusMessage, sizeof(statusMessage), "Boot profile, slots and settings saved.");
 }
 
 static void readSettings()
@@ -120,31 +128,37 @@ static void readSettings()
     }
     const size_t size = preferences.getBytesLength("boot");
     if (!size) return;
-    BootSettings settings = {};
-    if (size != sizeof(settings) ||
-        preferences.getBytes("boot", &settings, sizeof(settings)) != sizeof(settings) ||
-        settings.version != 1 || !memchr(settings.profile, '\0', sizeof(settings.profile)) ||
-        !validRam(settings.ramPages) || settings.sound > 1 || settings.autoBoot > 1)
+    MsxBootSettings settings = {};
+    uint8_t stored[sizeof(settings)];
+    if (size > sizeof(stored) || preferences.getBytes("boot", stored, size) != size ||
+        !MsxDecodeSettings(stored, size, settings))
     {
         snprintf(statusMessage, sizeof(statusMessage), "Invalid saved settings. Select a ROM and save.");
         Serial.println(statusMessage);
         autoBoot = false;
         return;
     }
-    soundEnabled = settings.sound;
-    autoBoot = settings.autoBoot;
+    soundEnabled = settings.machine.sound;
+    autoBoot = settings.machine.autoBoot;
+    memcpy(selectedCartridges, settings.cartridges, sizeof(selectedCartridges));
     for (size_t i = 0; i < MsxProfileCount; ++i)
     {
-        if (!strcmp(settings.profile, MsxProfiles[i].id))
+        if (!strcmp(settings.machine.profile, MsxProfiles[i].id))
         {
             selectedProfile = i;
-            selectedRamPages = settings.ramPages;
+            selectedRamPages = settings.machine.ramPages;
             return;
         }
     }
-    snprintf(statusMessage, sizeof(statusMessage), "Saved profile '%s' was not found on SD.", settings.profile);
+    snprintf(statusMessage, sizeof(statusMessage), "Saved profile '%s' was not found on SD.", settings.machine.profile);
     Serial.println(statusMessage);
     autoBoot = false;
+}
+
+static const char *baseName(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
 }
 
 static void drawMenu(unsigned row)
@@ -152,25 +166,38 @@ static void drawMenu(unsigned row)
     frame(running ? "F12 CONFIGURATION - emulation paused" : "F12 CONFIGURATION - select boot ROM");
     char label[80];
     const MsxProfile &profile = MsxProfiles[selectedProfile];
-    for (unsigned i = 0; i < 8; ++i)
+    for (unsigned i = 0; i < MsxMenuCount; ++i)
     {
-        const int y = 48 + i * 17;
-        if (i == row) display.fillRect(6, y - 2, 308, 13, 0x48);
+        const int y = MsxMenuRowY(i);
+        if (i == row) display.fillRect(6, y, 308, MsxMenuRowHeight, 0x48);
         switch (i)
         {
-        case 0: snprintf(label, sizeof(label), running ? "Resume emulation" : "No machine running"); break;
-        case 1: snprintf(label, sizeof(label), "ROM: %s", profile.name); break;
-        case 2: snprintf(label, sizeof(label), "RAM on next boot: %d KiB", selectedRamPages * 16); break;
-        case 3: snprintf(label, sizeof(label), "Sound: %s", soundEnabled ? "On" : "Off"); break;
-        case 4: snprintf(label, sizeof(label), "Auto boot saved ROM: %s", autoBoot ? "On" : "Off"); break;
-        case 5: snprintf(label, sizeof(label), "Save selected ROM as boot default"); break;
-        case 6: snprintf(label, sizeof(label), "Boot selected ROM (cold reset)"); break;
-        default: snprintf(label, sizeof(label), "Rescan SD card / other ROM profiles"); break;
+        case MsxMenuResume: snprintf(label, sizeof(label), running ? "Resume emulation" : "No machine running"); break;
+        case MsxMenuBios: snprintf(label, sizeof(label), "BIOS: %s", profile.name); break;
+        case MsxMenuSlot1:
+        case MsxMenuSlot2:
+        {
+            const unsigned slot = i - MsxMenuSlot1;
+            snprintf(label, sizeof(label), "Slot %u: %.40s", slot + 1,
+                     selectedCartridges[slot][0] ? baseName(selectedCartridges[slot]) : "<empty>");
+            break;
+        }
+        case MsxMenuRam: snprintf(label, sizeof(label), "RAM on next boot: %d KiB", selectedRamPages * 16); break;
+        case MsxMenuSound: snprintf(label, sizeof(label), "Sound: %s", soundEnabled ? "On" : "Off"); break;
+        case MsxMenuAutoBoot: snprintf(label, sizeof(label), "Auto boot saved settings: %s", autoBoot ? "On" : "Off"); break;
+        case MsxMenuSave: snprintf(label, sizeof(label), "Save BIOS + slots as boot default"); break;
+        case MsxMenuBoot: snprintf(label, sizeof(label), "Boot BIOS + slots (cold reset)"); break;
+        case MsxMenuRescan: snprintf(label, sizeof(label), "Rescan SD card / other BIOS profiles"); break;
+        case MsxMenuUpdate: snprintf(label, sizeof(label), "Firmware update from SD"); break;
         }
         text(10, y, label);
     }
+    text(8, 156, "BIOS / slot / RAM changes apply on cold boot.", 0xdf);
     text(8, 188, "Arrows: choose  Enter: apply  Esc/F12: resume");
-    messageLines(statusMessage[0] ? statusMessage : profile.error);
+    const char *hint = profile.error;
+    if (row == MsxMenuSlot1 || row == MsxMenuSlot2)
+        hint = selectedCartridges[row - MsxMenuSlot1];
+    messageLines(statusMessage[0] ? statusMessage : hint);
     video.show();
 }
 
@@ -186,12 +213,211 @@ static void backupScreen(bool restore)
     if (restore) video.show();
 }
 
+static bool chooseSdFile(const char *title, const char *extension, bool allowEject,
+                         char selection[MsxSdPathCapacity])
+{
+    char directory[MsxSdPathCapacity] = "/";
+    if (*selection)
+    {
+        snprintf(directory, sizeof(directory), "%s", selection);
+        MsxParentSdPath(directory);
+    }
+    MsxFileEntry entries[MsxBrowserPageSize];
+    size_t count = 0, total = 0, selected = 0, first = 0;
+    bool reload = true, redraw = true;
+    char warning[160] = "";
+    MsxKeyboardClearEvents();
+    for (;;)
+    {
+        if (reload)
+        {
+            if (!MsxReadDirectoryPage(directory, extension, allowEject, first, entries, count, total,
+                                      warning, sizeof(warning)))
+            {
+                snprintf(statusMessage, sizeof(statusMessage), "%s", warning);
+                if (strcmp(directory, "/"))
+                {
+                    strcpy(directory, "/");
+                    selected = first = 0;
+                    continue;
+                }
+                return false;
+            }
+            // A changed/removed directory entry must not leave a selection outside the page.
+            if (total && selected >= total)
+            {
+                selected = 0;
+                first = 0;
+                continue;
+            }
+            reload = false;
+            redraw = true;
+        }
+        if (redraw)
+        {
+            frame(title);
+            char label[80];
+            snprintf(label, sizeof(label), "%.50s", directory);
+            text(8, 40, label, 0xdf);
+            for (size_t i = 0; i < count; ++i)
+            {
+                if (first + i == selected)
+                    display.fillRect(6, MsxMenuRowY(i), 308, MsxMenuRowHeight, 0x48);
+                snprintf(label, sizeof(label), "%s%.47s",
+                         entries[i].kind == MsxFileKind::Directory ? "> " : "  ", entries[i].name);
+                text(8, MsxMenuRowY(i), label);
+            }
+            if (!total) text(8, MsxMenuRowY(0), "No matching files. Esc returns to menu.");
+            snprintf(label, sizeof(label), "Page %u/%u   %u entries",
+                     static_cast<unsigned>(first / MsxBrowserPageSize + 1),
+                     static_cast<unsigned>(std::max<size_t>(1, (total + MsxBrowserPageSize - 1) / MsxBrowserPageSize)),
+                     static_cast<unsigned>(total));
+            text(8, 178, label);
+            text(8, 188, "Enter: select  Left: up  PgUp/Dn  Esc: back");
+            if (*warning) messageLines(warning);
+            else if (count && selected >= first && selected - first < count)
+                messageLines(entries[selected - first].name);
+            video.show();
+            redraw = false;
+        }
+        const uint8_t key = MsxKeyboardMenuKey();
+        if (!key) { delay(10); continue; }
+        if (key == 41 || key == 69) return false;
+        if (key == 76 && allowEject)
+        {
+            selection[0] = '\0';
+            return true;
+        }
+        if (key == 80)
+        {
+            MsxParentSdPath(directory);
+            selected = first = 0;
+            reload = true;
+            continue;
+        }
+        if ((key == 81 || key == 82 || key == 75 || key == 78 || key == 79) && total)
+        {
+            if (key == 81 || key == 82) selected = MsxMoveSelection(selected, key == 82 ? -1 : 1, total);
+            else if (key == 75) selected = selected >= MsxBrowserPageSize ? selected - MsxBrowserPageSize : 0;
+            else selected = std::min(selected + MsxBrowserPageSize, total - 1);
+            const size_t page = selected / MsxBrowserPageSize * MsxBrowserPageSize;
+            if (page != first) { first = page; reload = true; }
+            redraw = true;
+        }
+        else if (key == 40 && count && selected >= first && selected - first < count)
+        {
+            const MsxFileEntry &entry = entries[selected - first];
+            if (entry.kind == MsxFileKind::Eject)
+            {
+                selection[0] = '\0';
+                return true;
+            }
+            if (entry.kind == MsxFileKind::Parent) MsxParentSdPath(directory);
+            else
+            {
+                char path[MsxSdPathCapacity];
+                if (!MsxJoinSdPath(directory, entry.name, path, sizeof(path)))
+                {
+                    snprintf(warning, sizeof(warning), "Invalid SD path or path exceeds 239 bytes.");
+                    Serial.println(warning);
+                    redraw = true;
+                    continue;
+                }
+                if (entry.kind == MsxFileKind::File)
+                {
+                    snprintf(selection, MsxSdPathCapacity, "%s", path);
+                    return true;
+                }
+                snprintf(directory, sizeof(directory), "%s", path);
+            }
+            selected = first = 0;
+            reload = true;
+        }
+    }
+}
+
+static void selectCartridge(unsigned slot, const char *path)
+{
+    snprintf(selectedCartridges[slot], sizeof(selectedCartridges[slot]), "%s", path);
+    snprintf(statusMessage, sizeof(statusMessage), "Slot %u %s. Choose cold reset to apply; save for auto boot.",
+             slot + 1, *path ? "selected" : "ejected");
+}
+
+static void chooseCartridge(unsigned slot)
+{
+    char candidate[MsxSdPathCapacity], title[40];
+    snprintf(candidate, sizeof(candidate), "%s", selectedCartridges[slot]);
+    snprintf(title, sizeof(title), "Cartridge slot %u - choose .ROM", slot + 1);
+    if (!chooseSdFile(title, ".rom", true, candidate)) return;
+    if (*candidate)
+    {
+        char path[MsxSdPathCapacity + 8];
+        snprintf(path, sizeof(path), "/sdcard%s", candidate);
+        if (!MsxValidateCartridge(path, statusMessage, sizeof(statusMessage)))
+        {
+            Serial.println(statusMessage);
+            return;
+        }
+    }
+    selectCartridge(slot, candidate);
+    MsxKeyboardClearEvents();
+}
+
+static void firmwareProgress(const char *stage, uint8_t percent)
+{
+    frame("Firmware update");
+    text(8, MsxMenuRowY(0), stage);
+    display.drawRect(8, 72, 304, 12, 255);
+    display.fillRect(10, 74, 300 * std::min<unsigned>(percent, 100) / 100, 8, 0xdf);
+    char label[16];
+    snprintf(label, sizeof(label), "%u%%", percent);
+    text(8, 90, label);
+    text(8, 188, "Do not switch off or remove the SD card.");
+    video.show();
+}
+
+static void updateFirmware()
+{
+    char path[MsxSdPathCapacity] = "";
+    if (!chooseSdFile("Firmware update - choose .FLH", ".flh", false, path)) return;
+    MsxKeyboardClearEvents();
+    bool install = false, redraw = true;
+    for (;;)
+    {
+        if (redraw)
+        {
+            frame("Firmware update - confirmation");
+            text(8, MsxMenuRowY(0), "Install selected MSX firmware and reboot?");
+            text(8, MsxMenuRowY(1), "Current machine state will be lost.");
+            display.fillRect(6, MsxMenuRowY(3 + (install ? 0 : 1)), 308, MsxMenuRowHeight, 0x48);
+            text(8, MsxMenuRowY(3), "Y  Yes - install and reboot");
+            text(8, MsxMenuRowY(4), "N  No  - cancel update");
+            text(8, 188, "Y/N or arrows + Enter. Esc/F12 cancels.");
+            messageLines(path);
+            video.show();
+            redraw = false;
+        }
+        const uint8_t key = MsxKeyboardMenuKey();
+        if (!key) { delay(10); continue; }
+        if (key == 41 || key == 69 || key == 17 || (key == 40 && !install)) return;
+        if (key == 82 || key == 81 || key == 79 || key == 80) { install = !install; redraw = true; }
+        else if (key == 28 || (key == 40 && install)) break;
+    }
+    if (!MsxInstallFirmware(path, firmwareProgress, statusMessage, sizeof(statusMessage)))
+        return;
+    frame("Firmware update complete");
+    text(8, MsxMenuRowY(0), "Verified. Rebooting into new firmware...");
+    video.show();
+    delay(1500);
+    ESP.restart();
+}
+
 static void menu()
 {
     if (running) backupScreen(false);
     MsxAudioEnable(false);
     MsxKeyboardClearEvents();
-    unsigned row = running ? 0 : 1;
+    unsigned row = running ? MsxMenuResume : MsxMenuBios;
     bool leave = false;
     bool redraw = true;
     while (!leave)
@@ -200,44 +426,54 @@ static void menu()
         const uint8_t key = MsxKeyboardMenuKey();
         if (!key) { delay(10); continue; }
         redraw = true;
-        if (key == 82) row = (row + 7) % 8;
-        else if (key == 81) row = (row + 1) % 8;
+        if (key == 82) row = MsxMoveSelection(row, -1, MsxMenuCount);
+        else if (key == 81) row = MsxMoveSelection(row, 1, MsxMenuCount);
+        else if (key == 76 && (row == MsxMenuSlot1 || row == MsxMenuSlot2))
+            selectCartridge(row - MsxMenuSlot1, "");
         else if ((key == 41 || key == 69) && running) leave = true;
         else if (key == 40 || key == 79 || key == 80)
         {
             const int direction = key == 80 ? -1 : 1;
             switch (row)
             {
-            case 0:
+            case MsxMenuResume:
                 if (key == 40 && running) leave = true;
                 break;
-            case 1:
-                selectedProfile = (selectedProfile + MsxProfileCount + direction) % MsxProfileCount;
+            case MsxMenuBios:
+                selectedProfile = MsxMoveSelection(selectedProfile, direction, MsxProfileCount);
                 selectedRamPages = MsxProfiles[selectedProfile].ramPages;
                 statusMessage[0] = '\0';
                 break;
-            case 2:
+            case MsxMenuSlot1:
+            case MsxMenuSlot2:
+                if (key == 40) chooseCartridge(row - MsxMenuSlot1);
+                break;
+            case MsxMenuRam:
                 if (direction > 0) selectedRamPages = selectedRamPages == 32 ? 4 : selectedRamPages * 2;
                 else selectedRamPages = selectedRamPages == 4 ? 32 : selectedRamPages / 2;
                 break;
-            case 3:
+            case MsxMenuSound:
                 soundEnabled = !soundEnabled;
                 if (soundEnabled && !audioReady)
                     snprintf(statusMessage, sizeof(statusMessage), "Audio driver unavailable; sound remains silent.");
                 break;
-            case 4: autoBoot = !autoBoot; break;
-            case 5:
-                if (key == 40)
-                {
-                    if (MsxValidateProfile(MsxProfiles[selectedProfile])) saveSettings();
-                    else snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
-                }
-                break;
-            case 6:
+            case MsxMenuAutoBoot: autoBoot = !autoBoot; break;
+            case MsxMenuSave:
                 if (key == 40)
                 {
                     if (MsxValidateProfile(MsxProfiles[selectedProfile]))
                     {
+                        if (validateCartridges()) saveSettings();
+                    }
+                    else snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
+                }
+                break;
+            case MsxMenuBoot:
+                if (key == 40)
+                {
+                    if (MsxValidateProfile(MsxProfiles[selectedProfile]))
+                    {
+                        if (!validateCartridges()) break;
                         bootRequested = true;
                         exitRequested = running;
                         leave = true;
@@ -246,7 +482,7 @@ static void menu()
                     else snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
                 }
                 break;
-            case 7:
+            case MsxMenuRescan:
                 if (key == 40)
                 {
                     char previous[33];
@@ -260,6 +496,9 @@ static void menu()
                     snprintf(statusMessage, sizeof(statusMessage), "%u profiles. Select ROM with Left/Right.",
                              static_cast<unsigned>(MsxProfileCount));
                 }
+                break;
+            case MsxMenuUpdate:
+                if (key == 40) updateFirmware();
                 break;
             }
         }
@@ -381,7 +620,7 @@ void setup()
         if (MsxKeyboardMenuKey() == 69) { interrupted = true; break; }
         delay(10);
     }
-    bootRequested = !interrupted && autoBoot && MsxProfiles[selectedProfile].available;
+    bootRequested = !interrupted && autoBoot && MsxProfiles[selectedProfile].available && validateCartridges();
 }
 
 void loop()
@@ -396,6 +635,7 @@ void loop()
         snprintf(statusMessage, sizeof(statusMessage), "%s", profile.error);
         return;
     }
+    if (!validateCartridges()) return;
     char directory[96];
     snprintf(directory, sizeof(directory), "/sdcard/msx/bios/%s", profile.id);
     frame("BOOTING");
@@ -403,7 +643,11 @@ void loop()
     video.show();
     running = true;
     MsxAudioEnable(audioReady && soundEnabled);
-    const bool success = MsxCoreRun(directory, profile.model, selectedRamPages);
+    char slotPaths[2][MsxSdPathCapacity + 8] = {};
+    for (unsigned slot = 0; slot < 2; ++slot)
+        if (selectedCartridges[slot][0])
+            snprintf(slotPaths[slot], sizeof(slotPaths[slot]), "/sdcard%s", selectedCartridges[slot]);
+    const bool success = MsxCoreRun(directory, profile.model, selectedRamPages, slotPaths[0], slotPaths[1]);
     running = false;
     MsxAudioEnable(false);
     if (!success && !statusMessage[0])

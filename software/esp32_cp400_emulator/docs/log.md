@@ -7,14 +7,17 @@ Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
 ### Changed
 
-- Drove the audio output in stereo, with the left channel on GPIO47 and the right channel on GPIO48. The CP400 sound source is mono, so both channels carry the same signal.
+- Drove the sound output on GPIO47 only, matching the board revision that removes the second audio channel. On this module GPIO48 is the data line of the onboard RGB LED, so audio could not share it. The machine's sound is mono, so nothing is lost.
 - Raised the audio carrier well above the audible range, so the board's audio filter now removes almost all of it instead of leaving an ultrasonic tone on the jack.
+- Moved the emulated ROM and RAM from the external PSRAM chip into the ESP32's internal memory, which is considerably faster for the emulated processor.
 
 ### Fixed
 
 - Centered the 256x192 CP400 display area within the active VGA frame in every video mode. Graphics and text modes now share the same origin calculated from the selected VGA resolution instead of using separate manual offsets.
-- Silenced the noise heard at the BASIC prompt while nothing was playing. The audio pins kept switching at a fixed halfway level whenever no sound was playing, which put a constant carrier on the output, and the sound multiplexer was treated as permanently open, so port writes that were never meant to be audible also reached the speaker. The output now stops switching entirely until the machine actually opens the multiplexer to play something.
+- Turned the onboard RGB LED off at startup. It sits on GPIO48, which the first version of this board also used as a second audio channel, so the sound signal reached the LED as if it were colour data and left it lit. The LED holds the last colour it is given until it is told otherwise, so it is now explicitly cleared when the emulator starts.
+- Honoured the sound multiplexer instead of treating it as permanently open, so port writes that were never meant to be audible, such as serial framing and joystick reads, no longer reach the speaker.
 - Ignored the two lowest bits of the sound port, which carry the serial and cassette lines rather than sound data and added noise to every sample.
+- Stopped the sound output switching once the machine stops producing sound. Holding a level required the output to keep switching, which left a faint carrier on the jack when the machine was silent.
 
 ## 1.12 - 2026-08-29
 

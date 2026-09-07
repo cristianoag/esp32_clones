@@ -842,6 +842,44 @@ void InitPeripherals_and_Others(void)
 
 }
 
+static volatile uint8_t g_AudioDuty = 0;
+static volatile uint32_t g_AudioLastWriteMs = 0;
+
+void AudioWriteSample(uint8_t value)
+{
+  g_AudioDuty = value;
+  g_AudioLastWriteMs = millis();
+  ledcWrite(AUDIO_CHANNEL, value);
+}
+
+void AudioSilence(void)
+{
+  g_AudioDuty = 0;
+  ledcWrite(AUDIO_CHANNEL, 0);
+}
+
+//Fades the output out once the machine stops feeding the DAC, so the pins stop
+//switching instead of holding a carrier that has nothing left to carry.
+void AudioIdleCore(void *pvParameters)
+{
+  while (true)
+  {
+    if ((millis() - g_AudioLastWriteMs) >= AUDIO_IDLE_TIMEOUT_MS)
+    {
+      uint8_t duty = g_AudioDuty;
+
+      if (duty != 0)
+      {
+        duty = (duty > AUDIO_FADE_STEP) ? (uint8_t)(duty - AUDIO_FADE_STEP) : 0;
+        g_AudioDuty = duty;
+        ledcWrite(AUDIO_CHANNEL, duty);
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(AUDIO_FADE_TICK_MS));
+  }
+}
+
 bool IsAudioMuxEnabled(void)
 {
   //PIA1 CRB drives CB2, which is the CP400 audio mux enable. Bit 5 makes CB2 an
@@ -853,12 +891,16 @@ bool IsAudioMuxEnabled(void)
 
 void InitPorts(void)
 {
-  // PWM Sound Configuration, one channel per side of the stereo output.
-  ledcSetup(AUDIO_LEFT_CHANNEL, AUDIO_PWM_FREQUENCY, AUDIO_PWM_RESOLUTION);
-  ledcSetup(AUDIO_RIGHT_CHANNEL, AUDIO_PWM_FREQUENCY, AUDIO_PWM_RESOLUTION);
-  ledcAttachPin(AUDIO_LEFT_PIN, AUDIO_LEFT_CHANNEL);
-  ledcAttachPin(AUDIO_RIGHT_PIN, AUDIO_RIGHT_CHANNEL);
-  AUDIO_SILENCE();
+  // PWM Sound Configuration.
+  ledcSetup(AUDIO_CHANNEL, AUDIO_PWM_FREQUENCY, AUDIO_PWM_RESOLUTION);
+  ledcAttachPin(AUDIO_PIN, AUDIO_CHANNEL);
+  AudioSilence();
+
+  //A WS2812 latches the last colour it was given and holds it until it is given
+  //a new one, so the LED has to be told to switch off rather than just left
+  //alone. Doing it once here keeps it dark for the rest of the session.
+  neopixelWrite(BOARD_RGB_LED_PIN, 0, 0, 0);
+  pinMode(BOARD_RGB_LED_PIN, INPUT);
 
 
   //analogReadResolution(8);
@@ -1239,6 +1281,8 @@ void setup()
   );
 
   xTaskCreatePinnedToCore(JoystickDebugCore, "JoyDebug", 4096, NULL, 1, NULL, 0);
+
+  xTaskCreatePinnedToCore(AudioIdleCore, "AudioIdle", 2048, NULL, 1, NULL, 0);
 
 }
 
@@ -2982,7 +3026,7 @@ void InitDisks(void)
         
         if (IsAudioMuxEnabled())  //So, Sound is enabled
         {
-          AUDIO_WRITE(value & AUDIO_DAC_MASK);
+          AudioWriteSample(value & AUDIO_DAC_MASK);
         }
       break;
       case M_FF23:
@@ -2994,13 +3038,13 @@ void InitDisks(void)
         if (IsAudioMuxEnabled())
         {
           //Reopening the mux hands the speaker back the current DAC level.
-          AUDIO_WRITE(rom[ROM_FF20] & AUDIO_DAC_MASK);
+          AudioWriteSample(rom[ROM_FF20] & AUDIO_DAC_MASK);
         }
         else
         {
           //Closing the mux disconnects the DAC on real hardware. Stop switching
           //so the idle output is silent instead of parking on a carrier.
-          AUDIO_SILENCE();
+          AudioSilence();
         }
       break;
     case M_FF01:

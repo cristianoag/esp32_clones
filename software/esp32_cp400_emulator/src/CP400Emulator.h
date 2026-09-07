@@ -34,7 +34,13 @@
 
 
 
-#define PSRAM_EMU
+//Keeping the emulated ROM and RAM in PSRAM puts an octal SPI transaction behind
+//every 6809 memory access. Those accesses run from the CPU timer interrupt, so
+//the bus traffic is strictly periodic and couples into the analog section as an
+//audible tone whenever the emulated CPU is running. Internal SRAM has room for
+//both arrays and is far faster, so the emulation no longer touches PSRAM. The
+//large buffers, menu backup, RAM disks and video lines, stay in PSRAM.
+//#define PSRAM_EMU
 //#define DEBUG_ALL
 //#define DEBUG_PRINT
 //#define PRINT_DEBUG
@@ -163,37 +169,37 @@ void DoCPU(void);
 
 
 //-----------Audio output-----------------------------------------
-//The board drives a stereo output: GPIO47 is the left channel and GPIO48 the
-//right one. The CP400 DAC is mono, so the same sample feeds both channels.
-#define AUDIO_LEFT_PIN 47
-#define AUDIO_RIGHT_PIN 48
-#define AUDIO_LEFT_CHANNEL 0
-#define AUDIO_RIGHT_CHANNEL 1
-//Each channel is filtered by 330R/47nF + 330R/100nF (about 4kHz, two poles) and
-//AC coupled through a 10uF cap. 80MHz / (156250 * 256) is an exact divider of 2,
-//so the carrier has no divider jitter and lands roughly 54dB down in that filter
+//The CP400 has a single mono DAC, so the board drives one audio output on
+//GPIO47. GPIO48 is deliberately not used: on the ESP32-S3-DevKitC-1 module that
+//pin is the data line of the onboard WS2812 RGB LED (PIN_NEOPIXEL in the variant
+//header). Wiring it into the audio network made the LED latch the sound signal
+//as colour data and inject its supply current into the analog section as noise.
+#define AUDIO_PIN 47
+#define AUDIO_CHANNEL 0
+//The onboard RGB LED. Only used to switch it off at startup.
+#define BOARD_RGB_LED_PIN 48
+//The output is filtered by 330R/47nF + 330R/100nF (about 4kHz, two poles) and AC
+//coupled through a 10uF cap. 80MHz / (156250 * 256) is an exact divider of 2, so
+//the carrier has no divider jitter and lands roughly 54dB down in that filter
 //instead of the 30dB that 40kHz left behind as ultrasonic hiss.
 #define AUDIO_PWM_FREQUENCY 156250
 #define AUDIO_PWM_RESOLUTION 8
-//Idle at zero duty. Any duty from 1 to 255 keeps the pin switching, and 50% is
-//the worst case for carrier amplitude, so stopping the switching altogether is
-//the only way to make an idle output truly silent. The 10uF coupling caps block
-//the DC level, so parking low costs nothing at the jack.
-#define AUDIO_SILENCE() \
-do { \
-    ledcWrite(AUDIO_LEFT_CHANNEL, 0); \
-    ledcWrite(AUDIO_RIGHT_CHANNEL, 0); \
-} while (0)
 //The CP400 DAC is only the top 6 bits of FF20. Bits 1 and 0 are the RS232 and
 //cassette lines and must never modulate the audio.
 #define AUDIO_DAC_MASK 0b11111100
 
-#define AUDIO_WRITE(value) \
-do { \
-    uint8_t audio_sample = (value); \
-    ledcWrite(AUDIO_LEFT_CHANNEL, audio_sample); \
-    ledcWrite(AUDIO_RIGHT_CHANNEL, audio_sample); \
-} while (0)
+//A DAC level nobody is updating is silence on real hardware, where it is simply
+//a DC voltage. A PWM pin has to keep switching to hold that same level, and that
+//switching is the noise left at the BASIC prompt. Once the machine stops writing
+//the DAC there is no sound left to reproduce, so the output is faded out and the
+//pin stops toggling until the next write arrives. The fade avoids the thump a
+//hard step would push through the 10uF coupling caps.
+#define AUDIO_IDLE_TIMEOUT_MS 150
+#define AUDIO_FADE_TICK_MS 5
+#define AUDIO_FADE_STEP 4
+
+void AudioWriteSample(uint8_t value);
+void AudioSilence(void);
 
 
 #define JOY1_X_AN_PIN 4  //Joy Right X

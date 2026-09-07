@@ -1,0 +1,7 @@
+.pio/
+dist/
+sdcard/
+*.rom
+*.ROM
+*.bin
+*.BIN

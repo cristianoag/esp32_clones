@@ -1,0 +1,18 @@
+{
+  "name": "fmsx",
+  "version": "6.0.0",
+  "description": "Original Marat Fayzullin fMSX 6.0, noncommercial ESP32 port",
+  "build": {
+    "srcDir": ".",
+    "includeDir": ".",
+    "srcFilter": [
+      "-<*>",
+      "+<fMSX/MSX.c>",
+      "+<fMSX/V9938.c>",
+      "+<fMSX/Patch.c>",
+      "+<fMSX/I8251.c>",
+      "+<Z80/Z80.c>",
+      "+<EMULib/*.c>"
+    ]
+  }
+}

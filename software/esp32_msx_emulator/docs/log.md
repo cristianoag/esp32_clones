@@ -28,6 +28,12 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 - Eliminated repeated Library Manager manifest parsing errors when building with the shared VGA library.
 
+### Know issues with this version
+
+- Audio quality is not good, especially at higher sample rates.
+- The emulator is a bit slow when compared to the real Z-80
+- The firmware does not yet support all MSX hardware features, such as disk drives.
+
 ### Notes
 
 - Required user-supplied BIOS images and retained the original fMSX author's non-commercial terms and attribution.

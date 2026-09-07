@@ -13,6 +13,7 @@ Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
 ### Fixed
 
+- Removed an empty VGA library manifest so PlatformIO used the existing Arduino library metadata without reporting manifest parsing errors.
 - Centered the 256x192 CP400 display area within the active VGA frame in every video mode. Graphics and text modes now share the same origin calculated from the selected VGA resolution instead of using separate manual offsets.
 - Turned the onboard RGB LED off at startup. It sits on GPIO48, which the first version of this board also used as a second audio channel, so the sound signal reached the LED as if it were colour data and left it lit. The LED holds the last colour it is given until it is told otherwise, so it is now explicitly cleared when the emulator starts.
 - Honoured the sound multiplexer instead of treating it as permanently open, so port writes that were never meant to be audible, such as serial framing and joystick reads, no longer reach the speaker.

@@ -1,20 +1,17 @@
 # The Retro Hacker Clone Series
 
-<p align="center">
-	<img src="images/cp400.jpg" alt="Prologica CP400 computer" width="720">
-</p>
-
-The Retro Hacker Clone Series is an open hardware and software project to recreate and emulate classic Brazilian computers from the 1980s using modern ESP32-S3 based hardware.
+The Retro Hacker Clone Series brings together hardware designs and source-available firmware to recreate and emulate classic Brazilian computers from the 80s using modern ESP32-S3 based hardware.
 
 This repository is the host project for the series. It brings together the shared hardware work, firmware projects, local KiCad libraries, documentation, and supporting assets used to build ESP32-based recreations of multiple machines from Brazil's 8-bit home computer era.
 
-The first computers planned for emulation in this series are:
+The repository currently contains two firmware projects for the shared board:
 
-- Prologica CP400
-- MSX1
-- MSX2
+| Firmware | Emulated machines | Project |
+| --- | --- | --- |
+| CP400 | Prologica CP400 / CoCo 2 | [Firmware](software/esp32_cp400_emulator/) and [change log](software/esp32_cp400_emulator/docs/log.md) |
+| MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32_msx_emulator/README.md) and [change log](software/esp32_msx_emulator/docs/log.md) |
 
-The first implementation target is the Prologica CP400, a Brazilian TRS-80 Color Computer 2 compatible home computer. The CP400 work builds on the earlier ESP32 CP400 project and keeps the same practical goal: make a usable, hackable CP400-inspired machine with real connectors, keyboard and joystick paths, VGA output, SD-backed storage, and firmware that can run a CoCo 2 / CP400 style environment on inexpensive contemporary hardware.
+CP400 builds on the earlier ESP32 CP400 project, while MSX integrates Marat Fayzullin's original fMSX core. Both share the same practical goal: usable, hackable retrocomputers with VGA output, USB keyboard input, SD-backed storage, and on-screen F12 configuration. 
 
 ## Project Vision
 
@@ -27,7 +24,7 @@ Each clone in the series is expected to combine two sides of the work:
 
 The project is designed for retrocomputing enthusiasts, hardware hackers, firmware developers, and anyone interested in studying and preserving Brazil's microcomputer history through working machines.
 
-## First Target: Prologica CP400
+## Prologica CP400
 
 The Prologica CP400 was one of the memorable Brazilian home computers of the mid-1980s. Built during Brazil's market-reserve era, it was compatible with the Tandy/Radio Shack TRS-80 Color Computer 2, known as the CoCo 2, but arrived with its own Brazilian industrial design, PAL-M video expectations, local peripherals, translated software, and a particular place in the local 8-bit scene.
 
@@ -40,13 +37,17 @@ Under the hood, the original CP400 family followed the CoCo architecture closely
 - Cassette, cartridge, joystick, serial, video, and expansion interfaces
 - Optional disk support through the CP450 floppy system
 
-The CP400 emulator firmware currently explores the CoCo 2 / CP400 environment on ESP32-S3 hardware, including video output, input handling, SD storage, virtual disk support, and emulator menu infrastructure.
+The [CP400 firmware](software/esp32_cp400_emulator/) implements the CoCo 2 / CP400 environment on ESP32-S3 hardware, including MC6809 emulation, video output, native USB keyboard input, joystick input paths, SD storage, virtual floppy disks, and an F12 menu with firmware-update support.
 
-## Upcoming Targets: MSX1 and MSX2
+## MSX1, MSX2, and MSX2+
 
-After the CP400, the first planned expansion targets are MSX1 and MSX2 machines. The MSX line became hugely important in Brazil and represents another major branch of the country's 1980s home computer culture.
+The [MSX firmware](software/esp32_msx_emulator/README.md) uses the original fMSX core with an independent integration for the shared board. It provides SD-loaded BIOS profiles for Omega MSX2+, Gradiente Expert 1.1, and Sharp Hotbit 1.2, plus an F12 configuration and boot-ROM selection menu.
 
-The MSX1 and MSX2 projects are intended to reuse the broader clone-series structure while allowing each machine to keep its own hardware assumptions, firmware requirements, video behavior, input model, storage conventions, and software ecosystem.
+MSX1, MSX2, and MSX2+ share one firmware project and the existing VGA, USB keyboard, SD/MMC, and mono audio wiring. Bring your own legally obtained BIOS files; they are not embedded in the firmware or distributed by this repository.
+
+The initial MSX release focuses on BIOS/BASIC boot, keyboard input, graphics, sound, and F12 configuration. The menu selects BIOS profiles, RAM size, sound, and saved boot defaults. Additional BIOS profiles can be imported without rebuilding firmware.
+
+All three initial BIOS profiles reached BASIC's `Ok` prompt in host emulation tests, and the ESP32-S3 firmware builds successfully. Physical-board VGA, USB, audio, and real-time performance validation remains outstanding. Cartridge/disk browsers, joystick support, save states, and an SD firmware updater are not yet exposed by the MSX firmware; the Omega profile uses fMSX's generic MSX2+ model rather than emulating all physical Omega expansions.
 
 ## Repository Layout
 
@@ -54,9 +55,8 @@ The MSX1 and MSX2 projects are intended to reuse the broader clone-series struct
 hardware/esp32_clones/          KiCad project for the shared ESP32 clone hardware
 hardware/esp32_clones/libraries Project-local KiCad symbols and footprints
 software/esp32_cp400_emulator/  PlatformIO firmware for the CP400 emulator
-software/esp32_msx1_emulator/   Work area for the MSX1 emulator
-software/esp32_msx2_emulator/   Work area for the MSX2 emulator
-images/                         Project images and documentation assets
+software/esp32_msx_emulator/    MSX1/MSX2/MSX2+ firmware and F12 boot profiles
+images/                        Project images and documentation assets
 ```
 
 ## Hardware
@@ -72,22 +72,31 @@ hardware/esp32_clones/libraries/footprints
 
 The hardware design includes project-local footprints and symbols for the ESP32-S3 module, USB connectors, SD card socket, switches, and other board-level parts. The intent is to give the firmware a board that feels more like a small computer than a loose development kit on a bench.
 
+Both firmware projects target an ESP32-S3 DevKitC-style N16R8 module with 16 MB flash and 8 MB OPI PSRAM. They use the same VGA pinout, native USB keyboard port on GPIO19/20, one-bit SD/MMC interface on GPIO38/39/40, and mono audio output on GPIO47. GPIO48 belongs to the onboard RGB LED, not a second audio channel. See the [MSX hardware table](software/esp32_msx_emulator/README.md#hardware) for the full shared pin assignments.
+
 ## Firmware
 
-The first firmware project lives in `software/esp32_cp400_emulator` and is built with PlatformIO using the Arduino framework for ESP32-S3.
+Both projects use PlatformIO with the Arduino framework and a pinned `espressif32@6.11.0` platform. Run build commands from the firmware directory you want to use:
 
-Current CP400 software areas include:
+```powershell
+# Choose one project:
+Set-Location .\software\esp32_cp400_emulator
+# Or, from the repository root:
+# Set-Location .\software\esp32_msx_emulator
 
-- MC6809 emulator core integration
-- CoCo 2 / CP400 video mode handling
-- VGA output through the ESP32-S3 VGA library
-- USB soft-host input support
-- SD/MMC storage access
-- Virtual floppy disk image handling
-- Emulator menu and firmware updater code
-- Joystick and keyboard mapping hooks
+make firmware
+```
 
-The PlatformIO environment is configured for an ESP32-S3 DevKitC-style board with 16 MB flash and 8 MB PSRAM.
+`make firmware` builds and verifies a versioned FLH application package in that project's `dist` folder:
+
+- CP400: `ESP32_CP400-<version>.FLH`
+- MSX: `ESP32_MSX-<version>.FLH`
+
+The FLH container format is shared, but the applications and partition layouts are separate. **Use USB/UART upload when switching between CP400 and MSX; do not use the CP400 F12 updater to install MSX.** MSX does not currently include its own F12 firmware updater.
+
+With PlatformIO on PATH, `pio run` builds the raw application and `pio run -t upload --upload-port COM18` uploads through the board's PC/UART port. Replace `COM18` with the actual port. The native USB controller is reserved for the keyboard.
+
+Keep both firmware folders in a checkout: the MSX project currently reuses the board definition and VGA/GFX/BusIO libraries from the CP400 directory. Follow the [MSX setup guide](software/esp32_msx_emulator/README.md) to prepare BIOS profiles on a FAT32 SD card before booting it.
 
 ## ROMs and Original Software
 
@@ -105,9 +114,13 @@ The Retro Hacker Clone Series exists at the meeting point of those histories: Br
 - [CP400](https://pt.wikipedia.org/wiki/CP400)
 - [TRS-80 Color Computer](https://en.wikipedia.org/wiki/TRS-80_Color_Computer)
 - [MSX](https://en.wikipedia.org/wiki/MSX)
+- [fMSX by Marat Fayzullin](https://fms.komkon.org/fMSX/), the core used by the MSX firmware
+- [S3-MSX-PC](https://github.com/Svarkovsky/s3-msx-pc), a reference project for MSX emulation on ESP32-S3; this repository uses an independent integration, not its combined firmware
 - [Prologica](https://pt.wikipedia.org/wiki/Prol%C3%B3gica)
 - [Datassette](https://datassette.org/) for Brazilian retrocomputing manuals, magazines, books, and software preservation material
 
 ## License
 
-See `LICENSE.txt` for the repository license. Some firmware or third-party library directories may include their own license files; check those before reusing or redistributing project materials.
+See [LICENSE.txt](LICENSE.txt) for the repository's Attribution-NonCommercial-ShareAlike 4.0 license. Firmware and third-party components retain their own terms; source availability does not imply unrestricted commercial use.
+
+In particular, fMSX is non-commercial/source-available software by Marat Fayzullin, not an unrestricted open-source core. Commercial use requires a separate license from its author. See the [fMSX attribution and porting notes](software/esp32_msx_emulator/lib/fmsx/README.md) and each component's notices before reusing or redistributing project materials. Firmware licenses do not grant rights to redistribute original BIOS or game images.

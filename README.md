@@ -45,9 +45,9 @@ The [MSX firmware](software/esp32_msx_emulator/README.md) uses the original fMSX
 
 MSX1, MSX2, and MSX2+ share one firmware project and the existing VGA, USB keyboard, SD/MMC, and mono audio wiring. Bring your own legally obtained BIOS files; they are not embedded in the firmware or distributed by this repository.
 
-The initial MSX release focuses on BIOS/BASIC boot, keyboard input, graphics, sound, and F12 configuration. The menu selects BIOS profiles, RAM size, sound, and saved boot defaults. Additional BIOS profiles can be imported without rebuilding firmware.
+The MSX firmware provides BIOS/BASIC and cartridge boot, keyboard input, graphics, sound, and F12 configuration. The menu selects BIOS profiles, SD-card ROMs for two cartridge slots, RAM size, sound, and saved boot defaults, and installs MSX FLH firmware updates from SD. Additional BIOS profiles and cartridge ROM files can be added without rebuilding firmware.
 
-All three initial BIOS profiles reached BASIC's `Ok` prompt in host emulation tests, and the ESP32-S3 firmware builds successfully. Physical-board VGA, USB, audio, and real-time performance validation remains outstanding. Cartridge/disk browsers, joystick support, save states, and an SD firmware updater are not yet exposed by the MSX firmware; the Omega profile uses fMSX's generic MSX2+ model rather than emulating all physical Omega expansions.
+All three initial BIOS profiles reached BASIC's `Ok` prompt in host emulation tests, and the ESP32-S3 firmware builds successfully. Physical-board VGA, USB, audio, cartridge compatibility, firmware updates, and real-time performance validation remains outstanding. Disk/tape browsers, joystick support and save states are not yet exposed by the MSX firmware; the Omega profile uses fMSX's generic MSX2+ model rather than emulating all physical Omega expansions.
 
 ## Repository Layout
 
@@ -92,7 +92,7 @@ make firmware
 - CP400: `ESP32_CP400-<version>.FLH`
 - MSX: `ESP32_MSX-<version>.FLH`
 
-The FLH container format is shared, but the applications and partition layouts are separate. **Use USB/UART upload when switching between CP400 and MSX; do not use the CP400 F12 updater to install MSX.** MSX does not currently include its own F12 firmware updater.
+The FLH container format is shared, but the applications and partition layouts are separate. **Use USB/UART upload when switching between CP400 and MSX; do not use either emulator's F12 updater to install the other.** Once installed with the correct partition layout, MSX can install its own `ESP32_MSX-*.FLH` packages through **F12 > Firmware update from SD**.
 
 With PlatformIO on PATH, `pio run` builds the raw application and `pio run -t upload --upload-port COM18` uploads through the board's PC/UART port. Replace `COM18` with the actual port. The native USB controller is reserved for the keyboard.
 

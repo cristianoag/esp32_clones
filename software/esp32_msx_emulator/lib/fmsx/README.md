@@ -57,19 +57,61 @@ Required files:
 
 Upstream optional files, including `DISK.ROM`, `CMOS.ROM`, `KANJI.ROM`, and
 system cartridges, are resolved inside the selected profile directory.
-CMOS writes stay in that same directory. User cartridge/disk auto-insertion,
-tape, printer files and MIDI logging are disabled by this BIOS-boot frontend.
+CMOS writes stay in that same directory. Disk auto-insertion, tape, printer
+files and MIDI logging are disabled by this frontend.
 The underlying disk/tape emulation is retained, but this frontend does not
 offer an image-selection API. Joystick/mouse host input is not connected.
 MSX hardware profiles are generic fMSX models: loading Omega firmware does
 not emulate every physical Omega expansion, logo-ROM slot or board peripheral.
+
+### Boot-time cartridges
+
+```cpp
+bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
+                const char* slot1 = nullptr, const char* slot2 = nullptr);
+bool MsxValidateCartridge(const char* absolutePath, char* error, size_t errorSize);
+```
+
+The two optional absolute POSIX paths (for example `/sdcard/msx/roms/demo.rom`)
+load through upstream `ROMName`/`LoadCart` into **physical primary slots 1 and
+2**, respectively. Null or empty paths eject that slot on the next boot.
+The paths must remain valid until this blocking call returns. There is no hot
+insertion: both requested cartridges must load completely before the Z80 runs.
+Missing/nonregular files, invalid sizes or AB headers, read failures and required
+ROM/SRAM allocation failures stop boot with a platform error, rather than
+silently falling back to BASIC.
+The read-only `MsxValidateCartridge` helper checks size, readability and AB header
+without altering live emulation, so menus can preflight files before saving a
+selection. Null/empty is valid; its optional error buffer is cleared on success
+and receives a bounded NUL-terminated explanation on failure. Boot validates
+again and the loader still requires a complete read, since a file can change
+after preflight.
+
+Images must contain complete 8 KiB banks and be at most **2 MiB per cartridge**
+(`MSX_MAX_CART_BYTES`). This is the original core's 256-bank, byte-sized mapper
+limit; larger images cannot be addressed correctly. Plain 8/16/32 KiB cartridges
+and flat 48/64 KiB images are supported; flat images use their AB header at file
+offset `0x4000`, as expected by upstream. MegaROMs use original fMSX mapper
+autodetection: Generic 8/16 KiB, Konami4, Konami5/SCC, ASCII8, ASCII16,
+GameMaster2 and FMPAC. Optional profile-local `CARTS.CRC` and `CARTS.SHA`
+databases take precedence over instruction-pattern heuristics. Heuristics are
+not a guarantee for every game, especially Generic16/GameMaster2/FMPAC, and
+unsupported mapper hardware is not added by this frontend.
+
+Each run resets cartridge mapping, mapper selection/registers and SCC state.
+Cartridge `.STA` files are not automatically restored. Upstream SRAM-capable
+mappers load adjacent `.sav` files and save modified SRAM during normal exit;
+boot-time allocation of both SRAM and its filename is mandatory.
 
 ## Local modifications
 
 - `MSX.c`: use explicit path resolution instead of process-wide directory
   changes; allocate tracked RAM/VRAM/ROM/font buffers in PSRAM; guard failed
   allocations before forming hardware pointers; accept 64 KiB RAM on later
-  models; reset frame/blink counters and pending VDP operations between boots.
+  models; reset frame/blink counters and pending VDP operations between boots;
+  require explicit cartridge loads, reject incomplete/oversized ROMs, make SRAM
+  allocation failures fatal, reset mapper registers and disable cartridge
+  automatic state restoration.
 - `V9938.c`: add command-engine reset for safe profile switching.
 - `Sound.c`: include embedded audio-driver declarations.
 - `Floppy.c`: include POSIX directory declarations without selecting a desktop
@@ -87,7 +129,14 @@ directory. This builds only the core and bridge, not the firmware. It uses a
 small synthetic Z80 program (no BIOS content) to exercise all three models and
 four RAM sizes twice, actual PSG tone generation, rendered pixels, keyboard
 polling, exit, seven PSRAM-allocation failure points and subsequent recovery,
-and missing-BIOS failure. The host test replaces only ESP32 allocation and
+and missing-BIOS failure. A second synthetic BIOS scans both physical slots,
+calls each synthetic cartridge's Z80 entry point and verifies its result in RAM.
+The cartridge regressions cover each slot separately and together, all five
+plain sizes, all eight original mappers (including heuristic and database
+selection), actual bank writes/reads, 2 MiB images in both slots, complete loaded
+contents, SCC reset, eject/switch, malformed/missing files, every required
+cartridge/SRAM allocation failure and successful recovery without any CPU
+execution on failed boots. The host test replaces only ESP32 allocation and
 platform I/O, not any emulated component. Build artifacts and generated test
 ROMs are confined to the ignored `tests\.build` directory.
 

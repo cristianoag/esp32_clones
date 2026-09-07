@@ -64,5 +64,10 @@ try {
     }
   }
 } finally {
+  foreach ($name in @('MSX.ROM', 'MSX2.ROM', 'MSX2EXT.ROM', 'MSX2P.ROM', 'MSX2PEXT.ROM',
+                      'slot1.rom', 'slot2.rom', 'slot1.sav', 'slot2.sav', 'CARTS.CRC')) {
+    $generated = Join-Path $build $name
+    if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }
+  }
   Set-Location $previous
 }

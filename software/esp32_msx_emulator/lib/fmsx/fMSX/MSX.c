@@ -25,6 +25,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
 
 #include "Esp32Port.h"
 /* Resolve relative firmware files without changing the process directory. */
@@ -470,6 +471,7 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
     SRAMData[J] = 0;
     SRAMName[J] = 0;
     SaveSRAM[J] = 0; 
+    memset(ROMMapper[J],0,sizeof(ROMMapper[J]));
   }
 
   /* UPeriod has ot be in 1%..100% range */
@@ -563,8 +565,9 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   if(WorkDir && chdir(WorkDir))
   { if(Verbose) printf("Failed changing to '%s' directory!\n",WorkDir); }
 
-  /* For each user cartridge slot, try loading cartridge */
-  for(J=0;J<MAXCARTS;++J) LoadCart(ROMName[J],J,ROMGUESS(J)|ROMTYPE(J));
+  /* Explicit user cartridges are required, never an optional BASIC fallback. */
+  for(J=0;J<MAXCARTS;++J)
+    if(ROMName[J]&&!LoadCart(ROMName[J],J,ROMGUESS(J)|ROMTYPE(J))) return(0);
 
   /* Open stream for a printer */
   if(Verbose)
@@ -2846,7 +2849,7 @@ int GuessROM(const byte *Buf,int Size)
   { if(Verbose) printf("Failed changing to '%s' directory!\n",WorkDir); }
 
   /* If found ROM by CRC or SHA1, we are done */
-  if(Result>=0) return(Result);
+  if((Result>=0)&&(Result<MAXMAPPERS)) return(Result);
 
   /* Clear all counters */
   for(J=0;J<MAXMAPPERS;++J) ROMCount[J]=1;
@@ -3113,6 +3116,14 @@ int LoadCart(const char *FileName,int Slot,int Type)
   /* Rewind file */
   rewind(F);
 
+  /* Mapper bank numbers are bytes: at most 256 complete 8kB banks. */
+  if((Len<0x2000)||(Len>0x200000)||(Len&0x1FFF))
+  {
+    fclose(F);
+    errno=Len>0x200000? EFBIG:ENOEXEC;
+    return(0);
+  }
+
   /* Length in 8kB pages */
   Len = Len>>13;
 
@@ -3146,13 +3157,11 @@ int LoadCart(const char *FileName,int Slot,int Type)
   {
     if(Verbose) puts("  Not a valid cartridge ROM");
     fclose(F);
+    errno=ENOEXEC;
     return(0);
   }
 
   if(Verbose) printf("  Cartridge %c: ",'A'+Slot);
-
-  /* Done with the file */
-  fclose(F);
 
   /* Show ROM type and size */
   if(Verbose)
@@ -3162,14 +3171,25 @@ int LoadCart(const char *FileName,int Slot,int Type)
       ROM64||(Len<=0x8000)? "NORMAL":Type>=MAP_GUESS? "UNKNOWN":ROMNames[Type]
     );
 
-  /* Assign ROMMask for MegaROMs */
-  ROMMask[Slot]=!ROM64&&(Len>4)? (Pages-1):0x00;
   /* Allocate space for the ROM */
-  ROMData[Slot]=P=GetMemory(Pages<<13);
-  if(!P) { PRINTFAILED;return(0); }
+  P=GetMemory(Pages<<13);
+  if(!P) { fclose(F);errno=ENOMEM;PRINTFAILED;return(0); }
 
-  /* Try loading ROM */
-  if(!LoadROM(FileName,Len<<13,P)) { PRINTFAILED;return(0); }
+  /* Read the same file completely; do not accept truncated or growing images. */
+  rewind(F);
+  C1=fread(P,1,Len<<13,F);
+  C2=fgetc(F);
+  if((C1!=(Len<<13))||(C2!=EOF)||ferror(F))
+  {
+    fclose(F);
+    FreeMemory(P);
+    errno=EIO;
+    PRINTFAILED;
+    return(0);
+  }
+  fclose(F);
+  ROMData[Slot]=P;
+  ROMMask[Slot]=!ROM64&&(Len>4)? (Pages-1):0x00;
 
   /* Mirror ROM if it is smaller than 2^n pages */
   if(Len<Pages)
@@ -3280,8 +3300,8 @@ int LoadCart(const char *FileName,int Slot,int Type)
     SRAMData[Slot]=GetMemory(0x4000);
     if(!SRAMData[Slot])
     {
-      if(Verbose) printf("scratch SRAM..");
-      SRAMData[Slot]=EmptyRAM;
+      errno=ENOMEM;
+      goto CartFailed;
     }
     else
     {
@@ -3329,18 +3349,28 @@ int LoadCart(const char *FileName,int Slot,int Type)
             break;
         }
       }
-    } 
+    }
+    else { errno=ENOMEM;goto CartFailed; }
   }
 
   /* Done setting up cartridge */
   ResetMSX(Mode,RAMPages,VRAMPages);
   PRINTOK;
 
-  /* If first used user slot, try loading state */
-  if(!Slot||((Slot==1)&&!ROMData[0])) FindState(FileName);
+  /* Embedded cartridge selection always cold-boots, never restores .STA files. */
 
   /* Done loading cartridge */
   return(Pages);
+
+CartFailed:
+  FreeMemory(SRAMData[Slot]);
+  FreeMemory(SRAMName[Slot]);
+  FreeMemory(ROMData[Slot]);
+  SRAMData[Slot]=ROMData[Slot]=0;
+  SRAMName[Slot]=0;
+  ROMMask[Slot]=0;
+  for(C1=0;C1<8;++C1) MemMap[PS][SS][C1]=EmptyRAM;
+  return(0);
 }
 
 /** LoadCHT() ************************************************/

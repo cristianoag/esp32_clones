@@ -120,20 +120,79 @@ explicit menu error instead of booting a different ROM silently.
 Press **F12** at any time to pause the emulated machine and enter the menu.
 Press **Esc** or **F12** to restore the previous screen and resume.
 
-- **ROM:** Left/Right (or Enter) selects a boot profile.
+- **BIOS:** Left/Right (or Enter) selects a boot profile.
+- **Slot 1 / Slot 2:** Enter opens an SD-card browser for cartridge ROMs.
 - **RAM on next boot:** select 64/128/256/512 KiB.
 - **Sound:** enable or mute audio.
-- **Auto boot saved ROM:** enable or disable automatic startup.
-- **Save selected ROM as boot default:** persist profile, RAM, sound and
-  auto-boot choices in NVS.
-- **Boot selected ROM (cold reset):** discard the current machine state
-  and boot the selected profile. This does not implicitly save the default.
-- **Rescan SD card / other ROM profiles:** remount and rediscover profiles.
+- **Auto boot saved settings:** enable or disable automatic startup.
+- **Save BIOS + slots as boot default:** persist profile, both cartridge
+  paths, RAM, sound and auto-boot choices in NVS.
+- **Boot BIOS + slots (cold reset):** discard the current machine state
+  and boot the selected BIOS with both selected cartridges attached.
+  This does not implicitly save the default.
+- **Rescan SD card / other BIOS profiles:** remount and rediscover profiles.
+- **Firmware update from SD:** select an MSX FLH package, confirm, install
+  it to the inactive firmware partition and reboot.
 
-Selection alone does not reset the running machine. RAM changes take
-effect on the next boot. On startup there is a 2.5-second opportunity to
+Options occupy consecutive eight-pixel text rows, with no blank rows
+between them. Selection alone does not reset the running machine. BIOS,
+slot and RAM changes take effect on the next cold boot; Resume keeps the
+current machine and its cartridges unchanged. Existing saved settings from
+before cartridge support are preserved, with both slots initially empty.
+On startup there is a 2.5-second opportunity to
 press F12 before auto-boot. A fresh installation defaults to Omega bank 0;
-missing SD/BIOS files leave the menu available for recovery.
+missing SD/BIOS/cartridge files leave the menu available for recovery
+instead of silently booting with a configured cartridge missing.
+
+## Cartridge ROMs on SD
+
+Copy your legally obtained, uncompressed `.ROM` cartridge files to the
+SD card, for example `msx\roms\`. They are separate from the system BIOS
+profiles; the BIOS importer is not needed for cartridge files.
+
+1. Press F12 and select **Slot 1** or **Slot 2**, then Enter.
+2. Browse folders with Up/Down and Enter. Left or `..` goes to the parent
+   folder. PgUp/PgDn changes pages; Esc/F12 cancels without changing the slot.
+   File extensions are case-insensitive.
+3. Select a `.ROM` file. Repeat for the second slot if needed.
+4. Choose **Boot BIOS + slots (cold reset)** to start with those cartridges.
+   Choose **Save BIOS + slots as boot default** first if the assignments
+   should survive power-off.
+
+Choose **<Eject slot on next boot>** in a slot's browser, or press Delete
+there or on the main menu's slot row, to clear an assignment (even if the
+card is unavailable). Cold-boot to apply the ejection, and save
+the default if it should remain empty at the next power-on.
+
+The slots correspond to emulated MSX primary cartridge slots 1 and 2,
+not extra ESP32 connectors. Cartridge startup follows the selected BIOS's
+normal initialization rules; assigning two games does not mean both run
+at once. The core handles supported plain and bank-switched ROM formats, up to
+2 MiB per slot in multiples of 8 KiB, with cartridge headers recognized
+by fMSX. Files must be raw ROM images, not ZIP archives or disk images.
+The browser is paginated without a fixed file-count limit; full SD paths
+must fit in 239 bytes. Unsupported or overlong names are reported.
+
+## Firmware update from SD
+
+Install this firmware through USB/UART first if the currently installed
+MSX version does not yet offer an update menu. For later MSX updates:
+
+1. Run `make firmware` and copy `dist\ESP32_MSX-1.00.FLH` to the SD card
+   (the root or any folder accessible from the file browser).
+2. Open F12, select **Firmware update from SD**, and choose the FLH file.
+3. Confirm with **Y**, or select Yes with the arrows and press Enter.
+   **N**, Esc, or F12 cancels; Cancel is selected by default.
+4. Wait for validation, flashing and automatic reboot. Do not switch off
+   the board or remove the card during installation.
+
+Only MSX packages named `ESP32_MSX-*.FLH` are accepted. The updater checks
+the package checksum and target image before writing the inactive OTA
+partition, checks the written image before selecting it for boot, and
+reports failures on screen and UART. The source FLH is kept on SD.
+The FLH checksum detects corruption; it is not a digital signature.
+Only install packages you trust. Unsaved emulated machine state is lost
+on a successful update; save any desired boot defaults before updating.
 
 ## Build and upload
 
@@ -167,11 +226,12 @@ No BIOS files are included. The `dist` directory remains ignored by Git.
 the selected FLH file. `OUTPUT_DIR`, `UPDATE_FILE`, and `PYTHON` can be
 overridden on the make command line.
 
-Use **USB/UART upload** for this firmware. Matching the CP400 FLH container
+Use **USB/UART upload for first installation or switching emulators**.
+Matching the CP400 FLH container
 format does not make cross-firmware updating supported: do not feed the MSX
-FLH to the CP400 F12 updater. The MSX project has its own partition layout
-and does not currently implement an SD firmware-update menu. An FLH contains
-only the application, not the bootloader or partition table.
+FLH to the CP400 F12 updater, or a CP400 FLH to the MSX updater.
+The MSX updater requires its own two-slot partition layout. An FLH
+contains only the application, not the bootloader or partition table.
 
 ## Validation and current scope
 
@@ -180,22 +240,26 @@ Run the ROM importer regression checks without any copyrighted ROMs:
 ```powershell
 .\tools\Test-RomImport.ps1
 .\tools\Test-Profiles.ps1  # Requires the existing g++ toolchain on PATH.
+.\tools\Test-Settings.ps1
+.\tools\Test-FirmwareUpdate.ps1
 .\lib\fmsx\tests\host_smoke.ps1 -ProfilesRoot .\sdcard\msx\bios
 ```
 
 The checks use synthetic byte arrays to cover bank extraction, file sizes,
 profile manifests, custom machines, checksums, overwrite protection and
 invalid inputs. The native C++ checks exercise the firmware's actual manifest
-parser, including malformed and duplicate settings. The core regression
-checks repeated boots, allocation failures/recovery, emulated sound, video
-and keyboard input. With `-ProfilesRoot`, it also runs all three imported
+parser, including malformed and duplicate settings, compact menu geometry,
+SD paths, and old/new saved settings. The firmware updater tests cover the
+FLH validation and failure paths. The core regression checks repeated boots,
+cartridge slots, allocation failures/recovery, emulated sound, video and
+keyboard input. With `-ProfilesRoot`, it also runs all three imported
 BIOS profiles for 900 frames and checks for BASIC's `Ok` prompt.
 A successful cross-build does not prove VGA timing, USB
 enumeration, analog audio quality or emulation speed on the physical board.
 
-This initial port focuses on BIOS/BASIC boot, keyboard, video, audio, and
-F12 configuration. Cartridge/disk/tape browsers, save states, joystick
-ports, firmware updates and physical Omega expansion devices are not
+This initial port includes BIOS/BASIC and cartridge boot, keyboard, video,
+audio, F12 configuration and SD firmware updates. Disk/tape browsers,
+save states, joystick ports and physical Omega expansion devices are not
 exposed by this firmware. The original core is not the reference project's
 ESP32-optimized engine; real-time performance must be measured on hardware.
 VGA has a 320x240 framebuffer and six physically wired color bits.
@@ -209,6 +273,10 @@ Before treating a board as validated:
 5. Try Omega `SCREEN 5` and a BASIC `PLAY` command to check graphics and sound.
 6. Remove the SD card before startup and confirm the recovery menu remains
    accessible; reinsert it and rescan.
+7. Attach and eject a known cartridge in each slot, cold-boot, and verify
+   the assignments persist only after saving the defaults.
+8. Install a trusted MSX FLH from the update menu and check the reboot;
+   cancel another update and verify the paused emulator can resume.
 
 ## Attribution and licensing
 

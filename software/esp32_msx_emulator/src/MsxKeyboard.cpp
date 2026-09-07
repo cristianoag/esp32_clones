@@ -139,7 +139,8 @@ bool ContainsKey(const uint8_t *report, uint8_t key)
 
 bool IsMenuKey(uint8_t key)
 {
-    return key == 0x28 || key == 0x29 || key == 0x45 ||
+    return key == 0x28 || key == 0x29 || key == 0x45 || key == 0x11 || key == 0x1c ||
+           key == 0x4b || key == 0x4c || key == 0x4e ||
            (key >= 0x4f && key <= 0x52);
 }
 

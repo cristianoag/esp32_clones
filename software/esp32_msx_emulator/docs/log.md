@@ -16,6 +16,13 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 - Added custom MSX1, MSX2, and MSX2+ boot profiles discoverable from SD without rebuilding firmware.
 - Added independent PlatformIO and make build targets and ROM-import regression checks.
 - Added CP400-compatible FLH packaging in the dist folder through `make` and `make firmware`, with checksum and payload verification, and removed the selected package through `make clean`.
+- Added SD-card cartridge ROM selection and ejection for emulated slots 1 and 2, applied the selected cartridges on cold boot, and saved both assignments with the boot defaults while preserving older settings.
+- Added a paginated folder browser for cartridge ROMs and firmware packages, with case-insensitive extension matching and explicit errors for invalid paths or files.
+- Added an F12 firmware-update flow with confirmation, progress, FLH validation, inactive-partition installation, and automatic reboot after success.
+
+### Changed
+
+- Placed F12 options on consecutive text rows without blank lines between them.
 
 ### Fixed
 
@@ -25,4 +32,4 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 - Required user-supplied BIOS images and retained the original fMSX author's non-commercial terms and attribution.
 - Used fMSX's generic machine models rather than emulating the physical Omega board's optional flash, logo, disk, and expansion hardware.
-- Left cartridge and disk browsing, joystick ports, save states, and SD firmware updates outside the initial BIOS/BASIC-focused release.
+- Left disk and tape browsing, joystick ports, and save states outside the initial release.

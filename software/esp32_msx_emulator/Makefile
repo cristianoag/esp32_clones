@@ -34,6 +34,8 @@ clean:
 test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-RomImport.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Profiles.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Settings.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-FirmwareUpdate.ps1
 help:
 	@echo make firmware - Build, package and verify the FLH file
 	@echo make build    - Build the raw firmware only

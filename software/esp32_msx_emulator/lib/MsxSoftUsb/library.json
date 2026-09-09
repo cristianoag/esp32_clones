@@ -1,0 +1,8 @@
+{
+  "name": "MsxSoftUsb",
+  "version": "1.0.0",
+  "description": "MSX adapter for the shared low-speed USB bit-bang transport",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "build": { "srcDir": "src" }
+}

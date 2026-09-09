@@ -36,15 +36,38 @@ implementations. `Common.h` downscales 512-pixel graphics and 80-column text.
 A 272x240 intermediate buffer preserves horizontal-adjust safety; its central
 256x240 region is submitted using a fixed GGGRRRBB palette represented as
 RGB888 values. Programmable colors and MSX2+ YJK colors are quantized to this
-256-color output. On ESP32 the core uses the monotonic ESP timer and yielding
-FreeRTOS delays to pace PAL at 50 Hz and NTSC at 60 Hz, with `UPeriod=100`.
-An overdue deadline is reset after a blocking firmware menu, avoiding catch-up
-bursts. Every presented frame unconditionally yields at least one FreeRTOS tick
-so the idle/task watchdog remains serviced even when emulation is slower than
-the target rate. Late frames do not incur an additional full-frame sleep.
+256-color output. On ESP32 an unconditional emulated-frame callback uses the
+monotonic ESP timer to pace PAL at 50 Hz and NTSC at 60 Hz, independently of
+presentation. Fractional NTSC deadlines avoid integer-period drift. Z80 clock
+constants, scanlines, keyboard/joystick polling and sound generation are unchanged.
+Every half-second of emulated frames, a portable governor measures execution
+time excluding pacing sleeps. Under budget pressure it reduces upstream
+`UPeriod` by 10 percentage points, and with ample headroom restores 5 points
+(10–100% rendering). This skips only rendering/presentation; it cannot make an
+overloaded CPU or audio path run at real-time speed. It starts at 100% each boot.
+
+A keyboard callback blocked for at least 100 ms (the firmware F12 menu) resets
+pacing and measurement history on return, avoiding menu-time catch-up bursts.
+Short scheduler jitter is retained, but overdue deadlines never accumulate
+more than one frame of catch-up debt. FreeRTOS delays service the idle/task
+watchdog while ahead; when behind, a one-tick yield is requested at the next
+frame boundary after 50 ms without a yield, rather than on every drawn frame.
+Thus the worst interval includes one frame's execution time.
 The platform's presentation callback must not add its own delay.
 The platform owns VGA conversion, input and PCM output. Audio is signed
-16-bit mono at 22050 Hz from upstream `Sound.c`. Host regressions are unpaced.
+16-bit mono at 22050 Hz from upstream `Sound.c`. Every five active seconds UART
+reports **emulated fps / target**, presented fps and current drawing percentage.
+F12 waits are excluded by restarting the measurement window. Hardware speed
+must be measured with these counters; host simulations are not ESP32 benchmarks.
+Host regressions remain unpaced with adaptive rendering disabled.
+
+CPU-addressed RAM, BIOS/extension ROMs, cartridges and cartridge SRAM of at
+most 64 KiB preferentially use internal byte-addressable SRAM, only when at
+least 64 KiB would remain free. Allocation failure/fragmentation falls back to
+PSRAM and the chosen placement is logged at boot. Larger allocations (including
+Omega's 512 KiB RAM) deliberately remain in PSRAM. Video buffers, VRAM, empty
+slot storage and font buffers stay in PSRAM regardless of size; this is not an
+attempt to fit entire frames or large machines into internal SRAM.
 
 The BIOS directory must be an absolute path in the mounted POSIX filesystem.
 Required files:
@@ -60,7 +83,10 @@ system cartridges, are resolved inside the selected profile directory.
 CMOS writes stay in that same directory. Disk auto-insertion, tape, printer
 files and MIDI logging are disabled by this frontend.
 The underlying disk/tape emulation is retained, but this frontend does not
-offer an image-selection API. Joystick/mouse host input is not connected.
+offer an image-selection API. Both joystick ports are configured as digital
+MSX joysticks and receive the platform's active-high U/D/L/R/A/B masks through
+`msxPollJoysticks` (bits 0-5 and 8-13). The core converts these to active-low
+PSG input, including the register-15 port selector. Mouse input is not connected.
 MSX hardware profiles are generic fMSX models: loading Omega firmware does
 not emulate every physical Omega expansion, logo-ROM slot or board peripheral.
 
@@ -106,12 +132,14 @@ boot-time allocation of both SRAM and its filename is mandatory.
 ## Local modifications
 
 - `MSX.c`: use explicit path resolution instead of process-wide directory
-  changes; allocate tracked RAM/VRAM/ROM/font buffers in PSRAM; guard failed
+  changes; allocate tracked buffers through the embedded memory policy; prefer
+  reserved-budget internal SRAM for small CPU-addressed RAM/ROM buffers; guard failed
   allocations before forming hardware pointers; accept 64 KiB RAM on later
   models; reset frame/blink counters and pending VDP operations between boots;
   require explicit cartridge loads, reject incomplete/oversized ROMs, make SRAM
   allocation failures fatal, reset mapper registers and disable cartridge
-  automatic state restoration.
+  automatic state restoration; call the platform once per emulated frame even
+  when rendering is skipped.
 - `V9938.c`: add command-engine reset for safe profile switching.
 - `Sound.c`: include embedded audio-driver declarations.
 - `Floppy.c`: include POSIX directory declarations without selecting a desktop
@@ -128,8 +156,14 @@ installed, run `powershell -File lib\fmsx\tests\host_smoke.ps1` from the firmwar
 directory. This builds only the core and bridge, not the firmware. It uses a
 small synthetic Z80 program (no BIOS content) to exercise all three models and
 four RAM sizes twice, actual PSG tone generation, rendered pixels, keyboard
-polling, exit, seven PSRAM-allocation failure points and subsequent recovery,
-and missing-BIOS failure. A second synthetic BIOS scans both physical slots,
+polling, both joystick ports through PSG register selection, exit, seven
+PSRAM-allocation failure points and subsequent recovery,
+and missing-BIOS failure. PAL/NTSC skip regressions verify that fewer presentations
+do not suppress keyboard polling or sound generation. Portable synthetic-clock
+tests cover exact PAL/NTSC pacing, overload and recovery, menu reset, mode changes,
+coarse RTOS tick jitter, and an explicitly simulated rendering-cost workload.
+They do not measure physical ESP32 throughput or internal-SRAM placement.
+A second synthetic BIOS scans both physical slots,
 calls each synthetic cartridge's Z80 entry point and verifies its result in RAM.
 The cartridge regressions cover each slot separately and together, all five
 plain sizes, all eight original mappers (including heuristic and database

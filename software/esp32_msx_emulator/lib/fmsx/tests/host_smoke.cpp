@@ -12,6 +12,7 @@
 #include <vector>
 
 extern "C" {
+extern AY8910 PSG;
 extern byte *ROMData[MAXSLOTS], *MemMap[4][4][8], *EmptyRAM;
 extern byte ROMType[MAXSLOTS], ROMMapper[MAXSLOTS][4], ROMMask[MAXSLOTS], SCCOn[2];
 }
@@ -26,6 +27,36 @@ static std::vector<byte> expectedCarts[2];
 static int expectedMappers[2] = {-1, -1};
 static byte expectedResults[2];
 static char lastError[256];
+static uint16_t sampledJoysticks;
+static unsigned joystickPolls;
+static unsigned keyboardPolls, requestedDrawPercent = 100;
+static bool requestedPal;
+
+uint16_t msxPollJoysticks()
+{
+  // Exercise all combinations independently; disconnected ports also return zero.
+  sampledJoysticks = realBios ? 0 : static_cast<uint16_t>(
+      ((joystickPolls * 7) & 0x3f) | (((joystickPolls * 11 + 3) & 0x3f) << 8));
+  ++joystickPolls;
+  return sampledJoysticks;
+}
+
+static void checkJoystickPorts()
+{
+  assert(JOYTYPE(0) == JOY_STICK && JOYTYPE(1) == JOY_STICK);
+  const byte savedRegister = PSG.Latch;
+  const byte savedControl = PSG.R[15];
+  for (unsigned port = 0; port < 2; ++port)
+  {
+    OutZ80(0xA0, 15);
+    OutZ80(0xA1, static_cast<byte>(0x0f | (port << 6)));
+    OutZ80(0xA0, 14);
+    assert((InZ80(0xA2) & 0x3f) == ((~(sampledJoysticks >> (port * 8))) & 0x3f));
+  }
+  OutZ80(0xA0, 15);
+  OutZ80(0xA1, savedControl);
+  OutZ80(0xA0, savedRegister);
+}
 
 static void checkCartridges()
 {
@@ -120,10 +151,22 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
   for (int i = 0; i < width * height; ++i)
     if (pixels[i]) { ++coloredFrames; break; }
   ++frames;
+  if (!realBios && joystickPolls) checkJoystickPorts();
   if (cartridgeTest && frames == 1) checkCartridges();
   if (realBios && frames == frameLimit) captureBoot(pixels, width, height, palette);
 }
-void msxPollKeyboard(uint8_t matrix[16]) { if (!realBios) matrix[0] = 0xFE; }
+void msxPollKeyboard(uint8_t matrix[16])
+{
+  ++keyboardPolls;
+  if (!realBios) {
+    matrix[0] = 0xFE;
+    UPeriod = requestedDrawPercent;
+    if (requestedPal && !PALVideo) {
+      OutZ80(0x99, VDP[9] | 2);
+      OutZ80(0x99, 0x89);
+    }
+  }
+}
 bool msxShouldExit() { return frames >= frameLimit; }
 void msxSubmitAudio(const int16_t* samples, unsigned count)
 {
@@ -378,6 +421,27 @@ int main(int argc, char** argv)
     assert(MsxCoreRun(path, 0, 4));
   }
   cartridgeRegression(path);
+  frameLimit = 30;
+  for (int pal = 0; pal < 2; ++pal) {
+    requestedPal = pal != 0;
+    requestedDrawPercent = 100;
+    resetCounters();
+    keyboardPolls = 0;
+    assert(MsxCoreRun(path, 0, 4));
+    const unsigned fullPolls = keyboardPolls, fullAudio = audioSamples;
+    requestedDrawPercent = 25;
+    resetCounters();
+    keyboardPolls = 0;
+    assert(MsxCoreRun(path, 0, 4));
+    assert(frames == frameLimit && !errors);
+    assert(keyboardPolls > fullPolls * 3 && keyboardPolls <= fullPolls * 4);
+    assert(audioSamples > fullAudio * 3 && audioSamples <= fullAudio * 4);
+    assert(bool(PALVideo) == requestedPal);
+  }
+  requestedDrawPercent = 100;
+  requestedPal = false;
+  frameLimit = 3;
+  puts("PASS: renderer skipping preserves keyboard/audio cadence in PAL and NTSC.");
   for (const char* name : names) assert(remove(name) == 0);
   frames = errors = 0;
   assert(!MsxCoreRun(path, 2, 8));

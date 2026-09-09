@@ -326,6 +326,7 @@ int  ApplyCheats(void);           /* Apply RAM-based cheats          */
 
 static int hasext(const char *FileName,const char *Ext);
 static byte *GetMemory(int Size); /* Get memory chunk                */
+static byte *GetCpuMemory(int Size);
 static void FreeMemory(const void *Ptr); /* Free memory chunk        */
 static void FreeAllMemory(void);  /* Free all memory chunks          */
 
@@ -364,6 +365,17 @@ static byte *GetMemory(int Size)
 
   if((Size<=0)||(NChunks>=MAXCHUNKS)) return(0);
   P=(byte *)fmsxAllocate(Size);
+  if(P) Chunks[NChunks++]=P;
+
+  return(P);
+}
+
+static byte *GetCpuMemory(int Size)
+{
+  byte *P;
+
+  if((Size<=0)||(NChunks>=MAXCHUNKS)) return(0);
+  P=(byte *)fmsxAllocateCpu(Size);
   if(P) Chunks[NChunks++]=P;
 
   return(P);
@@ -886,7 +898,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   if(NewRAMPages!=RAMPages)
   {
     if(Verbose) printf("Allocating %dkB for RAM...",NewRAMPages*16);
-    if((P1=GetMemory(NewRAMPages*0x4000)))
+    if((P1=GetCpuMemory(NewRAMPages*0x4000)))
     {
       memset(P1,NORAM,NewRAMPages*0x4000);
       FreeMemory(RAMData);
@@ -2071,6 +2083,8 @@ word LoopZ80(Z80 *R)
 
       /* Refresh display */
       if(UCount>=100) { UCount-=100;RefreshScreen(); }
+      /* Pace emulated time independently of optional display updates. */
+      fmsxFrame();
       UCount+=UPeriod;
 
       /* Blinking for TEXT80 */
@@ -2950,7 +2964,7 @@ byte *LoadROM(const char *Name,int Size,byte *Buf)
   }
 
   /* Allocate memory */
-  P=Buf? Buf:GetMemory(Size);
+  P=Buf? Buf:GetCpuMemory(Size);
   if(!P)
   {
     fclose(F);
@@ -3172,7 +3186,7 @@ int LoadCart(const char *FileName,int Slot,int Type)
     );
 
   /* Allocate space for the ROM */
-  P=GetMemory(Pages<<13);
+  P=GetCpuMemory(Pages<<13);
   if(!P) { fclose(F);errno=ENOMEM;PRINTFAILED;return(0); }
 
   /* Read the same file completely; do not accept truncated or growing images. */
@@ -3297,7 +3311,7 @@ int LoadCart(const char *FileName,int Slot,int Type)
     FreeMemory(SRAMName[Slot]);
 
     /* Get SRAM memory */
-    SRAMData[Slot]=GetMemory(0x4000);
+    SRAMData[Slot]=GetCpuMemory(0x4000);
     if(!SRAMData[Slot])
     {
       errno=ENOMEM;

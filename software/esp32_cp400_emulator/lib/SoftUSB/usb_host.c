@@ -43,6 +43,15 @@
 
 
 #include "usb_host.h"
+#ifdef MSX_SOFT_USB
+#include "msx_timing.h"
+#include "msx_receive.h"
+#include "msx_decode.h"
+static bool msxTimingValid;
+static uint32_t msxBitCycles;
+static bool msxAcknowledgeReplay, msxReplayAcked;
+bool msx_usb_timing_valid(void) { return msxTimingValid; }
+#endif
 
 // Arduino IDE complains about volatile at init, but we don't care
 #pragma GCC diagnostic ignored "-Wdiscarded-qualifiers"
@@ -163,6 +172,7 @@ uint8_t decoded_receive_buffer[DEF_BUFF_SIZE];
 // end temporary used insize lowlevel
 
 
+#ifndef MSX_SOFT_USB
 void (*cpuDelay)() = NULL;
 
 
@@ -277,7 +287,7 @@ void (*cpuDelay)() = NULL;
 
 #endif
 
-
+#endif /* !MSX_SOFT_USB */
 
 typedef struct
 {
@@ -342,6 +352,28 @@ typedef struct
   int selfNum;
   int epCount;
   int cnt;
+  volatile bool connected;
+#ifdef MSX_SOFT_USB
+  uint8_t inputEndpoint[4];
+  uint8_t inputInterval[4];
+  uint8_t inputSize[4];
+  uint8_t inputIndex;
+  uint8_t inputCount;
+  uint8_t inputInterface;
+  uint8_t reportDescriptorLength;
+  uint8_t inputToggle[4];
+  uint32_t inputDue[4];
+  uint32_t tick;
+  bool unsupportedLogged;
+  uint32_t nextDiagnostic;
+  unsigned setupAcks;
+  unsigned controlFailures;
+  unsigned loggedControlFailures;
+  unsigned lastCaptureEdges;
+  int lastControlResult;
+  uint8_t lastControlCommand;
+  uint16_t lastControlTrace[24];
+#endif
 
   uint8_t flags_new;
   uint8_t flags;
@@ -528,9 +560,11 @@ void repack()
   transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_S;
 
   transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_J;
+#ifndef MSX_SOFT_USB
   transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_J;
   transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_J;
   transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_J;
+#endif
 
   transmit_bits_buffer_store_cnt = 0;
 }
@@ -569,7 +603,15 @@ uint16_t debug_buff[0x100];
 
 int parse_received_NRZI_buffer()
 {
-
+#ifdef MSX_SOFT_USB
+  uint8_t bytes[16];
+  unsigned length = 0;
+  int result = msx_usb_decode_edges(received_NRZI_buffer, received_NRZI_buffer_bytesCnt,
+                                    M_ONE, P_ONE, TIME_MULT, bytes, sizeof(bytes), &length);
+  if(result == T_ACK || result == T_NACK || result == T_STALL || result == T_NEED_ACK)
+    for(unsigned i = 0; i < length; ++i) decoded_receive_buffer_put(bytes[i]);
+  return result;
+#else
   if(!received_NRZI_buffer_bytesCnt) return 0;
 
   uint32_t   crcb;
@@ -662,11 +704,38 @@ int parse_received_NRZI_buffer()
   } else {
     return  T_CHK_ERR;
   }
+#endif
 }
 
 
 
 //#define WR_SIMULTA
+#ifdef MSX_SOFT_USB
+/* Packet transactions run with interrupts masked by the host task. Keep the
+ * entire bit loop in IRAM; flash/cache stalls must not change the wire rate. */
+void IRAM_ATTR __attribute__((noinline)) sendOnly()
+{
+  const unsigned count = transmit_NRZI_buffer_cnt;
+  const uint32_t period = msxBitCycles;
+  const uint32_t dm = DM_PIN_M, dp = DP_PIN_M;
+  SET_O;
+  uint32_t deadline = cpu_hal_get_cycle_count() + period;
+  for(unsigned k = 0; k < count; ++k) {
+    const unsigned state = transmit_NRZI_buffer[k];
+    volatile uint32_t *dmRegister = snd[state][0];
+    volatile uint32_t *dpRegister = snd[state][1];
+    while(msx_usb_before_deadline(cpu_hal_get_cycle_count(), deadline)) {}
+    *dmRegister = dm;
+    *dpRegister = dp;
+    deadline += period;
+  }
+  /* Hold the last J for one bit after two SE0 bits, then release immediately
+   * so reception starts before the device's earliest permitted response. */
+  while(msx_usb_before_deadline(cpu_hal_get_cycle_count(), deadline)) {}
+  SET_I;
+  transmit_NRZI_buffer_cnt = 0;
+}
+#else
 void sendOnly()
 {
   uint8_t k;
@@ -691,8 +760,47 @@ void sendOnly()
   restart();
   SET_I;
 }
+#endif
 
 
+#ifdef MSX_SOFT_USB
+extern uint8_t ACK_BUFF[0x20];
+extern int ACK_BUFF_CNT;
+
+static void IRAM_ATTR msxAckData(uint32_t eopStart)
+{
+  /* EOP is two SE0 bits plus J. sendOnly adds the packet's leading idle J;
+   * wait here so ACK SYNC begins after EOP, not while SE0 is still driven. */
+  const uint32_t ready = eopStart + msxBitCycles * 3;
+  for(int i = 0; i < ACK_BUFF_CNT; ++i) transmit_NRZI_buffer[i] = ACK_BUFF[i];
+  transmit_NRZI_buffer_cnt = ACK_BUFF_CNT;
+  while(msx_usb_before_deadline(cpu_hal_get_cycle_count(), ready)) {}
+  sendOnly();
+}
+
+void IRAM_ATTR __attribute__((noinline)) sendRecieveNParse()
+{
+  /* Preload receive state and remain in IRAM across TX/RX turnaround. */
+  const uint32_t mask = RD_MASK;
+  const unsigned shift = RD_SHIFT;
+  const uint32_t timeout = msxBitCycles * 12;
+  msx_usb_capture_t capture;
+  msxReplayAcked = false;
+  sendOnly();
+  const uint32_t pins = GPIO.in & mask;
+  msx_usb_capture_begin(&capture, received_NRZI_buffer, pins, shift,
+                        cpu_hal_get_cycle_count(), timeout);
+  while(msx_usb_capture_sample(&capture, GPIO.in & mask, cpu_hal_get_cycle_count())) {}
+  received_NRZI_buffer_bytesCnt = capture.count;
+  /* The first copy was CRC-validated without an ACK. Acknowledge its replay
+   * like CP400, then deliver that validated copy rather than the replay. */
+  if(msxAcknowledgeReplay && !capture.overflow && !capture.pins &&
+     capture.count >= SMALL_NO_DATA / 2) {
+    msxAckData(capture.lastEdge);
+    msxReplayAcked = true;
+  }
+}
+#else
 void sendRecieveNParse()
 {
   register uint32_t _R3;
@@ -717,6 +825,7 @@ START:
   //__enable_irq();
   received_NRZI_buffer_bytesCnt = STORE-received_NRZI_buffer;
 }
+#endif
 
 
 
@@ -806,12 +915,15 @@ void timerCallBack()
     if(current->wires_last_state==M_ONE) {
       // low speed
       hid_device_connected = true;
+      current->connected = true;
     } else if(current->wires_last_state==P_ONE) {
-      // high speed
+      // full speed (not supported by this low-speed transport)
       hid_device_connected = true;
+      current->connected = true;
     } else if(current->wires_last_state==0x00) {
       // not connected
       hid_device_connected = false;
+      current->connected = false;
     } else if(current->wires_last_state== (M_ONE + P_ONE) ) {
       //????
     }
@@ -850,7 +962,12 @@ void timerCallBack()
       SET_O;
       SE_J;
       SET_I;
+#ifdef MSX_SOFT_USB
+      /* USB devices need at least 10 ms recovery after reset is removed. */
+      current->cmdTimeOut  =   10;
+#else
       current->cmdTimeOut  =    2;
+#endif
       current->cb_Cmd  = CB_WAIT1;
     #endif
   } else if (current->cb_Cmd==CB_TICK) {
@@ -908,6 +1025,17 @@ void timerCallBack()
     sendRecieveNParse();
 
     int res = parse_received_NRZI_buffer();
+#ifdef MSX_SOFT_USB
+    current->lastCaptureEdges = received_NRZI_buffer_bytesCnt;
+    current->lastControlResult = res;
+    current->lastControlCommand = CB_5;
+    if(res == T_ACK) ++current->setupAcks;
+    else {
+      ++current->controlFailures;
+      memcpy(current->lastControlTrace, received_NRZI_buffer,
+             (received_NRZI_buffer_bytesCnt < 24 ? received_NRZI_buffer_bytesCnt : 24) * sizeof(uint16_t));
+    }
+#endif
     if(res==T_ACK) {
       current->cb_Cmd = CB_6;
       current->in_data_flip_flop = 1;
@@ -932,6 +1060,39 @@ void timerCallBack()
     pu_Addr(T_IN,current->rq.addr,current->rq.eop);
     //setup
     sendRecieveNParse();
+#ifdef MSX_SOFT_USB
+    int res = parse_received_NRZI_buffer();
+    current->lastCaptureEdges = received_NRZI_buffer_bytesCnt;
+    current->lastControlResult = res;
+    current->lastControlCommand = CB_6;
+    if(res == T_NEED_ACK) {
+      unsigned size = decoded_receive_buffer_size();
+      decoded_receive_buffer_get();
+      unsigned pid = decoded_receive_buffer_get();
+      if(pid != (current->in_data_flip_flop & 1 ? T_DATA1 : T_DATA0)) return;
+      unsigned bytes = size - 4;
+      if(bytes > (unsigned)current->asckedReceiveBytes ||
+         bytes > 255U - current->acc_decoded_resp_counter) {
+        current->acc_decoded_resp_counter = 0;
+        current->numb_reps_errors_allowed = 0;
+        current->cb_Cmd = CB_TICK;
+        current->bComplete = 1;
+        return;
+      }
+      ++current->in_data_flip_flop;
+      for(unsigned i = 0; i < bytes; ++i)
+        current->acc_decoded_resp[current->acc_decoded_resp_counter++] = rev8(decoded_receive_buffer_get());
+      current->asckedReceiveBytes -= bytes;
+      current->numb_reps_errors_allowed = 4;
+      current->cb_Cmd = CB_7;
+    } else {
+      ++current->controlFailures;
+      if(--current->numb_reps_errors_allowed <= 0) {
+        current->cb_Cmd = CB_TICK;
+        current->bComplete = 1;
+      }
+    }
+#else
     // if receive something ??
     if(current->asckedReceiveBytes==0 && current->acc_decoded_resp_counter==0 && received_NRZI_buffer_bytesCnt<SMALL_NO_DATA &&  received_NRZI_buffer_bytesCnt >SMALL_NO_DATA/4 ) {
       ACK();
@@ -995,12 +1156,31 @@ void timerCallBack()
         current->bComplete = 1;
       }
     }
+#endif
   } else if(current->cb_Cmd==CB_7) {
     SOF();
     pu_Addr(T_IN,current->rq.addr,current->rq.eop);
     //setup
+#ifdef MSX_SOFT_USB
+    msxAcknowledgeReplay = true;
+    sendRecieveNParse();
+    msxAcknowledgeReplay = false;
+    if(!msxReplayAcked) {
+      if(--current->numb_reps_errors_allowed > 0) return;
+      current->acc_decoded_resp_counter = 0;
+      current->cb_Cmd = CB_TICK;
+      current->bComplete = 1;
+      return;
+    }
+    if(!current->rq.wLen) {
+      current->cb_Cmd = CB_TICK;
+      current->bComplete = 1;
+      return;
+    }
+#else
     sendRecieveNParse();
     ACK();
+#endif
     if(current->asckedReceiveBytes>0) {
       current->cb_Cmd = CB_6;
       return ;
@@ -1017,6 +1197,17 @@ void timerCallBack()
     SOF();
     pu_Addr(T_IN,current->rq.addr,current->rq.eop);
     //setup
+#ifdef MSX_SOFT_USB
+    msxAcknowledgeReplay = true;
+    sendRecieveNParse();
+    msxAcknowledgeReplay = false;
+    if(!msxReplayAcked) {
+      if(--current->numb_reps_errors_allowed > 0) return;
+      current->acc_decoded_resp_counter = 0;
+    } else if(current->acc_decoded_resp_counter) {
+      current->inputToggle[current->inputIndex] ^= 1;
+    }
+#else
     sendRecieveNParse();
     if(received_NRZI_buffer_bytesCnt<SMALL_NO_DATA/2) {
       // no data , seems NAK or something like this
@@ -1025,6 +1216,7 @@ void timerCallBack()
       return ;
      }
     ACK();
+#endif
     current->cb_Cmd = CB_TICK;
     current->bComplete = 1;
   } else if(current->cb_Cmd==CB_2) {
@@ -1040,6 +1232,29 @@ void timerCallBack()
     }
     int res = parse_received_NRZI_buffer();
     if(res==T_NEED_ACK) {
+#ifdef MSX_SOFT_USB
+      int count = decoded_receive_buffer_size();
+      if(count >= 4 && count <= 12) {
+        decoded_receive_buffer_get();
+        uint8_t pid = decoded_receive_buffer_get();
+        int bytes = count - 4;
+        uint8_t expected = current->inputToggle[current->inputIndex] ? T_DATA1 : T_DATA0;
+        if((pid == T_DATA0 || pid == T_DATA1) && bytes <= current->asckedReceiveBytes) {
+          if(pid == expected) {
+            for(int k=0; k<bytes; ++k)
+              current->acc_decoded_resp[k] = rev8(decoded_receive_buffer_get());
+            current->acc_decoded_resp_counter = bytes;
+          }
+          current->cb_Cmd = CB_2Ack;
+          current->numb_reps_errors_allowed = 4;
+          return;
+        }
+      }
+      current->asckedReceiveBytes = 0;
+      current->cb_Cmd = CB_TICK;
+      current->bComplete = 1;
+      return;
+#else
       if(decoded_receive_buffer_size()>2) {
         decoded_receive_buffer_get();
         decoded_receive_buffer_get();
@@ -1053,6 +1268,7 @@ void timerCallBack()
       current->asckedReceiveBytes = 0;
       current->cb_Cmd=CB_2Ack;
       return ;
+#endif
     } else {
       current->numb_reps_errors_allowed--;
       if(current->numb_reps_errors_allowed>0) {
@@ -1129,6 +1345,86 @@ void set_usb_mess_cb( onusbmesscb_t onUSBMessCb )
   usbMess = onUSBMessCb;
 }
 
+#ifdef MSX_SOFT_USB
+static usbrawcb_t usbRaw;
+void set_usb_raw_cb(usbrawcb_t cb)
+{
+  usbRaw = cb;
+}
+
+// Classify applications and bound input reports without mapping their fields.
+static bool msxIsGamepadReport(const uint8_t *data, unsigned length)
+{
+  uint32_t page = 0, usage = 0, usagePage = 0, pages[4];
+  uint32_t reportSize = 0, reportCount = 0, sizes[4], counts[4];
+  uint8_t reportId = 0, ids[4], inputBits[256] = {0};
+  unsigned stack = 0, depth = 0;
+  bool haveUsage = false, gamepad = false, hasIds = false;
+  for(unsigned pos=0; pos<length;) {
+    uint8_t prefix = data[pos++];
+    // Long items have no supported semantics here. Reject before reading any
+    // long-item header/payload, including truncated ones.
+    if(prefix == 0xfe) return false;
+    unsigned size = prefix & 3;
+    if(size == 3) size = 4;
+    if(size > length - pos) return false;
+    uint32_t value = 0;
+    for(unsigned i=0; i<size; ++i) value |= (uint32_t)data[pos++] << (8*i);
+    unsigned type = (prefix >> 2) & 3;
+    unsigned tag = prefix >> 4;
+    if(type == 1) {
+      if(tag == 0) page = value;
+      else if(tag == 7) reportSize = value;
+      else if(tag == 8) {
+        if(size != 1 || !value || inputBits[0]) return false;
+        reportId = value;
+        hasIds = true;
+      } else if(tag == 9) reportCount = value;
+      else if(tag == 10) {
+        if(size || stack == 4) return false;
+        sizes[stack] = reportSize;
+        counts[stack] = reportCount;
+        ids[stack] = reportId;
+        pages[stack++] = page;
+      } else if(tag == 11) {
+        if(size || !stack) return false;
+        page = pages[--stack];
+        reportSize = sizes[stack];
+        reportCount = counts[stack];
+        reportId = ids[stack];
+      }
+    } else if(type == 2 && tag == 0) {
+      usage = size == 4 ? value & 0xffff : value;
+      usagePage = size == 4 ? value >> 16 : page;
+      haveUsage = true;
+    } else if(type == 0) {
+      if(tag == 8) {
+        if(!depth || (hasIds && !reportId)) return false;
+        unsigned budget = reportId ? 56 : 64;
+        if(reportSize && reportCount > (budget - inputBits[reportId]) / reportSize)
+          return false;
+        inputBits[reportId] += reportSize * reportCount;
+      } else if(tag == 10) {
+        if(size != 1) return false;
+        if(!depth) {
+          if(value != 1 || !haveUsage || usagePage != 1 || (usage != 4 && usage != 5))
+            return false;
+          gamepad = true;
+        } else if(value == 1) {
+          return false;
+        }
+        ++depth;
+      } else if(tag == 12) {
+        if(!depth || size) return false;
+        --depth;
+      }
+      haveUsage = false;
+    }
+  }
+  return gamepad && !depth && !stack;
+}
+#endif
+
 
 
 void (*onConfigDescCb)(uint8_t ref, int cfgCount, void *lcfg, size_t len);
@@ -1185,6 +1481,13 @@ void fsm_Mashine()
 
   if(current->fsm_state == 0) {
     current->epCount   = 0;
+#ifdef MSX_SOFT_USB
+    current->inputCount = 0;
+    current->reportDescriptorLength = 0;
+    current->ufPrintDesc = 0;
+    memset(current->inputToggle, 0, sizeof(current->inputToggle));
+    memset(current->inputDue, 0, sizeof(current->inputDue));
+#endif
     current->cb_Cmd    = CB_CHECK;
     current->fsm_state = 1;
   }
@@ -1213,6 +1516,14 @@ void fsm_Mashine()
   } else if(current->fsm_state==5) {
     if(current->acc_decoded_resp_counter==0x12) {
       memcpy(&current->desc,current->acc_decoded_resp,0x12);
+#ifdef MSX_SOFT_USB
+      if(current->desc.bLength != 18 || current->desc.bDescriptorType != 1 ||
+         current->desc.bMaxPacketSize0 != 8 || !current->desc.bNumConfigurations) {
+        current->fsm_state = 104;
+        current->cb_Cmd = CB_TICK;
+        return;
+      }
+#endif
       current->ufPrintDesc |= 1;
     } else {
       if(current->numb_reps_errors_allowed<=0) {
@@ -1234,6 +1545,13 @@ void fsm_Mashine()
   } else if(current->fsm_state==8) {
     if(current->acc_decoded_resp_counter==0x9) {
       memcpy(&current->cfg,current->acc_decoded_resp,0x9);
+#ifdef MSX_SOFT_USB
+      // The inherited control accumulator and descriptor length are eight-bit.
+      if(current->cfg.wLength < 9 || current->cfg.wLength > 255) {
+        current->fsm_state = 104;
+        return;
+      }
+#endif
       current->ufPrintDesc |= 2;
       Request(T_SETUP,ASSIGNED_USB_ADDRESS,0b0000,T_DATA0,0x80,0x6,0x0200,0x0000,current->cfg.wLength,current->cfg.wLength);
       current->fsm_state = 9;
@@ -1253,12 +1571,81 @@ void fsm_Mashine()
       current->fsm_state  = 7;
     }
   } else if(current->fsm_state==97) {
+#ifdef MSX_SOFT_USB
+    // Let the task parse the complete configuration before enabling polling.
+    if(current->ufPrintDesc & 4) {
+      current->cb_Cmd = CB_TICK;
+      return;
+    }
+    if(!current->inputCount || !current->reportDescriptorLength) {
+      current->fsm_state = 104;
+      current->cb_Cmd = CB_TICK;
+      return;
+    }
+    Request(T_SETUP,ASSIGNED_USB_ADDRESS,0,T_DATA0,0x00,0x9,current->cfg.bCV,0,0,0);
+#else
     Request(T_SETUP,ASSIGNED_USB_ADDRESS,0b0000,T_DATA0,0x00,0x9,0x0001,0x0000,0x0000,0x0000);
+#endif
     current->fsm_state    = 98;
   } else if(current->fsm_state==98) {
+#ifdef MSX_SOFT_USB
+    if(current->numb_reps_errors_allowed <= 0) {
+      current->inputCount = 0;
+      current->fsm_state = 104;
+      current->cb_Cmd = CB_TICK;
+      return;
+    }
+    Request(T_SETUP,ASSIGNED_USB_ADDRESS,0,T_DATA0,0x81,0x6,0x2200,
+            current->inputInterface,current->reportDescriptorLength,current->reportDescriptorLength);
+    current->fsm_state = 90;
+#else
     // config interfaces??
     Request(T_SETUP,ASSIGNED_USB_ADDRESS,0b0000,T_DATA0,0x21,0xa,0x0000,0x0000,0x0000,0x0000);
     current->fsm_state    = 99;
+#endif
+#ifdef MSX_SOFT_USB
+  } else if(current->fsm_state==90) {
+    if(current->numb_reps_errors_allowed <= 0 ||
+       current->acc_decoded_resp_counter != current->reportDescriptorLength ||
+       !msxIsGamepadReport(current->acc_decoded_resp, current->acc_decoded_resp_counter)) {
+      current->inputCount = 0;
+      current->fsm_state = 104;
+      current->cb_Cmd = CB_TICK;
+      return;
+    }
+    if(onDetectCB) onDetectCB(current->selfNum, &current->desc);
+    current->fsm_state = 100;
+    current->cb_Cmd = CB_TICK;
+  } else if(current->fsm_state==100) {
+    if(current->wires_last_state != M_ONE) {
+      current->fsm_state = 0;
+      current->cb_Cmd = CB_CHECK;
+      return;
+    }
+    for(uint8_t i=0; i<current->inputCount; ++i) {
+      uint8_t slot = (current->inputIndex + i) % current->inputCount;
+      if((int32_t)(current->tick - current->inputDue[slot]) < 0) continue;
+      current->inputIndex = slot;
+      current->inputDue[slot] = current->tick + current->inputInterval[slot];
+      RequestIn(T_IN, ASSIGNED_USB_ADDRESS, current->inputEndpoint[slot] & 15, current->inputSize[slot]);
+      current->fsm_state = 101;
+      return;
+    }
+    current->cmdTimeOut = 0;
+    current->cb_Cmd = CB_WAIT1;
+  } else if(current->fsm_state==101) {
+    if(current->acc_decoded_resp_counter && current->acc_decoded_resp_counter <= 8 && usbRaw)
+      usbRaw(current->selfNum, current->inputEndpoint[current->inputIndex],
+             current->acc_decoded_resp_counter, current->acc_decoded_resp);
+    current->inputIndex = (current->inputIndex + 1) % current->inputCount;
+    current->fsm_state = 100;
+    current->cmdTimeOut = 0;
+    current->cb_Cmd = CB_WAIT1;
+  } else if(current->fsm_state==104) {
+    // Unsupported device: remain electrically idle until unplugged.
+    current->cb_Cmd = CB_CHECK;
+    if(current->wires_last_state != M_ONE) current->fsm_state = 0;
+#else
   } else if(current->fsm_state==99) {
     if(current->flags_new!=current->flags) {
       current->flags = current->flags_new;
@@ -1310,6 +1697,13 @@ void fsm_Mashine()
     current->cb_Cmd     = CB_WAIT1;
     current->fsm_state  = 0;
   }
+#endif
+#ifdef MSX_SOFT_USB
+  } else {
+    current->fsm_state = 0;
+    current->cb_Cmd = CB_CHECK;
+  }
+#endif
 }
 
 
@@ -1337,6 +1731,29 @@ void IRAM_ATTR setPins(int DPPin,int DMPin)
 
 
 sUsbContStruct  current_usb[NUM_USB];
+
+#ifdef MSX_SOFT_USB
+void msx_usb_reset(void)
+{
+  for(unsigned port=0; port<NUM_USB; ++port) {
+    current = &current_usb[port];
+    if(!current->isValid) continue;
+    setPins(current->DP, current->DM);
+    SET_I;
+    current->connected = false;
+    current->wires_last_state = 0;
+    current->fsm_state = 0;
+    current->cb_Cmd = CB_CHECK;
+    current->bComplete = 1;
+    current->cmdTimeOut = 0;
+    current->ufPrintDesc = 0;
+    current->acc_decoded_resp_counter = 0;
+    current->asckedReceiveBytes = 0;
+    current->inputCount = 0;
+    current->epCount = 0;
+  }
+}
+#endif
 
 
 int checkPins(int dp,int dm)
@@ -1370,6 +1787,7 @@ int64_t get_system_time_us()
 }
 
 
+#ifndef MSX_SOFT_USB
 float testDelay6(float freq_MHz)
 {
   // 6 bits must take 4.0 uSec
@@ -1396,9 +1814,9 @@ float testDelay6(float freq_MHz)
 
   return res;
 }
+#endif
 
 uint8_t arr[0x200];
-
 
 
 void setupGPIO( int pin )
@@ -1416,6 +1834,9 @@ void setupGPIO( int pin )
 
 void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
 {
+#ifdef MSX_SOFT_USB
+  msxTimingValid = false;
+#endif
   decoded_receive_buffer_head = 0;
   decoded_receive_buffer_tail = 0;
   transmit_bits_buffer_store_cnt = 0;
@@ -1459,6 +1880,7 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
       current->counterNAck       = 0;
       current->counterAck        = 0;
       current->epCount           = 0;
+      current->connected         = false;
 
       setupGPIO( current->DP );
       setupGPIO( current->DM );
@@ -1497,6 +1919,25 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
         TIME_MULT = (int)( TIME_SCALE / ( out_config.freq_mhz/8/1.5 ) + 0.5 );
         printf("TIME_MULT = %d \n",TIME_MULT);
 
+#ifdef MSX_SOFT_USB
+        msxBitCycles = msx_usb_bit_cycles(out_config.freq_mhz);
+        msxTimingValid = msxBitCycles != 0;
+        if(msxTimingValid)
+          printf("MSX joystick USB: cycle-timed TX, %lu cycles/bit at %u MHz (target 1.5 Mbit/s)\n",
+                 (unsigned long)msxBitCycles, out_config.freq_mhz);
+        else
+          printf("MSX joystick USB: unsupported CPU clock %u MHz for cycle-timed TX\n", out_config.freq_mhz);
+        calibrated = 1;
+        if(msxTimingValid) {
+          transmit_NRZI_buffer_cnt = 0;
+          pu_MSB(T_START, 8);
+          pu_MSB(T_ACK, 8);
+          repack();
+          ACK_BUFF_CNT = transmit_NRZI_buffer_cnt;
+          memcpy(ACK_BUFF, transmit_NRZI_buffer, ACK_BUFF_CNT);
+          restart();
+        }
+#else
         int TRANSMIT_TIME_DELAY_OPT = 0;
         TRANSMIT_TIME_DELAY = TRANSMIT_TIME_DELAY_OPT;
         printf( "D=%4d ", TRANSMIT_TIME_DELAY );
@@ -1522,6 +1963,7 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
         TRANSMIT_TIME_DELAY = TRANSMIT_TIME_DELAY_OPT+DELAY_CORR;
         setCPUDelay( TRANSMIT_TIME_DELAY );
         printf( "TRANSMIT_TIME_DELAY = %d time = %f error = %f%% \n", TRANSMIT_TIME_DELAY, cS_opt, (cS_opt-OPT_TIME)/OPT_TIME*100 );
+#endif
       }
     } else {
       if( current->DP == -1 && current->DM == -1 ) {
@@ -1562,6 +2004,9 @@ void IRAM_ATTR usb_process()
   for(int k=0;k<NUM_USB;k++) {
     current = &current_usb[k];
     if(current->isValid) {
+#ifdef MSX_SOFT_USB
+      ++current->tick;
+#endif
       setPins(current->DP,current->DM);
       timerCallBack();
       fsm_Mashine();
@@ -1579,6 +2024,42 @@ void printState()
   int ref = cntl%NUM_USB;
   sUsbContStruct * pcurrent = &current_usb[ref];
   if(!pcurrent->isValid) return;
+#ifdef MSX_SOFT_USB
+  if(!pcurrent->connected) pcurrent->unsupportedLogged = false;
+  if(pcurrent->controlFailures != pcurrent->loggedControlFailures &&
+     pcurrent->loggedControlFailures < 8) {
+    pcurrent->loggedControlFailures = pcurrent->controlFailures;
+    printf("MSX joystick USB port %u: control cmd=%u result=%02x (%s) edges=%u setup-acks=%u\n",
+           ref + 1, pcurrent->lastControlCommand, pcurrent->lastControlResult,
+           pcurrent->lastControlResult == T_ACK ? "ACK" :
+           pcurrent->lastControlResult == T_NACK ? "NAK" :
+           pcurrent->lastControlResult == T_STALL ? "STALL" :
+           pcurrent->lastControlResult == T_CHK_ERR ? "CRC/decode error" :
+           pcurrent->lastCaptureEdges <= 1 ? "no reply" : "unrecognized reply",
+           pcurrent->lastCaptureEdges, pcurrent->setupAcks);
+    if(pcurrent->loggedControlFailures <= 2 && pcurrent->lastControlCommand == CB_5) {
+      printf("MSX joystick USB RX edges:");
+      for(unsigned i = 0; i < pcurrent->lastCaptureEdges && i < 24; ++i)
+        printf(" %04x", pcurrent->lastControlTrace[i]);
+      printf("\n");
+    }
+  }
+  if(pcurrent->connected && pcurrent->fsm_state != 100 && pcurrent->fsm_state != 101 &&
+     (int32_t)(pcurrent->tick - pcurrent->nextDiagnostic) >= 0) {
+    pcurrent->nextDiagnostic = pcurrent->tick + 5000;
+    printf("MSX joystick USB port %u: enumeration state=%u command=%u received=%u retries=%d wires=%04x\n",
+           ref + 1, pcurrent->fsm_state, pcurrent->cb_Cmd,
+           pcurrent->acc_decoded_resp_counter, pcurrent->numb_reps_errors_allowed,
+           pcurrent->wires_last_state);
+  }
+  if(pcurrent->connected && !pcurrent->unsupportedLogged &&
+     (pcurrent->fsm_state == 104 || pcurrent->wires_last_state == P_ONE)) {
+    pcurrent->unsupportedLogged = true;
+    printf("MSX joystick USB port %u: %s\n", ref + 1,
+           pcurrent->wires_last_state == P_ONE ? "full-speed devices are not supported" :
+           "unsupported HID gamepad descriptor or failed configuration; unplug to retry");
+  }
+#endif
   if((cntl%800)<NUM_USB) {
     #ifdef DEBUG_ALL
       printf("USB%d: Ack=%d Nack=%d %02x pcurrent->cb_Cmd=%d  state=%d epCount=%d --",
@@ -1598,9 +2079,9 @@ void printState()
 
   if( pcurrent->ufPrintDesc == 0 ) {
     static bool connected[4] = {false, false, false, false};
-    if( hid_device_connected != connected[ref] ) { // state change
-      connected[ref] = hid_device_connected;
-      if( !hid_device_connected ) { // track disconnect (connect is already tracked by onDetectCB)
+    if( pcurrent->connected != connected[ref] ) { // each connector has its own line state
+      connected[ref] = pcurrent->connected;
+      if( !pcurrent->connected ) { // track disconnect (connect is already tracked by onDetectCB)
         if( onDisconnectCB )
           onDisconnectCB( ref );
         #ifdef DEBUG_ALL
@@ -1613,6 +2094,10 @@ void printState()
 
   if(pcurrent->ufPrintDesc&1) {
     pcurrent->ufPrintDesc &= ~(uint32_t)1;
+#ifdef MSX_SOFT_USB
+    printf("MSX joystick USB port %u: device VID=%04x PID=%04x; reading configuration\n",
+           ref + 1, pcurrent->desc.idVendor, pcurrent->desc.idProduct);
+#else
     if( onDetectCB ) {
       onDetectCB( ref, (void*)&pcurrent->desc );
     } else {
@@ -1622,6 +2107,7 @@ void printState()
       printf("desc.iSerialNumber   = %02x\n",pcurrent->desc.iSerialNumber);
       printf("desc.bNumConfigurations = %02x\n",pcurrent->desc.bNumConfigurations);
     }
+#endif
   }
 
   if(pcurrent->ufPrintDesc&2) {
@@ -1630,6 +2116,56 @@ void printState()
 
   if(pcurrent->ufPrintDesc&4) {
     pcurrent->ufPrintDesc &= ~(uint32_t)4;
+#ifdef MSX_SOFT_USB
+    // Select one nonboot HID interface. Application usages are checked after
+    // SET_CONFIGURATION; report layouts remain opaque to calibration.
+    int selectedInterface = -1;
+    bool acceptInterface = false;
+    bool malformed = false;
+    pcurrent->inputCount = 0;
+    pcurrent->inputIndex = 0;
+    for(unsigned pos=0; pos<pcurrent->descrBufferLen;) {
+      const uint8_t *d = pcurrent->descrBuffer + pos;
+      unsigned remaining = pcurrent->descrBufferLen - pos;
+      if(remaining < 2 || d[0] < 2 || d[0] > remaining) {
+        malformed = true;
+        break;
+      }
+      if(d[1] == 4) {
+        if(d[0] < 9) { malformed = true; break; }
+        acceptInterface = d[3] == 0 && d[5] == HIDCLASS &&
+                          d[6] == 0 && d[7] == 0 &&
+                          (selectedInterface < 0 || selectedInterface == d[2]);
+        if(acceptInterface) {
+          selectedInterface = d[2];
+          pcurrent->inputInterface = d[2];
+        }
+      } else if(d[1] == 0x21 && acceptInterface) {
+        if(d[0] < 6 || d[0] < 6 + 3*d[5]) { malformed = true; break; }
+        for(unsigned i=0; i<d[5]; ++i) {
+          if(d[6+3*i] != 0x22) continue;
+          unsigned length = d[7+3*i] | ((unsigned)d[8+3*i] << 8);
+          if(!length || length > 255) { malformed = true; break; }
+          pcurrent->reportDescriptorLength = length;
+        }
+      } else if(d[1] == 5 && acceptInterface) {
+        if(d[0] < 7) { malformed = true; break; }
+        unsigned size = d[4] | ((unsigned)d[5] << 8);
+        if((d[2] & 0x80) && !(d[2] & 0x70) && (d[2] & 15) &&
+           (d[3] & 3) == 3 && size > 0 && size <= 8 && d[6]) {
+          if(pcurrent->inputCount == 4) { malformed = true; break; }
+          unsigned slot = pcurrent->inputCount++;
+          pcurrent->inputEndpoint[slot] = d[2];
+          pcurrent->inputSize[slot] = size;
+          pcurrent->inputInterval[slot] = d[6] < 10 ? 10 : d[6];
+        }
+      }
+      pos += d[0];
+    }
+    if(malformed || (pcurrent->desc.bDeviceClass != STDCLASS &&
+                     pcurrent->desc.bDeviceClass != HIDCLASS))
+      pcurrent->inputCount = 0;
+#else
     int cfgCount   = 0;
     int sIntfCount = 0;
     int hidCount   = 0;
@@ -1718,9 +2254,9 @@ void printState()
       }
       pos+=len;
     }
+#endif
   }
 }
 
 
 #pragma GCC diagnostic pop
-

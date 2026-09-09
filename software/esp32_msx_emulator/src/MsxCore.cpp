@@ -1,6 +1,7 @@
 #include "MsxCore.h"
 #include "MsxPlatform.h"
 #include "Esp32Port.h"
+#include "FramePacer.h"
 #include "MSX.h"
 #include "Sound.h"
 #include <esp_heap_caps.h>
@@ -27,7 +28,9 @@ static unsigned audioFraction;
 static bool running;
 static bool allocationFailed;
 #ifdef ESP_PLATFORM
-static int64_t nextFrameDeadline;
+static FramePacer framePacer;
+static int64_t lastYield, speedStart;
+static unsigned speedFrames, speedPresented;
 #endif
 static void PutImage();
 #include "Common.h"
@@ -37,6 +40,25 @@ extern "C" void* fmsxAllocate(size_t size)
   void* p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!p) { allocationFailed = true; errno = ENOMEM; }
   return p;
+}
+
+extern "C" void* fmsxAllocateCpu(size_t size)
+{
+#ifdef ESP_PLATFORM
+  // Keep video/large mapper buffers in PSRAM and leave headroom for other tasks.
+  constexpr size_t reserve = 64U * 1024U;
+  constexpr unsigned caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+  void* p = nullptr;
+  if (size <= 64U * 1024U && heap_caps_get_free_size(caps) >= size + reserve)
+    p = heap_caps_malloc(size, caps);
+  if (p) {
+    printf("MSX CPU memory: %u bytes in internal SRAM\n", static_cast<unsigned>(size));
+    return p;
+  }
+  printf("MSX CPU memory: %u bytes in PSRAM (size/reserve/fragmentation fallback)\n",
+         static_cast<unsigned>(size));
+#endif
+  return fmsxAllocate(size);
 }
 
 extern "C" FILE* fmsxOpen(const char* name, const char* mode)
@@ -52,26 +74,50 @@ extern "C" FILE* fmsxOpen(const char* name, const char* mode)
   return fopen(path, mode);
 }
 
-static void PutImage()
+extern "C" void fmsxFrame()
 {
 #ifdef ESP_PLATFORM
-  // Always let the core's idle task run, including when emulation is over budget.
-  vTaskDelay(1);
-  const int64_t period = PALVideo ? 20000 : 16667;
   int64_t now = esp_timer_get_time();
-  // A blocking firmware menu must not be followed by a burst of catch-up frames.
-  if (!nextFrameDeadline || now - nextFrameDeadline > period)
-    nextFrameDeadline = now;
-  while (now < nextFrameDeadline) {
-    TickType_t ticks = pdMS_TO_TICKS((nextFrameDeadline - now + 999) / 1000);
+  const int64_t wait = framePacer.frame(now, PALVideo);
+  const int64_t target = now + wait;
+  while (now < target) {
+    TickType_t ticks = pdMS_TO_TICKS((target - now) / 1000);
     vTaskDelay(ticks ? ticks : 1);
     now = esp_timer_get_time();
+    lastYield = now;
   }
-  nextFrameDeadline += period;
+  // Yield periodically when behind, not on every frame (one tick can be costly).
+  if (now - lastYield >= 50000) {
+    vTaskDelay(1);
+    now = esp_timer_get_time();
+    lastYield = now;
+  }
+  UPeriod = framePacer.renderingPercent();
+  if (!speedStart) {
+    speedStart = now;
+    speedFrames = speedPresented = 0;
+  } else ++speedFrames;
+  const int64_t elapsed = now - speedStart;
+  if (elapsed >= 5000000) {
+    printf("MSX speed: %.1f/%u emulated fps, %.1f presented fps, draw=%u%%\n",
+           speedFrames * 1000000.0 / elapsed, PALVideo ? 50U : 60U,
+           speedPresented * 1000000.0 / elapsed, static_cast<unsigned>(UPeriod));
+    speedStart = now;
+    speedFrames = speedPresented = 0;
+  }
+  framePacer.released(esp_timer_get_time());
 #endif
+  if (msxShouldExit()) ExitNow = 1;
+}
+
+static void PutImage()
+{
   for (int y = 0; y < HEIGHT; ++y)
     memcpy(output + y * 256, XBuf + y * WIDTH + 8, 256);
   msxPresent(output, 256, HEIGHT, rgbPalette);
+#ifdef ESP_PLATFORM
+  ++speedPresented;
+#endif
   if (msxShouldExit()) ExitNow = 1;
 }
 
@@ -87,12 +133,23 @@ extern "C" void Keyboard()
 {
   uint8_t matrix[16];
   memset(matrix, 0xFF, sizeof(matrix));
+#ifdef ESP_PLATFORM
+  const int64_t pollStart = esp_timer_get_time();
+#endif
   msxPollKeyboard(matrix);
+#ifdef ESP_PLATFORM
+  // F12 menus block inside the platform callback. Discard their wall time/debt.
+  if (esp_timer_get_time() - pollStart >= 100000) {
+    framePacer.reset();
+    speedStart = 0;
+    speedFrames = speedPresented = 0;
+  }
+#endif
   for (unsigned i = 0; i < sizeof(matrix); ++i) KeyState[i] = matrix[i];
   if (msxShouldExit()) ExitNow = 1;
 }
 
-extern "C" unsigned int Joystick() { return 0; }
+extern "C" unsigned int Joystick() { return msxPollJoysticks() & 0x3f3f; }
 extern "C" unsigned int Mouse(byte) { return 0; }
 extern "C" unsigned int InitAudio(unsigned int rate, unsigned int) { return rate; }
 extern "C" void TrashAudio() {}
@@ -196,7 +253,10 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   }
   audioFraction = 0;
 #ifdef ESP_PLATFORM
-  nextFrameDeadline = 0;
+  framePacer.reset();
+  lastYield = esp_timer_get_time();
+  speedStart = 0;
+  speedFrames = speedPresented = 0;
 #endif
   InitSound(22050, 0);
   SetNoise(0x10000, 16, 14);
@@ -213,7 +273,8 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   CPU.Trap = 0xFFFF;
   CPU.Trace = 0;
   errno = 0;
-  const bool result = StartMSX(model | MSX_NTSC | MSX_GUESSA | MSX_GUESSB,
+  const bool result = StartMSX(model | MSX_NTSC | MSX_GUESSA | MSX_GUESSB |
+                               (JOY_STICK << 4) | (JOY_STICK << 6),
                                ramPages, model ? 8 : 2) != 0;
   const int bootError = errno;
   ResetVDP();

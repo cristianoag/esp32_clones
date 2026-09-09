@@ -81,8 +81,9 @@ an already imported profile:
 
 A standalone 256 KiB image is also accepted, with bank 0 only.
 The importer preserves the entire selected bank byte-for-byte as one
-`OMEGA.ROM` file. It contains the main BIOS/BASIC at `0x00000`, the logo
-at `0x08000`, and the extension at `0x10000`, according to
+`OMEGA.ROM` file. It contains the main BIOS/BASIC at `0x00000`, an optional
+auxiliary ROM area at `0x08000`, the extension at `0x10000`, and Kanji BASIC
+with the original MSX2+ startup animation at `0x14000`, according to
 [Omega's slot map](https://github.com/skiselev/omega/blob/master/Mainboard.md#slot-map).
 The emulator reads and maps these regions directly from that single file;
 it does not create temporary split ROMs. The unselected bank is not imported.
@@ -90,17 +91,24 @@ A SHA256 checksum is generated for checking the complete bank copy.
 
 This boots the Omega BIOS using fMSX's MSX2+ machine model. It is **not**
 a cycle-accurate emulation of the physical Omega board, its flash banking,
-optional user ROMs, or expansion hardware. No optional disk, Kanji,
-or music BIOS is taken from the Omega user-ROM regions.
+optional user ROMs, or expansion hardware. Kanji BASIC is mapped as part
+of the system ROM, but a Kanji font device, disk controller and music
+expansions are not added from the unused bank regions.
 
 ### Restore the Omega startup logo on an existing SD card
 
-Earlier imports split out only the main BIOS and extension, so BASIC
-worked but the logo region was absent. The updated firmware uses the
-single `OMEGA.ROM` bank and maps its logo region into primary slot 0 at
-`0x8000`-`0xBFFF`, where the Omega BIOS expects it. The BIOS runs the
-original logo code; the host does not draw a replacement splash screen
-or occupy either cartridge slot.
+Earlier imports split out only the main BIOS and extension, omitting the
+Kanji BASIC region that also contains the original MSX startup animation.
+The updated firmware maps it together with the extension from the single
+`OMEGA.ROM` bank. It also emulates the MSX2+ reset-status register and the
+sprite-collision status polling used by the animation.
+
+The auxiliary area at `0x08000` is erased in the supplied image; that does
+**not** mean its startup logo is missing. The logo comes from Kanji BASIC.
+The BIOS runs the original logo code; the host does not draw a replacement
+splash screen or occupy either cartridge slot.
+The supplied bank has been verified to show that logo and then reach BASIC
+both in host tests and on the user's board.
 
 Install the updated MSX firmware, then copy the newly imported
 `msx\bios\omega\OMEGA.ROM` onto the SD card beside `profile.ini`.

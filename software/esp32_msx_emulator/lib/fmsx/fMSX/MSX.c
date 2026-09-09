@@ -82,6 +82,7 @@ byte *RAM[8];                      /* Main RAM (8x8kB pages) */
 byte *EmptyRAM;                    /* Empty RAM page (8kB)   */
 byte SaveCMOS;                     /* Save CMOS.ROM on exit  */
 static byte ResetStatus;
+static byte OmegaBankLoaded;
 byte *MemMap[4][4][8];   /* Memory maps [PPage][SPage][Addr] */
 
 byte *RAMData;                     /* RAM Mapper contents    */
@@ -319,6 +320,7 @@ void VDPOut(byte R,byte V);       /* Write value into a VDP register */
 void Printer(byte V);             /* Send a character to a printer   */
 void PPIOut(byte New,byte Old);   /* Set PPI bits (key click, etc.)  */
 int  CheckSprites(void);          /* Check for sprite collisions     */
+static int CheckSpriteLine(unsigned int Y);
 byte RTCIn(byte R);               /* Read RTC registers              */
 byte SetScreen(void);             /* Change screen mode              */
 word SetIRQ(byte IRQ);            /* Set/Reset IRQ                   */
@@ -466,6 +468,7 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   WorkDir     = 0;
   SaveCMOS    = 0;
   ResetStatus = 0xFF;
+  OmegaBankLoaded = 0;
   FMPACKey    = 0x0000;
   ExitNow     = 0;
   NChunks     = 0;
@@ -724,11 +727,12 @@ static int LoadLogoROM(byte **Logo)
   return(1);
 }
 
-/* A selected Omega flash bank is authoritative; never fall back on errors. */
+/* The sub-ROM is followed by Kanji BASIC, which contains the original MSX2+
+ * startup animation. Preserve that contiguous 48 KiB mapping. */
 static int LoadOmegaROM(byte **Main,byte **Ext,byte **Logo)
 {
   static const long Offsets[3] = { 0,0x8000,0x10000 };
-  static const int Sizes[3] = { 0x8000,0x4000,0x4000 };
+  static const int Sizes[3] = { 0x8000,0x4000,0xC000 };
   byte **Regions[3] = { Main,Logo,Ext };
   FILE *F;
   int J,Error;
@@ -807,6 +811,8 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         if(!P1) NewMode=(NewMode&~MSX_MODEL)|(Mode&MSX_MODEL);
         else
         {
+          if(OmegaBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
+          OmegaBankLoaded=0;
           FreeMemory(MemMap[0][0][0]);
           FreeMemory(MemMap[3][1][0]);
           MemMap[0][0][0]=P1;
@@ -833,6 +839,8 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         }
         else
         {
+          if(OmegaBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
+          OmegaBankLoaded=0;
           FreeMemory(MemMap[0][0][0]);
           FreeMemory(MemMap[3][1][0]);
           MemMap[0][0][0]=P1;
@@ -873,6 +881,8 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         }
         else
         {
+          if(OmegaBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
+          OmegaBankLoaded=I>0;
           FreeMemory(MemMap[0][0][0]);
           FreeMemory(MemMap[3][1][0]);
           FreeMemory(MemMap[0][0][4]);
@@ -880,11 +890,13 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
           MemMap[0][0][1]=P1+0x2000;
           MemMap[0][0][2]=P1+0x4000;
           MemMap[0][0][3]=P1+0x6000;
-          /* Omega's logo is system ROM in primary slot 0, not a cartridge. */
+          /* Optional auxiliary ROM in primary slot 0, not a cartridge. */
           MemMap[0][0][4]=P3? P3:EmptyRAM;
           MemMap[0][0][5]=P3? P3+0x2000:EmptyRAM;
           MemMap[3][1][0]=P2;
           MemMap[3][1][1]=P2+0x2000;
+          if(OmegaBankLoaded)
+            for(J=2;J<6;++J) MemMap[3][1][J]=P2+J*0x2000;
         }
         break;
 
@@ -920,7 +932,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   }
 
   /* If toggling BDOS patches... */
-  if((Mode^NewMode)&MSX_PATCHBDOS)
+  if(!OmegaBankLoaded&&((Mode^NewMode)&MSX_PATCHBDOS))
   {
     /* Change to the program directory */
     if(ProgDir && chdir(ProgDir))
@@ -1260,6 +1272,9 @@ case 0x98: /* VRAM read port */
   return(Port);
 
 case 0x99: /* VDP status registers */
+  /* Overlapping pixels can set the latch again after an earlier S#0 read
+   * on the same visible scanline; the startup animation polls this way. */
+  if(!VDP[15]&&!(VDPStatus[2]&0x20)&&CheckSpriteLine(ScanLine)) VDPStatus[0]|=0x20;
   /* Read an appropriate status register */
   Port=VDPStatus[VDP[15]];
   /* Reset VAddr latch sequencer */
@@ -2297,6 +2312,10 @@ word LoopZ80(Z80 *R)
     PlayAllSound(J);
   }
 
+  /* Collision is a raster event, not a once-per-frame event. The MSX2+
+   * startup animation clears S#0 and waits for a later overlapping line. */
+  if(!(VDPStatus[2]&0x20)&&!(VDPStatus[0]&0x20)&&CheckSpriteLine(ScanLine)) VDPStatus[0]|=0x20;
+
   /* Keyboard, sound, and other stuff always runs at line 192    */
   /* This way, it can't be shut off by overscan tricks (Maarten) */
   if(ScanLine==192)
@@ -2305,7 +2324,6 @@ word LoopZ80(Z80 *R)
     VDPStatus[0]=(VDPStatus[0]&~0x40)|0x1F;
 
     /* Check sprites and set Collision bit */
-    if(!(VDPStatus[0]&0x20)&&CheckSprites()) VDPStatus[0]|=0x20;
 
     /* Count MIDI ticks */
     MIDITicks(1000*VPeriod/CPU_CLOCK);
@@ -2381,6 +2399,50 @@ word LoopZ80(Z80 *R)
 /** CheckSprites() *******************************************/
 /** Check for sprite collisions.                            **/
 /*************************************************************/
+static int CheckSpriteLine(unsigned int Y)
+{
+  byte Occupied[32] = {0};
+  unsigned int I,Active=0,Width=Sprites16x16? 16:8,Zoom=BigSprites? 2:1;
+  int X,Top,Row,Pixel;
+  byte *Attribute,*Pattern,Color,Bit;
+
+  if(SpritesOFF||!ScrMode||ScrMode>=MAXSCREEN+1||Y>=(ScanLines212? 212:192)) return(0);
+  for(I=0;I<32;++I)
+  {
+    Attribute=SprTab+I*4;
+    if(Attribute[0]==(ScrMode>3? 216:208)) break;
+    Top=(byte)(Attribute[0]-VScroll);
+    if(Top>256-(int)Width) Top-=256;
+    Row=(int)Y-Top-1;
+    if(Row<0||Row>=(int)(Width*Zoom)) continue;
+    if(++Active>(ScrMode>3? MAXSPRITE2:MAXSPRITE1)) break;
+    Row/=Zoom;
+    Color=ScrMode>3? SprTab[(int)I*16+Row-0x200]:Attribute[3];
+    if((!(Color&15)&&!SolidColor0)||(ScrMode>3&&(Color&0x60))) continue;
+    X=(int)Attribute[1]-(Color&0x80? 32:0);
+    Pattern=SprGen+((Width==16? Attribute[2]&0xFC:Attribute[2])<<3)+Row;
+    for(Pixel=0;Pixel<(int)Width;++Pixel)
+    {
+      Bit=Pattern[Pixel<8? 0:16]&(0x80>>(Pixel&7));
+      if(Bit)
+      {
+        unsigned int Copy;
+        for(Copy=0;Copy<Zoom;++Copy)
+        {
+          int ScreenX=X+Pixel*(int)Zoom+(int)Copy;
+          if(ScreenX>=0&&ScreenX<256)
+          {
+            byte Mask=1<<(ScreenX&7);
+            if(Occupied[ScreenX>>3]&Mask) return(1);
+            Occupied[ScreenX>>3]|=Mask;
+          }
+        }
+      }
+    }
+  }
+  return(0);
+}
+
 int CheckSprites(void)
 {
   unsigned int I,J,LS,LD;

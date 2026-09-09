@@ -15,6 +15,7 @@
 #include "MsxSettings.h"
 #include "MsxJoysticks.h"
 #include "MsxJoystickHost.h"
+#include "MsxJoystickDisplay.h"
 
 static VGA video;
 static uint8_t *screenBackup = nullptr;
@@ -548,40 +549,53 @@ static void joystickMenu()
 {
     unsigned selected = 0;
     uint32_t lastDraw = 0;
+    MsxJoystickSnapshot displayed[2] = {};
+    bool haveDisplay = false;
     MsxKeyboardClearEvents();
     for (;;)
     {
         if (!lastDraw || millis() - lastDraw >= 100)
         {
-            frame("USB joystick calibration / live input");
-            text(8, 40, "Low-speed USB only; one pad per connector.", 0xdf);
+            MsxJoystickSnapshot current[2];
+            bool changed = !haveDisplay || !lastDraw;
             for (unsigned port = 0; port < 2; ++port)
             {
-                MsxJoystickSnapshot state;
-                MsxJoystickSnapshotFor(port, state);
-                char label[80];
-                const int y = 56 + port * 48;
-                if (port == selected) display.fillRect(6, y, 308, 8, 0x48);
-                snprintf(label, sizeof(label), "Joystick %u: %s", port + 1, !state.connected ? "disconnected" :
-                         !state.length ? "waiting for report" : state.calibrated ? "calibrated" : "needs calibration");
-                text(8, y, label);
-                snprintf(label, sizeof(label), "VID %04X PID %04X  EP %02X  len %u",
-                         state.vid, state.pid, state.endpoint, state.length);
-                text(8, y + 8, label);
-                snprintf(label, sizeof(label), "U:%u D:%u L:%u R:%u A:%u B:%u",
-                         !!(state.buttons & 1), !!(state.buttons & 2), !!(state.buttons & 4),
-                         !!(state.buttons & 8), !!(state.buttons & 16), !!(state.buttons & 32));
-                text(8, y + 16, label);
-                snprintf(label, sizeof(label), "Raw %02X %02X %02X %02X %02X %02X %02X %02X",
-                         state.report[0], state.report[1], state.report[2], state.report[3],
-                         state.report[4], state.report[5], state.report[6], state.report[7]);
-                text(8, y + 24, label);
+                MsxJoystickSnapshotFor(port, current[port]);
+                changed |= MsxJoystickDisplayChanged(displayed[port], current[port]);
             }
-            text(8, 164, "USB1 -> port1   USB2 -> port2; no mirroring.");
-            text(8, 180, "Arrows: port  Enter: calibrate  Del: clear");
-            text(8, 188, "Esc/F12: back. Calibration saves immediately.");
-            messageLines(statusMessage);
-            video.show();
+            if (changed)
+            {
+                frame("USB joystick calibration / live input");
+                text(8, 40, "Low-speed USB only; one pad per connector.", 0xdf);
+                for (unsigned port = 0; port < 2; ++port)
+                {
+                    const MsxJoystickSnapshot &state = current[port];
+                    char label[80];
+                    const int y = 56 + port * 48;
+                    if (port == selected) display.fillRect(6, y, 308, 8, 0x48);
+                    snprintf(label, sizeof(label), "Joystick %u: %s", port + 1, !state.connected ? "disconnected" :
+                             !state.length ? "waiting for report" : state.calibrated ? "calibrated" : "needs calibration");
+                    text(8, y, label);
+                    snprintf(label, sizeof(label), "VID %04X PID %04X  EP %02X  len %u",
+                             state.vid, state.pid, state.endpoint, state.length);
+                    text(8, y + 8, label);
+                    snprintf(label, sizeof(label), "U:%u D:%u L:%u R:%u A:%u B:%u",
+                             !!(state.buttons & 1), !!(state.buttons & 2), !!(state.buttons & 4),
+                             !!(state.buttons & 8), !!(state.buttons & 16), !!(state.buttons & 32));
+                    text(8, y + 16, label);
+                    snprintf(label, sizeof(label), "Raw %02X %02X %02X %02X %02X %02X %02X %02X",
+                             state.report[0], state.report[1], state.report[2], state.report[3],
+                             state.report[4], state.report[5], state.report[6], state.report[7]);
+                    text(8, y + 24, label);
+                }
+                text(8, 164, "USB1 -> port1   USB2 -> port2; no mirroring.");
+                text(8, 180, "Arrows: port  Enter: calibrate  Del: clear");
+                text(8, 188, "Esc/F12: back. Calibration saves immediately.");
+                messageLines(statusMessage);
+                video.show();
+                for (unsigned port = 0; port < 2; ++port) displayed[port] = current[port];
+                haveDisplay = true;
+            }
             lastDraw = millis();
         }
         const uint8_t key = MsxKeyboardMenuKey();

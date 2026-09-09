@@ -26,6 +26,14 @@ to the keyboard port. Upload and UART diagnostics use the board's PC/UART
 USB port; the native USB controller is reserved for the keyboard.
 The GPIO48 output is **not** an audio channel.
 
+Audio uses GPIO47 only, with an eight-bit 156.25 kHz PWM carrier and the
+board's analog output filter. F12 mute and Sound Off ramp the output down
+to a steady low level and stop the sample timer; they do not leave a 50%
+carrier running. Sustained silence also fades out automatically, and new
+sound restarts playback with a short ramp. This reduces firmware-generated
+idle switching but does not eliminate noise coupled through board power,
+ground, VGA or USB wiring.
+
 Keyboard mappings use international MSX physical key positions. Left Alt
 is Graph, Right Alt is Code, F6-F10 are Shift+F1-F5, F11 is Select, and
 Pause is Stop. Punctuation and accented characters depend on the selected
@@ -171,11 +179,14 @@ No report layout is guessed: **an uncalibrated pad produces neutral input**.
 
 1. Open **F12 > USB joysticks - calibrate / test**.
 2. Select joystick 1 or 2 with the arrows and press Enter.
-3. Follow the eleven prompts: release all controls, then hold each of the
-   eight directions clockwise from Up (including diagonals), then the
-   buttons you want for fire A and fire B.
+3. Follow the seven prompts: release all controls, then hold Up, Right,
+   Down, Left, and the buttons you want for fire A and fire B.
+   **No diagonal calibration is required.** Diagonals are derived from
+   independent axes/direction bits or standard circular HID hat values.
 4. At each prompt, hold only the requested control, press **Enter on the
-   keyboard**, and keep it steady during the 600 ms capture. Use the same
+   keyboard**, and keep holding until the next prompt appears. The 600 ms
+   capture first allows queued reports to settle; noise is learned only
+   while neutral so an intentional control change is not ignored. Use the same
    stick or D-pad throughout. Esc/F12 cancels without replacing the old
    calibration.
 5. After successful calibration, check the live U/D/L/R/A/B indicators.
@@ -207,6 +218,15 @@ VID/PID messages help distinguish transport failures from unsupported HID
 descriptors. Receive sampling also runs in IRAM, with cycle-based inactivity
 timeouts and a bounded capture buffer. Missing saved calibration is
 normal on first use; the pad must enumerate before F12 calibration can run.
+The decoder starts at the first K transition instead of counting preceding
+idle-J time as packet data. Like the CP400 transport, a DATA packet is
+validated first and its retransmission is promptly acknowledged; only the
+validated copy is delivered to calibration. This avoids a late ACK leaving
+the pad repeatedly returning its initial neutral report.
+
+Hardware testing with the user's `2e24:386a` gamepad confirmed changing
+reports, successful seven-step calibration, and calibration retained after
+restart. This does not establish compatibility with every low-speed pad.
 
 To check the MSX BIOS input path in BASIC:
 
@@ -344,6 +364,7 @@ Run the ROM importer regression checks without any copyrighted ROMs:
 .\tools\Test-Joysticks.ps1
 .\tools\Test-JoystickRuntime.ps1
 .\tools\Test-JoystickTiming.ps1
+.\tools\Test-Audio.ps1
 .\lib\fmsx\tests\host_smoke.ps1 -ProfilesRoot .\sdcard\msx\bios
 ```
 

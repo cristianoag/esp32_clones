@@ -25,6 +25,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Redrew the joystick diagnostic screen only when displayed values or menu selection changed, instead of repeatedly flushing an unchanged VGA frame.
+- Reduced joystick calibration to neutral, four cardinal directions and two fire buttons, deriving diagonals without asking the user to capture them.
 - Preferred internal SRAM for small CPU RAM, BIOS and cartridge allocations while reserving memory for board drivers, and retained PSRAM for large allocations.
 - Adapted the percentage of rendered frames to available processing time while keeping the normal emulated Z80 clock, input polling, and sound cadence.
 - Reported emulated and displayed frame rates on UART to make real-board speed measurable.
@@ -34,6 +36,12 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Fixed
 
+- Made F12 mute and Sound Off fade GPIO47 to a steady low output and stop its sample timer, rather than continuing a 50% PWM carrier.
+- Faded sustained silent audio to a non-switching GPIO47 output, stopped its sample timer when drained, and restarted playback only for new sound.
+- Held the last audio sample on buffer underrun instead of abruptly switching to midscale, and ramped playback transitions to reduce clicks.
+- Started USB reply decoding at the first K transition so idle-J gaps no longer corrupted ACK synchronization and prevented joystick enumeration.
+- Acknowledged validated USB DATA retransmissions promptly, preventing gamepads from repeatedly returning the initial neutral report instead of new control values.
+- Allowed joystick reports to settle before capture, learned noise only at neutral, and displayed and logged calibration failures or successful saves explicitly.
 - Kept USB receive sampling in internal instruction RAM, bounded its edge buffer, and used CPU-cycle inactivity deadlines instead of compiler-dependent loop counts.
 - Allowed at least 10 ms of joystick recovery after USB reset and logged failed descriptor exchanges with packet results and captured-edge counts.
 - Paced every emulated frame independently of display updates and avoided an unconditional RTOS sleep on every drawn frame when already running behind.

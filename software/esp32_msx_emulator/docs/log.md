@@ -15,7 +15,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 - Added an F12 configuration menu that paused and resumed emulation, selected BIOS profiles and RAM sizes, controlled sound and automatic boot, saved boot defaults, and cold-booted another selected ROM.
 - Added active-low MSX keyboard input from a directly connected USB boot keyboard, reserved F12 for configuration, rejected rollover reports, and released held keys on disconnect.
 - Added initial Omega MSX2+ NTSC, Gradiente Expert 1.1, and Sharp Hotbit 1.2 BIOS profiles with SD-card ROM loading and explicit errors for missing or malformed files.
-- Added a local ROM importer that selected either 256 KiB Omega bank, defaulted to the first bank, extracted the correct main and extension BIOS regions, and generated copy-verification checksums without embedding ROMs in firmware.
+- Added a local ROM importer that selected either 256 KiB Omega bank, defaulted to the first bank, preserved the selected bank as one complete ROM, and generated copy-verification checksums without embedding ROMs in firmware.
 - Added custom MSX1, MSX2, and MSX2+ boot profiles discoverable from SD without rebuilding firmware.
 - Added independent PlatformIO and make build targets and ROM-import regression checks.
 - Added CP400-compatible FLH packaging in the dist folder through `make` and `make firmware`, with checksum and payload verification, and removed the selected package through `make clean`.
@@ -36,6 +36,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Fixed
 
+- Kept Omega's BIOS, BASIC, logo and extension in one 256 KiB ROM file and mapped its original logo region into the BIOS slot for cold boot, without using either cartridge slot.
 - Made F12 mute and Sound Off fade GPIO47 to a steady low output and stop its sample timer, rather than continuing a 50% PWM carrier.
 - Faded sustained silent audio to a non-switching GPIO47 output, stopped its sample timer when drained, and restarted playback only for new sound.
 - Held the last audio sample on buffer underrun instead of abruptly switching to midscale, and ramped playback transitions to reduce clicks.
@@ -60,6 +61,6 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 ### Notes
 
 - Required user-supplied BIOS images and retained the original fMSX author's non-commercial terms and attribution.
-- Used fMSX's generic machine models rather than emulating the physical Omega board's optional flash, logo, disk, and expansion hardware.
+- Used fMSX's generic machine models rather than emulating the physical Omega board's optional flash, disk, and expansion hardware.
 - Required directly connected low-speed HID gamepads with learnable reports of at most eight bytes; full-speed controllers and USB hubs were not supported on the joystick ports.
 - Left disk and tape browsing and save states outside the initial release.

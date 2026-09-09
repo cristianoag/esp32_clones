@@ -81,6 +81,7 @@ byte *VRAM,*VPAGE;                 /* Video RAM              */
 byte *RAM[8];                      /* Main RAM (8x8kB pages) */
 byte *EmptyRAM;                    /* Empty RAM page (8kB)   */
 byte SaveCMOS;                     /* Save CMOS.ROM on exit  */
+static byte ResetStatus;
 byte *MemMap[4][4][8];   /* Memory maps [PPage][SPage][Addr] */
 
 byte *RAMData;                     /* RAM Mapper contents    */
@@ -464,6 +465,7 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   Kanji       = 0;
   WorkDir     = 0;
   SaveCMOS    = 0;
+  ResetStatus = 0xFF;
   FMPACKey    = 0x0000;
   ExitNow     = 0;
   NChunks     = 0;
@@ -688,6 +690,72 @@ void TrashMSX(void)
 
   /* Free all remaining allocated memory */
   FreeAllMemory();
+  MemMap[0][0][4]=MemMap[0][0][5]=0;
+  RAM[4]=RAM[5]=0;
+}
+
+/* Unlike legacy optional ROMs, an existing logo must load completely. */
+static int LoadLogoROM(byte **Logo)
+{
+  FILE *F;
+  byte *P;
+  int Error;
+
+  *Logo=0;
+  if(!(F=fopen("MSX2PLOGO.ROM","rb"))) return(errno==ENOENT);
+  if(!(P=GetCpuMemory(0x4000)))
+  {
+    fclose(F);
+    errno=ENOMEM;
+    return(0);
+  }
+  Error=0;
+  if(fread(P,1,0x4000,F)!=0x4000) Error=ferror(F)? EIO:EINVAL;
+  else if(fgetc(F)!=EOF) Error=EINVAL;
+  else if(ferror(F)) Error=EIO;
+  if(fclose(F)&&!Error) Error=EIO;
+  if(Error)
+  {
+    FreeMemory(P);
+    errno=Error;
+    return(0);
+  }
+  *Logo=P;
+  return(1);
+}
+
+/* A selected Omega flash bank is authoritative; never fall back on errors. */
+static int LoadOmegaROM(byte **Main,byte **Ext,byte **Logo)
+{
+  static const long Offsets[3] = { 0,0x8000,0x10000 };
+  static const int Sizes[3] = { 0x8000,0x4000,0x4000 };
+  byte **Regions[3] = { Main,Logo,Ext };
+  FILE *F;
+  int J,Error;
+
+  *Main=*Ext=*Logo=0;
+  if(!(F=fopen("OMEGA.ROM","rb"))) return(errno==ENOENT? 0:-1);
+  Error=0;
+  if(fseek(F,0,SEEK_END)) Error=EIO;
+  else if(ftell(F)!=0x40000) Error=EINVAL;
+  for(J=0;J<3&&!Error;++J)
+  {
+    if(fseek(F,Offsets[J],SEEK_SET)) Error=EIO;
+    else if(!(*Regions[J]=GetCpuMemory(Sizes[J]))) Error=ENOMEM;
+    else if(fread(*Regions[J],1,Sizes[J],F)!=Sizes[J]) Error=EIO;
+  }
+  if(fclose(F)&&!Error) Error=EIO;
+  if(Error)
+  {
+    FreeMemory(*Main);
+    FreeMemory(*Ext);
+    FreeMemory(*Logo);
+    *Main=*Ext=*Logo=0;
+    if(Verbose) printf("  Failed loading OMEGA.ROM (expected a 262144-byte flash bank).\n");
+    errno=Error;
+    return(-1);
+  }
+  return(1);
 }
 
 /** ResetMSX() ***********************************************/
@@ -720,7 +788,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
     0x00208020,0x00C040A0,0x00A0A0A0,0x00E0E0E0
   };
 
-  byte *P1,*P2;
+  byte *P1,*P2,*P3;
   int J,I;
 
   /* If changing hardware model, load new system ROMs */
@@ -777,12 +845,26 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         break;
 
       case MSX_MSX2P:
-        if(Verbose) printf("  Opening MSX2P.ROM...");
-        P1=LoadROM("MSX2P.ROM",0x8000,0);
-        PRINTRESULT(P1);
-        if(Verbose) printf("  Opening MSX2PEXT.ROM...");
-        P2=LoadROM("MSX2PEXT.ROM",0x4000,0);
-        PRINTRESULT(P2);
+        I=LoadOmegaROM(&P1,&P2,&P3);
+        if(I<0) return(Mode);
+        if(!I)
+        {
+          if(Verbose) printf("  Opening MSX2P.ROM...");
+          P1=LoadROM("MSX2P.ROM",0x8000,0);
+          PRINTRESULT(P1);
+          if(Verbose) printf("  Opening MSX2PEXT.ROM...");
+          P2=LoadROM("MSX2PEXT.ROM",0x4000,0);
+          PRINTRESULT(P2);
+          if(P1&&P2&&!LoadLogoROM(&P3))
+          {
+            I=errno;
+            FreeMemory(P1);
+            FreeMemory(P2);
+            if(Verbose) printf("  Failed loading MSX2PLOGO.ROM (expected 16384 bytes).\n");
+            errno=I;
+            return(Mode);
+          }
+        }
         if(!P1||!P2) 
         {
           NewMode=(NewMode&~MSX_MODEL)|(Mode&MSX_MODEL);
@@ -793,10 +875,14 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         {
           FreeMemory(MemMap[0][0][0]);
           FreeMemory(MemMap[3][1][0]);
+          FreeMemory(MemMap[0][0][4]);
           MemMap[0][0][0]=P1;
           MemMap[0][0][1]=P1+0x2000;
           MemMap[0][0][2]=P1+0x4000;
           MemMap[0][0][3]=P1+0x6000;
+          /* Omega's logo is system ROM in primary slot 0, not a cartridge. */
+          MemMap[0][0][4]=P3? P3:EmptyRAM;
+          MemMap[0][0][5]=P3? P3+0x2000:EmptyRAM;
           MemMap[3][1][0]=P2;
           MemMap[3][1][1]=P2+0x2000;
         }
@@ -817,6 +903,11 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   /* If hardware model changed ok, patch freshly loaded BIOS */
   if((Mode^NewMode)&MSX_MODEL)
   {
+    if((NewMode&MSX_MODEL)!=MSX_MSX2P)
+    {
+      FreeMemory(MemMap[0][0][4]);
+      MemMap[0][0][4]=MemMap[0][0][5]=EmptyRAM;
+    }
     /* Apply patches to BIOS */
     if(Verbose) printf("  Patching BIOS: ");
     for(J=0;BIOSPatches[J];++J)
@@ -1120,6 +1211,7 @@ byte InZ80(word Port)
 
 case 0x90: return(0xFD);                   /* Printer READY signal */
 case 0xB5: return(RTCIn(RTCReg));          /* RTC registers        */
+case 0xF4: return(MODEL(MSX_MSX2P)? ResetStatus:NORAM);
 
 case 0xA8: /* Primary slot state   */
 case 0xA9: /* Keyboard port        */
@@ -1274,6 +1366,9 @@ case 0x7D: WrData2413(&OPLL,Value);return;        /* OPLL Data      */
 case 0x91: Printer(Value);return;                 /* Printer Data   */
 case 0xA0: WrCtrl8910(&PSG,Value);return;         /* PSG Register#  */
 case 0xB4: RTCReg=Value&0x0F;return;              /* RTC Register#  */ 
+case 0xF4:
+  if(MODEL(MSX_MSX2P)) ResetStatus=Value|0x7F;
+  return;
 
 case 0xD8: /* Upper bits of Kanji ROM address */
   KanLetter=(KanLetter&0x1F800)|((int)(Value&0x3F)<<5);

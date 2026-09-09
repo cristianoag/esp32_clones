@@ -28,15 +28,17 @@ function Read-SizedRom([string]$Path, [int[]]$Sizes) {
 }
 
 function Add-Profile([string]$Id, [string]$Title, [string]$Machine,
-                     [byte[]]$Main, [byte[]]$Extension, [string]$Source) {
+                     [byte[]]$Main, [byte[]]$Extension, [string]$Source, [hashtable]$Files) {
     if ([string]::IsNullOrWhiteSpace($Title) -or $Title.Length -gt 40 -or $Title -match '[^\x20-\x7e]') {
         throw 'Profile name must be 1-40 printable ASCII characters.'
     }
-    $files = @{}
-    switch ($Machine) {
-        'MSX1'  { $files['MSX.ROM'] = $Main }
-        'MSX2'  { $files['MSX2.ROM'] = $Main; $files['MSX2EXT.ROM'] = $Extension }
-        'MSX2+' { $files['MSX2P.ROM'] = $Main; $files['MSX2PEXT.ROM'] = $Extension }
+    if (-not $Files) {
+        $Files = @{}
+        switch ($Machine) {
+            'MSX1'  { $Files['MSX.ROM'] = $Main }
+            'MSX2'  { $Files['MSX2.ROM'] = $Main; $Files['MSX2EXT.ROM'] = $Extension }
+            'MSX2+' { $Files['MSX2P.ROM'] = $Main; $Files['MSX2PEXT.ROM'] = $Extension }
+        }
     }
     $ram = if ($Machine -eq 'MSX1') { 64 } else { 512 }
     $profiles.Add(@{ Id = $Id; Title = $Title; Model = $Machine; Ram = $ram; Files = $files; Source = $Source })
@@ -48,11 +50,10 @@ if ($OmegaRom) {
         throw 'A 256 KiB Omega image has only bank 0.'
     }
     $offset = $OmegaBank * 262144
-    $main = [byte[]]::new(32768)
-    $extension = [byte[]]::new(16384)
-    [Array]::Copy($omega, $offset, $main, 0, $main.Length)
-    [Array]::Copy($omega, $offset + 0x10000, $extension, 0, $extension.Length)
-    Add-Profile 'omega' "Omega MSX2+ NTSC (bank $OmegaBank)" 'MSX2+' $main $extension "Omega bank $OmegaBank; main +0x00000; sub +0x10000"
+    $bank = [byte[]]::new(262144)
+    [Array]::Copy($omega, $offset, $bank, 0, $bank.Length)
+    Add-Profile 'omega' "Omega MSX2+ NTSC (bank $OmegaBank)" 'MSX2+' $null $null `
+        "Omega bank $OmegaBank; complete 256 KiB image, including BIOS, logo and extension" @{'OMEGA.ROM' = $bank}
 }
 if ($ExpertRom) {
     Add-Profile 'expert' 'Gradiente Expert 1.1' 'MSX1' (Read-SizedRom $ExpertRom @(32768)) $null 'User-supplied 32 KiB BIOS'
@@ -100,5 +101,12 @@ foreach ($profile in $profiles) {
         "$hash  $filename"
     }
     [System.IO.File]::WriteAllLines((Join-Path $target 'SHA256SUMS.txt'), $checksums, [System.Text.Encoding]::ASCII)
+    if ($profile.Files.ContainsKey('OMEGA.ROM')) {
+        # Migrate only the known split files created by the earlier importer.
+        foreach ($legacy in @('MSX2P.ROM', 'MSX2PEXT.ROM', 'MSX2PLOGO.ROM')) {
+            $legacyPath = Join-Path $target $legacy
+            if ([System.IO.File]::Exists($legacyPath)) { [System.IO.File]::Delete($legacyPath) }
+        }
+    }
     Write-Output "Imported $($profile.Title) to $target ($($profile.Source))."
 }

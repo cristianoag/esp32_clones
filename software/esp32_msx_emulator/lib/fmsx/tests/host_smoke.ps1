@@ -44,7 +44,7 @@ try {
   & '.\host_smoke.exe'
   if ($LASTEXITCODE -ne 0) { throw 'Core host regression failed.' }
   foreach ($profile in $profiles) {
-    # Copy only required files; never write CMOS or test images into the originals.
+    # Prefer the single Omega bank; never write CMOS or test images into originals.
     $bios = "$build\bios"
     New-Item -ItemType Directory -Force $bios | Out-Null
     $names = switch ($profile.Model) {
@@ -52,23 +52,37 @@ try {
       1 { @('MSX2.ROM', 'MSX2EXT.ROM') }
       2 { @('MSX2P.ROM', 'MSX2PEXT.ROM') }
     }
+    $combined = $profile.Model -eq 2 -and
+                (Test-Path -LiteralPath (Join-Path $profile.Directory 'OMEGA.ROM'))
+    $logo = $combined -or ($profile.Model -eq 2 -and
+            (Test-Path -LiteralPath (Join-Path $profile.Directory 'MSX2PLOGO.ROM')))
+    if ($combined) { $names = @('OMEGA.ROM') }
+    elseif ($logo) { $names += 'MSX2PLOGO.ROM' }
     try {
+      foreach ($name in @('boot-logo.ppm', 'boot-early.ppm', "boot-logo-$($profile.Name).ppm")) {
+        $capture = Join-Path $build $name
+        if (Test-Path -LiteralPath $capture) { Remove-Item -LiteralPath $capture }
+      }
       foreach ($name in $names) { Copy-Item -LiteralPath (Join-Path $profile.Directory $name) -Destination $bios }
       $posix = $bios.Replace('\', '/')
       if ($posix[1] -eq ':') { $posix = $posix.Substring(2) }
       Write-Output "Booting $($profile.Name)..."
       & '.\host_smoke.exe' $posix $profile.Model $profile.Ram $Frames
-      if ($LASTEXITCODE -ne 0) { throw 'Real BIOS did not reach a detected BASIC Ok prompt; inspect boot.ppm and transcript.' }
+      if ($LASTEXITCODE -ne 0) { throw 'Real BIOS boot/logo verification failed; inspect the PPM captures and transcript.' }
       Copy-Item -LiteralPath "$build\boot.ppm" -Destination "$build\boot-$($profile.Name).ppm"
+      Copy-Item -LiteralPath "$build\boot-early.ppm" -Destination "$build\boot-early-$($profile.Name).ppm"
+      if ($logo -and (Test-Path -LiteralPath "$build\boot-logo.ppm")) {
+        Copy-Item -LiteralPath "$build\boot-logo.ppm" -Destination "$build\boot-logo-$($profile.Name).ppm"
+      }
     } finally {
-      foreach ($name in @($names) + @('CMOS.ROM')) {
+      foreach ($name in @($names) + @('CMOS.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM')) {
         $copy = Join-Path $bios $name
         if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy }
       }
     }
   }
 } finally {
-  foreach ($name in @('MSX.ROM', 'MSX2.ROM', 'MSX2EXT.ROM', 'MSX2P.ROM', 'MSX2PEXT.ROM',
+  foreach ($name in @('MSX.ROM', 'MSX2.ROM', 'MSX2EXT.ROM', 'MSX2P.ROM', 'MSX2PEXT.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM',
                       'slot1.rom', 'slot2.rom', 'slot1.sav', 'slot2.sav', 'CARTS.CRC')) {
     $generated = Join-Path $build $name
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }

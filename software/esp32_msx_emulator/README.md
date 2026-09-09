@@ -63,7 +63,7 @@ The initial profiles are:
 
 | Profile directory | Machine | Default RAM | BIOS files |
 | --- | --- | --- | --- |
-| `msx\bios\omega` | MSX2+ | 512 KiB | `MSX2P.ROM`, `MSX2PEXT.ROM` |
+| `msx\bios\omega` | MSX2+ | 512 KiB | `OMEGA.ROM` (one 256 KiB bank) |
 | `msx\bios\expert` | Gradiente Expert 1.1 / MSX1 | 64 KiB | `MSX.ROM` |
 | `msx\bios\hotbit` | Sharp Hotbit 1.2 / MSX1 | 64 KiB | `MSX.ROM` |
 
@@ -80,18 +80,47 @@ an already imported profile:
 ```
 
 A standalone 256 KiB image is also accepted, with bank 0 only.
-Within the selected bank, the importer extracts the 32 KiB main BIOS at
-`0x00000` and the 16 KiB extension at `0x10000`, according to
+The importer preserves the entire selected bank byte-for-byte as one
+`OMEGA.ROM` file. It contains the main BIOS/BASIC at `0x00000`, the logo
+at `0x08000`, and the extension at `0x10000`, according to
 [Omega's slot map](https://github.com/skiselev/omega/blob/master/Mainboard.md#slot-map).
-It deliberately does **not** mistake the logo at `0x08000` for the extension.
-The unused bank is not imported. The two required BIOS components total
-48 KiB; there is no need to store or load the whole flash chip image.
-Per-profile SHA256 checksums are generated for checking the copy.
+The emulator reads and maps these regions directly from that single file;
+it does not create temporary split ROMs. The unselected bank is not imported.
+A SHA256 checksum is generated for checking the complete bank copy.
 
 This boots the Omega BIOS using fMSX's MSX2+ machine model. It is **not**
 a cycle-accurate emulation of the physical Omega board, its flash banking,
-optional logo/user ROMs, or expansion hardware. No optional disk, Kanji,
+optional user ROMs, or expansion hardware. No optional disk, Kanji,
 or music BIOS is taken from the Omega user-ROM regions.
+
+### Restore the Omega startup logo on an existing SD card
+
+Earlier imports split out only the main BIOS and extension, so BASIC
+worked but the logo region was absent. The updated firmware uses the
+single `OMEGA.ROM` bank and maps its logo region into primary slot 0 at
+`0x8000`-`0xBFFF`, where the Omega BIOS expects it. The BIOS runs the
+original logo code; the host does not draw a replacement splash screen
+or occupy either cartridge slot.
+
+Install the updated MSX firmware, then copy the newly imported
+`msx\bios\omega\OMEGA.ROM` onto the SD card beside `profile.ini`.
+An FLH update alone does not install BIOS files. To regenerate
+the complete profile from your original image:
+
+```powershell
+.\tools\Import-Roms.ps1 -Destination .\sdcard `
+    -OmegaRom 'C:\path\to\omega_msx2+_all_ntsc.bin' -OmegaBank 0 -Force
+```
+
+Replacing the imported profile with `-Force` removes the old generated
+`MSX2P.ROM`, `MSX2PEXT.ROM` and `MSX2PLOGO.ROM` files and restores the
+default name/model/RAM manifest. Other files are left alone.
+Choose Omega and **Boot BIOS + slots (cold reset)** rather than Resume.
+If `OMEGA.ROM` is present in an MSX2+ profile, it takes precedence and must
+be exactly 256 KiB; a malformed combined image is not silently replaced
+with split BIOS files. Other MSX2/MSX2+ profiles can still use the generic
+fMSX separate-file convention below. Expert and Hotbit each remain one
+32 KiB ROM.
 
 ### Add other boot ROMs
 
@@ -393,6 +422,8 @@ Before treating a board as validated:
 
 1. Upload through UART and confirm VGA output and USB enumeration in the log.
 2. Boot each of the three profiles, type `PRINT 2+2`, and verify BASIC prints `4`.
+   With the complete Omega bank installed, check that the MSX startup
+   logo appears before BASIC.
 3. Open F12 while a BASIC program runs, resume it, then cold-boot another ROM.
 4. Save a default, power-cycle, and check that the same profile and RAM return.
 5. Try Omega `SCREEN 5` and a BASIC `PLAY` command to check graphics and sound.

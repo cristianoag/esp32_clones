@@ -10,11 +10,13 @@
 #include <unistd.h>
 #include <string>
 #include <vector>
+#include <sys/stat.h>
 
 extern "C" {
 extern AY8910 PSG;
-extern byte *ROMData[MAXSLOTS], *MemMap[4][4][8], *EmptyRAM;
+extern byte *ROMData[MAXSLOTS], *MemMap[4][4][8], *EmptyRAM, *RAM[8];
 extern byte ROMType[MAXSLOTS], ROMMapper[MAXSLOTS][4], ROMMask[MAXSLOTS], SCCOn[2];
+extern int NChunks;
 }
 
 static unsigned frames, audioSamples, nonzeroSamples, coloredFrames, errors, allocation;
@@ -31,6 +33,18 @@ static uint16_t sampledJoysticks;
 static unsigned joystickPolls;
 static unsigned keyboardPolls, requestedDrawPercent = 100;
 static bool requestedPal;
+static bool expectRealLogo, logoTest, expectLogo;
+static bool logoResetTest;
+static bool truncateOmegaOnAllocation;
+static unsigned logoPcSamples, logoPixels, logoFrame;
+static std::vector<byte> expectedLogo;
+static std::vector<byte> expectedExtension;
+
+static bool executingLogo()
+{
+  return CPU.PC.W >= 0x8000 && CPU.PC.W < 0xC000 &&
+         MemMap[0][0][4] != EmptyRAM && RAM[CPU.PC.W >> 13] == MemMap[0][0][CPU.PC.W >> 13];
+}
 
 uint16_t msxPollJoysticks()
 {
@@ -105,10 +119,10 @@ static void checkCartridges()
   }
 }
 
-static void captureBoot(const uint8_t* pixels, int width, int height,
-                        const uint32_t* palette)
+static void captureImage(const char* name, const uint8_t* pixels, int width, int height,
+                         const uint32_t* palette)
 {
-  FILE* f = fopen("boot.ppm", "wb");
+  FILE* f = fopen(name, "wb");
   assert(f);
   fprintf(f, "P6\n%d %d\n255\n", width, height);
   for (int i = 0; i < width * height; ++i) {
@@ -121,6 +135,12 @@ static void captureBoot(const uint8_t* pixels, int width, int height,
     assert(fwrite(rgb, 1, sizeof(rgb), f) == sizeof(rgb));
   }
   fclose(f);
+}
+
+static void captureBoot(const uint8_t* pixels, int width, int height,
+                        const uint32_t* palette)
+{
+  captureImage("boot.ppm", pixels, width, height, palette);
   printf("Final screen: mode=%u, PC=%04X, RAM=%d KiB\n", ScrMode, CPU.PC.W, RAMPages * 16);
   if (ScrMode == 0 || ScrMode == 1) {
     const int columns = ScrMode == 0 ? 40 : 32;
@@ -140,6 +160,12 @@ static void captureBoot(const uint8_t* pixels, int width, int height,
 extern "C" void* heap_caps_malloc(size_t size, unsigned)
 {
   if (++allocation == failAllocation) return nullptr;
+  if (truncateOmegaOnAllocation && size == 32768) {
+    // Simulate a short read after the loader has checked the bank's exact size.
+    truncateOmegaOnAllocation = false;
+    FILE* f = fopen("OMEGA.ROM", "wb");
+    assert(f && fclose(f) == 0);
+  }
   return malloc(size);
 }
 extern "C" void heap_caps_free(void* ptr) { free(ptr); }
@@ -151,9 +177,58 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
   for (int i = 0; i < width * height; ++i)
     if (pixels[i]) { ++coloredFrames; break; }
   ++frames;
+  if (logoTest && frames == 1) {
+    if (!expectedExtension.empty())
+      assert(memcmp(MemMap[3][1][0], expectedExtension.data(), expectedExtension.size()) == 0);
+    if (expectLogo) {
+      assert(executingLogo());
+      assert(memcmp(MemMap[0][0][4], expectedLogo.data(), expectedLogo.size()) == 0);
+      assert(MemMap[0][0][5] == MemMap[0][0][4] + 0x2000);
+      assert(RdZ80(0xC102) == 0x5A && RdZ80(0xC103) == 0xA5);
+      const byte value = RdZ80(0x8000);
+      WrZ80(0x8000, ~value);
+      assert(RdZ80(0x8000) == value);
+    } else {
+      assert(MemMap[0][0][4] == EmptyRAM && MemMap[0][0][5] == EmptyRAM);
+      assert(RdZ80(0xC102) == 0xFF);
+    }
+  }
+  if (realBios && (expectRealLogo || ScrMode >= 2)) {
+    if (executingLogo()) ++logoPcSamples;
+    unsigned histogram[256] = {};
+    for (int i = 0; i < width * height; ++i) ++histogram[pixels[i]];
+    unsigned background = 0;
+    for (unsigned count : histogram) if (count > background) background = count;
+    const unsigned detail = width * height - background;
+    if ((executingLogo() || ScrMode >= 2) && detail > logoPixels && detail > 100) {
+      logoPixels = detail;
+      logoFrame = frames;
+      captureImage("boot-logo.ppm", pixels, width, height, palette);
+      printf("Logo screen: frame=%u, mode=%u, PC=%04X, non-background=%u\n",
+             frames, ScrMode, CPU.PC.W, detail);
+    }
+  }
   if (!realBios && joystickPolls) checkJoystickPorts();
   if (cartridgeTest && frames == 1) checkCartridges();
   if (realBios && frames == frameLimit) captureBoot(pixels, width, height, palette);
+  if (realBios && frames == (frameLimit < 30 ? frameLimit : 30))
+    captureImage("boot-early.ppm", pixels, width, height, palette);
+  if (logoResetTest && frames == frameLimit) {
+    byte* logo = MemMap[0][0][4];
+    const int chunks = NChunks;
+    assert(ResetMSX(Mode, RAMPages, VRAMPages) == Mode);
+    assert(MemMap[0][0][4] == logo && NChunks == chunks);
+    for (int model : {0, 1, 2}) {
+      const int mode = (Mode & ~MSX_MODEL) | model;
+      assert((ResetMSX(mode, 4, model ? 8 : 2) & MSX_MODEL) == model);
+      if (model == 2) {
+        assert(MemMap[0][0][4] != EmptyRAM);
+        assert(memcmp(MemMap[0][0][4], expectedLogo.data(), expectedLogo.size()) == 0);
+      } else assert(MemMap[0][0][4] == EmptyRAM && MemMap[0][0][5] == EmptyRAM);
+      assert(RAM[4] == MemMap[0][0][4] && RAM[5] == MemMap[0][0][5]);
+    }
+    assert(NChunks == chunks);
+  }
 }
 void msxPollKeyboard(uint8_t matrix[16])
 {
@@ -217,18 +292,19 @@ static void resetCounters()
   lastError[0] = 0;
 }
 
-static void runCartridges(const char* bios, const char* slot1, const char* slot2)
+static void runCartridges(const char* bios, const char* slot1, const char* slot2, int model = 0)
 {
   char error[128] = "old error";
   assert(MsxValidateCartridge(slot1, error, sizeof(error)) && !error[0]);
   assert(MsxValidateCartridge(slot2, error, sizeof(error)) && !error[0]);
   resetCounters();
-  assert(MsxCoreRun(bios, 0, 4, slot1, slot2));
+  assert(MsxCoreRun(bios, model, 4, slot1, slot2));
   assert(frames == frameLimit && !errors);
   assert(!ROMName[0] && !ROMName[1]);
+  assert(NChunks == 0);
 }
 
-static void cartridgeRegression(const char* directory)
+static std::vector<byte> slotScanningBios()
 {
   // Select slot 3's RAM subslot, then inspect/call the AB header in each physical slot.
   const byte boot[] = {
@@ -246,7 +322,12 @@ static void cartridgeRegression(const char* directory)
   std::vector<byte> bios(32768);
   memcpy(bios.data(), boot, sizeof(boot));
   memcpy(bios.data() + 0x30, scan, sizeof(scan));
-  writeImage("MSX.ROM", bios);
+  return bios;
+}
+
+static void cartridgeRegression(const char* directory)
+{
+  writeImage("MSX.ROM", slotScanningBios());
   const std::string paths[] = {std::string(directory) + "/slot1.rom",
                                std::string(directory) + "/slot2.rom"};
   cartridgeTest = true;
@@ -359,6 +440,203 @@ static void cartridgeRegression(const char* directory)
   puts("PASS: physical slots 1/2/both, plain 8/16/32/48/64 KiB, all 8 mappers, 2 MiB, eject/switch, bad files and cartridge OOM recovery.");
 }
 
+static void logoRegression(const char* directory)
+{
+  auto bios = slotScanningBios();
+  bios[0x25] = 0xC3; bios[0x26] = 0x60; bios[0x27] = 0x00;
+  // Read slot 0 page 2, then execute it only when the synthetic logo is present.
+  const byte probe[] = {
+    0x3E,0xC0,0xD3,0xA8,0x3A,0x00,0x80,0x32,0x02,0xC1,
+    0xFE,0x5A,0xCA,0x10,0x80,0x76,0xC3,0x6F,0x00
+  };
+  memcpy(bios.data() + 0x60, probe, sizeof(probe));
+  for (const char* name : {"MSX.ROM", "MSX2.ROM", "MSX2P.ROM"})
+    writeImage(name, bios);
+  expectedLogo.assign(16384, 0);
+  expectedLogo[0] = 0x5A;
+  expectedLogo[0x2000] = 0xA5;
+  const byte program[] = {
+    0x3A,0x00,0xA0,0x32,0x03,0xC1,
+    0x3E,0xF4,0xD3,0x99,0x3E,0x87,0xD3,0x99,
+    0x76,0xC3,0x1E,0x80
+  };
+  memcpy(expectedLogo.data() + 0x10, program, sizeof(program));
+  const std::string paths[] = {std::string(directory) + "/slot1.rom",
+                               std::string(directory) + "/slot2.rom"};
+  logoTest = cartridgeTest = true;
+  for (int pass = 0; pass < 2; ++pass) {
+    for (int present = 0; present < 2; ++present) {
+      if (present) writeImage("MSX2PLOGO.ROM", expectedLogo);
+      for (int model : {2, 0, 1, 2})
+        for (int selection = 0; selection < 4; ++selection) {
+          expectLogo = present && model == 2;
+          for (int slot = 0; slot < 2; ++slot) {
+            const bool inserted = selection & (1 << slot);
+            expectedCarts[slot] = inserted ? makeCartridge(16384, 0x40 + slot * 0x20)
+                                            : std::vector<byte>();
+            expectedResults[slot] = inserted ? 0x40 + slot * 0x20 : 0xFF;
+            expectedMappers[slot] = -1;
+            if (inserted) writeImage(paths[slot].c_str(), expectedCarts[slot]);
+          }
+          runCartridges(directory, selection & 1 ? paths[0].c_str() : nullptr,
+                         selection & 2 ? paths[1].c_str() : nullptr, model);
+        }
+      if (present) assert(remove("MSX2PLOGO.ROM") == 0);
+    }
+  }
+  cartridgeTest = false;
+  expectLogo = true;
+  writeImage("MSX2PLOGO.ROM", expectedLogo);
+  resetCounters();
+  logoResetTest = true;
+  assert(MsxCoreRun(directory, 2, 4));
+  logoResetTest = false;
+  assert(NChunks == 0);
+  resetCounters();
+  assert(MsxCoreRun(directory, 2, 4));
+  const unsigned allocations = allocation;
+  for (unsigned failure = 1; failure <= allocations; ++failure) {
+    resetCounters();
+    failAllocation = failure;
+    assert(!MsxCoreRun(directory, 2, 4));
+    assert(errors == 1 && frames == 0 && strstr(lastError, "PSRAM"));
+    assert(!MemMap[0][0][4] && !MemMap[0][0][5]);
+    assert(NChunks == 0);
+    resetCounters();
+    assert(MsxCoreRun(directory, 2, 4));
+  }
+  for (unsigned size : {0U, 1U, 16383U, 16385U, 32768U}) {
+    writeImage("MSX2PLOGO.ROM", std::vector<byte>(size));
+    resetCounters();
+    assert(!MsxCoreRun(directory, 2, 4));
+    assert(errors == 1 && frames == 0);
+    assert(!MemMap[0][0][4] && !MemMap[0][0][5]);
+    // Other models ignore even a malformed optional MSX2+ file.
+    expectLogo = false;
+    resetCounters();
+    assert(MsxCoreRun(directory, 0, 4));
+    writeImage("MSX2PLOGO.ROM", expectedLogo);
+    expectLogo = true;
+    resetCounters();
+    assert(MsxCoreRun(directory, 2, 4));
+  }
+  assert(remove("MSX2PLOGO.ROM") == 0);
+  // An existing path that cannot be opened/read is not an absent optional ROM.
+#ifdef _WIN32
+  assert(mkdir("MSX2PLOGO.ROM") == 0);
+#else
+  assert(mkdir("MSX2PLOGO.ROM", 0700) == 0);
+#endif
+  resetCounters();
+  assert(!MsxCoreRun(directory, 2, 4));
+  assert(errors == 1 && frames == 0);
+  assert(rmdir("MSX2PLOGO.ROM") == 0);
+  expectLogo = false;
+  resetCounters();
+  assert(MsxCoreRun(directory, 2, 4));
+  logoTest = false;
+  for (const auto& name : paths) assert(remove(name.c_str()) == 0);
+  puts("PASS: optional logo Z80 read/execute, read-only slot 0 page 2, both cartridges, model/restart/eject, malformed files and OOM recovery.");
+}
+
+static void omegaRegression(const char* directory)
+{
+  std::vector<byte> main(32768), ext(16384), bank(262144, 0xFF);
+  FILE* f = fopen("MSX2P.ROM", "rb");
+  assert(f && fread(main.data(), 1, main.size(), f) == main.size());
+  fclose(f);
+  f = fopen("MSX2PEXT.ROM", "rb");
+  assert(f && fread(ext.data(), 1, ext.size(), f) == ext.size());
+  fclose(f);
+  memcpy(bank.data(), main.data(), main.size());
+  memcpy(bank.data() + 0x8000, expectedLogo.data(), expectedLogo.size());
+  memcpy(bank.data() + 0x10000, ext.data(), ext.size());
+  expectedExtension = ext;
+  writeImage("OMEGA.ROM", bank);
+  // The combined bank wins over malformed legacy files without opening them.
+  for (const char* name : {"MSX2P.ROM", "MSX2PEXT.ROM", "MSX2PLOGO.ROM"})
+    writeImage(name, {});
+  const std::string paths[] = {std::string(directory) + "/slot1.rom",
+                               std::string(directory) + "/slot2.rom"};
+  expectLogo = logoTest = cartridgeTest = true;
+  for (int selection = 0; selection < 4; ++selection) {
+    for (int slot = 0; slot < 2; ++slot) {
+      const bool inserted = selection & (1 << slot);
+      expectedCarts[slot] = inserted ? makeCartridge(16384, 0x40 + slot * 0x20)
+                                    : std::vector<byte>();
+      expectedResults[slot] = inserted ? 0x40 + slot * 0x20 : 0xFF;
+      expectedMappers[slot] = -1;
+      if (inserted) writeImage(paths[slot].c_str(), expectedCarts[slot]);
+    }
+    runCartridges(directory, selection & 1 ? paths[0].c_str() : nullptr,
+                   selection & 2 ? paths[1].c_str() : nullptr, 2);
+  }
+  cartridgeTest = false;
+  for (const char* name : {"MSX2P.ROM", "MSX2PEXT.ROM", "MSX2PLOGO.ROM"})
+    assert(remove(name) == 0);
+  resetCounters();
+  logoResetTest = true;
+  assert(MsxCoreRun(directory, 2, 4));
+  logoResetTest = false;
+  resetCounters();
+  assert(MsxCoreRun(directory, 2, 4));
+  const unsigned allocations = allocation;
+  for (unsigned failure = 1; failure <= allocations; ++failure) {
+    resetCounters();
+    failAllocation = failure;
+    assert(!MsxCoreRun(directory, 2, 4));
+    assert(errors == 1 && frames == 0 && strstr(lastError, "PSRAM"));
+    assert(!NChunks && !MemMap[0][0][4] && !MemMap[0][0][5]);
+    resetCounters();
+    assert(MsxCoreRun(directory, 2, 4));
+  }
+  // Loading a single bank must not produce any split files.
+  for (const char* name : {"MSX2P.ROM", "MSX2PEXT.ROM", "MSX2PLOGO.ROM"})
+    assert(access(name, F_OK) != 0);
+  writeImage("MSX2P.ROM", main);
+  writeImage("MSX2PEXT.ROM", ext);
+  truncateOmegaOnAllocation = true;
+  resetCounters();
+  assert(!MsxCoreRun(directory, 2, 4));
+  assert(!truncateOmegaOnAllocation && errors == 1 && frames == 0 && !NChunks);
+  assert(!MemMap[0][0][4] && !MemMap[0][0][5]);
+  writeImage("OMEGA.ROM", bank);
+  resetCounters();
+  assert(MsxCoreRun(directory, 2, 4));
+  expectedExtension.clear();
+  for (unsigned size : {0U, 1U, 262143U, 262145U, 524288U}) {
+    writeImage("OMEGA.ROM", std::vector<byte>(size));
+    resetCounters();
+    assert(!MsxCoreRun(directory, 2, 4));
+    assert(errors == 1 && frames == 0 && !NChunks);
+    expectLogo = false;
+    for (int model : {0, 1}) {
+      resetCounters();
+      assert(MsxCoreRun(directory, model, 4));
+    }
+    expectLogo = true;
+    writeImage("OMEGA.ROM", bank);
+    resetCounters();
+    assert(MsxCoreRun(directory, 2, 4));
+  }
+  assert(remove("OMEGA.ROM") == 0);
+#ifdef _WIN32
+  assert(mkdir("OMEGA.ROM") == 0);
+#else
+  assert(mkdir("OMEGA.ROM", 0700) == 0);
+#endif
+  resetCounters();
+  assert(!MsxCoreRun(directory, 2, 4));
+  assert(errors == 1 && frames == 0 && !NChunks);
+  assert(rmdir("OMEGA.ROM") == 0);
+  expectLogo = false;
+  resetCounters();
+  assert(MsxCoreRun(directory, 2, 4));
+  logoTest = false;
+  for (const auto& name : paths) assert(remove(name.c_str()) == 0);
+  puts("PASS: single authoritative 256 KiB Omega bank, direct MAIN/LOGO/SUB mapping, no extracted files, cartridge slots, model resets, invalid/unreadable banks and OOM recovery.");
+}
+
 int main(int argc, char** argv)
 {
   if (argc > 1) {
@@ -366,10 +644,33 @@ int main(int argc, char** argv)
     realBios = true;
     frameLimit = static_cast<unsigned>(atoi(argv[4]));
     assert(frameLimit > 0);
+    const std::string omegaPath = std::string(argv[1]) + "/OMEGA.ROM";
+    const bool omega = atoi(argv[2]) == 2 && access(omegaPath.c_str(), F_OK) == 0;
+    const std::string logoPath = omega ? omegaPath : std::string(argv[1]) + "/MSX2PLOGO.ROM";
+    if (atoi(argv[2]) == 2) {
+      FILE* logo = fopen(logoPath.c_str(), "rb");
+      if (logo) {
+        if (omega) assert(fseek(logo, 0x8000, SEEK_SET) == 0);
+        unsigned bytesRead = 0;
+        for (unsigned i = 0; i < 16384; ++i) {
+          const int value = fgetc(logo);
+          if (value == EOF) break;
+          ++bytesRead;
+          if (value != 0xFF) expectRealLogo = true;
+        }
+        fclose(logo);
+        if (bytesRead == 16384 && !expectRealLogo)
+          puts("Logo ROM is entirely FF (erased): no logo program exists in this image; BASIC boot is tested, not a real logo.");
+      }
+    }
     const bool result = MsxCoreRun(argv[1], atoi(argv[2]), atoi(argv[3]));
     printf("BIOS boot: result=%d, frames=%u, samples=%u, BASIC prompt=%s\n",
            result, frames, audioSamples, basicPrompt ? "yes" : "not detected");
-    return result && frames == frameLimit && basicPrompt ? 0 : 1;
+    if (expectRealLogo)
+      printf("Logo boot: executing slot-0 page-2 samples=%u, captured frame=%u, detail pixels=%u\n",
+             logoPcSamples, logoFrame, logoPixels);
+    return result && frames == frameLimit && basicPrompt &&
+           (!expectRealLogo || (logoPcSamples && logoFrame)) ? 0 : 1;
   }
   char directory[1024];
   assert(getcwd(directory, sizeof(directory)));
@@ -421,6 +722,8 @@ int main(int argc, char** argv)
     assert(MsxCoreRun(path, 0, 4));
   }
   cartridgeRegression(path);
+  logoRegression(path);
+  omegaRegression(path);
   frameLimit = 30;
   for (int pal = 0; pal < 2; ++pal) {
     requestedPal = pal != 0;

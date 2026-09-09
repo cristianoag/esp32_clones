@@ -77,6 +77,34 @@ Required files:
 | MSX1 | `MSX.ROM` (32768 bytes) |
 | MSX2 | `MSX2.ROM` (32768), `MSX2EXT.ROM` (16384) |
 | MSX2+ | `MSX2P.ROM` (32768), `MSX2PEXT.ROM` (16384) |
+| Omega / MSX2+ | `OMEGA.ROM` (262144 bytes), instead of separate files |
+
+For MSX2+, an existing `OMEGA.ROM` takes precedence over the generic files,
+regardless of the profile directory's name. This is **one selected 256 KiB flash
+bank**, containing the main BIOS, logo area and sub-ROM together. The loader
+reads only the mapped regions directly into their CPU buffers:
+
+| File offset | Size | Mapping |
+| --- | --- | --- |
+| `0x00000` | 32 KiB | Primary slot 0, `0x0000–0x7FFF` |
+| `0x08000` | 16 KiB | Primary slot 0, `0x8000–0xBFFF` |
+| `0x10000` | 16 KiB | Slot 3/subslot 1, `0x0000–0x3FFF` |
+
+It neither extracts separate files nor allocates the entire 256 KiB container.
+An invalid size, open/read failure or allocation failure stops boot; an existing
+but invalid combined bank never falls back to legacy files. The bank's unused
+regions and expansion ROMs do not automatically add emulated peripherals.
+MSX1/MSX2 ignore `OMEGA.ROM`. The original generic format remains supported
+when the MSX2+ directory has no combined bank.
+
+Generic MSX2+ additionally supports optional `MSX2PLOGO.ROM` (exactly 16384 bytes).
+It maps read-only at **primary slot 0, 0x8000–0xBFFF**, matching Omega's flash
+bank offset `0x08000`; it never occupies cartridge slots 1 or 2. The normal
+BIOS decides whether/how to execute this ROM; the host does not draw a substitute
+logo or patch the boot sequence. Missing files preserve the original boot.
+An existing file with an invalid size, open/read failure or allocation failure
+stops boot. Same-model resets preserve the mapping; changing models or ending
+a run releases it. Other models ignore this file.
 
 Upstream optional files, including `DISK.ROM`, `CMOS.ROM`, `KANJI.ROM`, and
 system cartridges, are resolved inside the selected profile directory.
@@ -88,7 +116,7 @@ MSX joysticks and receive the platform's active-high U/D/L/R/A/B masks through
 `msxPollJoysticks` (bits 0-5 and 8-13). The core converts these to active-low
 PSG input, including the register-15 port selector. Mouse input is not connected.
 MSX hardware profiles are generic fMSX models: loading Omega firmware does
-not emulate every physical Omega expansion, logo-ROM slot or board peripheral.
+not emulate every physical Omega expansion or board peripheral.
 
 ### Boot-time cartridges
 
@@ -139,7 +167,9 @@ boot-time allocation of both SRAM and its filename is mandatory.
   require explicit cartridge loads, reject incomplete/oversized ROMs, make SRAM
   allocation failures fatal, reset mapper registers and disable cartridge
   automatic state restoration; call the platform once per emulated frame even
-  when rendering is skipped.
+  when rendering is skipped; load the optional MSX2+ logo into slot 0 page 2,
+  with exact-size/read checks and tracked, model-safe cleanup; directly load
+  MAIN/LOGO/SUB regions from an authoritative single Omega flash bank.
 - `V9938.c`: add command-engine reset for safe profile switching.
 - `Sound.c`: include embedded audio-driver declarations.
 - `Floppy.c`: include POSIX directory declarations without selecting a desktop
@@ -170,7 +200,16 @@ plain sizes, all eight original mappers (including heuristic and database
 selection), actual bank writes/reads, 2 MiB images in both slots, complete loaded
 contents, SCC reset, eject/switch, malformed/missing files, every required
 cartridge/SRAM allocation failure and successful recovery without any CPU
-execution on failed boots. The host test replaces only ESP32 allocation and
+execution on failed boots. Logo regressions execute a synthetic Z80 program
+from slot 0 page 2, read both 8 KiB halves, reject writes, preserve both cartridge
+slots, exercise same-model resets and model changes, and cover presence/absence,
+malformed/unreadable files and every boot allocation failure/recovery.
+Combined-bank tests also verify authoritative precedence over malformed legacy
+files, operation with no split files, correct region offsets, absence of
+extracted files, truncated/oversized banks (including an unselected 512 KiB
+source), a short read after size validation, generic fallback only when the
+bank is absent, and allocation-failure recovery.
+The host test replaces only ESP32 allocation and
 platform I/O, not any emulated component. Build artifacts and generated test
 ROMs are confined to the ignored `tests\.build` directory.
 
@@ -184,9 +223,16 @@ directory path to the same script, for example:
 powershell -File lib\fmsx\tests\host_smoke.ps1 -BiosDirectory C:\private\omega -Model 2 -RamPages 32 -Frames 900
 ```
 
-The script copies only the model's required BIOS files into its ignored build
+The script copies `OMEGA.ROM` alone when present for MSX2+, otherwise the model's
+generic BIOS files and optional MSX2+ logo, into its ignored build
 directory (the originals are never modified), runs 900 unpaced emulated frames,
 prints the final text-mode character table and writes `tests\.build\boot.ppm`.
+It also saves frame 30 (or the final frame for shorter runs) to `boot-early.ppm`.
+For a non-erased logo image, it requires samples of the real CPU executing
+0x8000–0xBFFF with slot 0 mapped, and captures the most detailed observed frame
+during that execution as `boot-logo.ppm`. These checks supplement, rather than
+replace, visual inspection of the capture. Entirely `FF` logo images are reported
+as erased and tested for BASIC only, never presented as proof of a real logo.
 A successful real-BIOS test requires a detected BASIC `Ok` prompt. An absent
 prompt fails the test but may indicate a graphical boot screen rather than
 broken emulation; inspect the captured image and transcript. Private BIOS
@@ -194,6 +240,7 @@ copies are removed in a `finally` block. To test all three imported profiles
 with one compilation, use `-ProfilesRoot .\sdcard\msx\bios` instead of
 `-BiosDirectory`. Captures are also saved as `boot-expert.ppm`,
 `boot-hotbit.ppm`, and `boot-omega.ppm`.
+Early/logo captures receive the corresponding profile suffix as well.
 
 Real-BIOS host validation on September 7, 2026 reached a rendered BASIC `Ok`
 prompt after 900 frames in each of the supplied profiles:
@@ -207,3 +254,9 @@ prompt after 900 frames in each of the supplied profiles:
 The Omega test used only the 32 KiB main BIOS and 16 KiB sub-ROM, without the
 physical logo ROM or disk ROM. This confirms the generic fMSX BIOS boot path,
 not full Omega board emulation or real-device operation.
+
+September 8 inspection of the supplied `omega_msx2+_all_ntsc.bin` found that
+both 16 KiB logo regions (`0x08000` and `0x48000`) contain only `FF`.
+Mapping that image cannot display or execute a nonexistent logo program.
+A populated, compatible logo ROM is still required to validate a real Omega
+logo on either the host or hardware; an early-frame capture is not a replacement.

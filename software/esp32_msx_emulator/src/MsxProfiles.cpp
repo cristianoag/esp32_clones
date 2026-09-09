@@ -59,10 +59,27 @@ bool MsxValidateProfile(MsxProfile &profile)
     }
     static const char *mainNames[] = {"MSX.ROM", "MSX2.ROM", "MSX2P.ROM"};
     static const char *subNames[] = {"", "MSX2EXT.ROM", "MSX2PEXT.ROM"};
+    if (profile.model == 2)
+    {
+        snprintf(path, sizeof(path), "/msx/bios/%s/OMEGA.ROM", profile.id);
+        if (SD_MMC.exists(path))
+        {
+            if (!sizedRom(profile, "OMEGA.ROM", 262144))
+                return fail(profile, "Invalid OMEGA.ROM; expected one 262144-byte bank.");
+            profile.available = true;
+            return true;
+        }
+    }
     if (!sizedRom(profile, mainNames[profile.model], 32768))
         return fail(profile, "Missing/invalid main BIOS; expected 32768 bytes.");
     if (profile.model && !sizedRom(profile, subNames[profile.model], 16384))
         return fail(profile, "Missing/invalid extension; expected 16384 bytes.");
+    if (profile.model == 2)
+    {
+        snprintf(path, sizeof(path), "/msx/bios/%s/MSX2PLOGO.ROM", profile.id);
+        if (SD_MMC.exists(path) && !sizedRom(profile, "MSX2PLOGO.ROM", 16384))
+            return fail(profile, "Invalid logo ROM; expected 16384 bytes.");
+    }
     profile.available = true;
     return true;
 }

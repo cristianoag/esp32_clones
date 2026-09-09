@@ -37,11 +37,11 @@ static void IRAM_ATTR sampleInterrupt()
         return;
     }
     const bool available = readIndex != writeIndex;
-    const uint8_t sample = available ? samples[readIndex] : 128;
+    const uint8_t sample = available ? samples[readIndex] : MsxAudioSignal::Neutral;
     if (available)
     {
         readIndex = (readIndex + 1) % BufferSize;
-        if (sample != 128) --nonNeutralQueued;
+        if (sample != MsxAudioSignal::Neutral) --nonNeutralQueued;
     }
     writeDuty(audioSignal.tick(available, sample));
     if (audioSignal.sleeping() && readIndex == writeIndex)
@@ -124,7 +124,7 @@ void MsxAudioSubmit(const int16_t *source, unsigned count)
             {
                 samples[writeIndex] = sample;
                 writeIndex = (writeIndex + 1) % BufferSize;
-                if (sample != 128) ++nonNeutralQueued;
+                if (sample != MsxAudioSignal::Neutral) ++nonNeutralQueued;
             }
             ++copied;
         }

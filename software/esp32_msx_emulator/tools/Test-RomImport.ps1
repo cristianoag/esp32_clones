@@ -18,6 +18,7 @@ function Assert-Rejected([scriptblock]$Action, [string]$Message) {
 try {
     $omega = [byte[]]::new(524288)
     for ($i = 0; $i -lt $omega.Length; $i++) { $omega[$i] = [byte](($i -shr 16) + 16) }
+    for ($i = 0x08000; $i -lt 0x0C000; $i++) { $omega[$i] = 42; $omega[$i + 0x40000] = 43 }
     $omegaPath = Join-Path $root 'omega.bin'
     $biosPath = Join-Path $root 'bios.rom'
     $subPath = Join-Path $root 'sub.rom'
@@ -27,24 +28,39 @@ try {
     $destination = Join-Path $root 'card'
     & $importer -Destination $destination -OmegaRom $omegaPath -ExpertRom $biosPath -HotbitRom $biosPath | Out-Null
     $biosRoot = Join-Path $destination 'msx\bios'
-    $main = [System.IO.File]::ReadAllBytes((Join-Path $biosRoot 'omega\MSX2P.ROM'))
-    $sub = [System.IO.File]::ReadAllBytes((Join-Path $biosRoot 'omega\MSX2PEXT.ROM'))
-    Assert-True ($main.Length -eq 32768 -and ($main | Where-Object { $_ -ne 16 }).Count -eq 0) 'First Omega bank main ROM content'
-    Assert-True ($sub.Length -eq 16384 -and ($sub | Where-Object { $_ -ne 17 }).Count -eq 0) 'Omega sub-ROM at +0x10000, not logo at +0x8000'
+    $bank = [System.IO.File]::ReadAllBytes((Join-Path $biosRoot 'omega\OMEGA.ROM'))
+    Assert-True ($bank.Length -eq 262144) 'Omega is one complete 256 KiB bank'
+    $same = $true
+    for ($i = 0; $i -lt $bank.Length; $i++) { if ($bank[$i] -ne $omega[$i]) { $same = $false; break } }
+    Assert-True $same 'First Omega bank preserved byte-for-byte'
+    Assert-True ($bank[0] -eq 16 -and $bank[0x8000] -eq 42 -and $bank[0x10000] -eq 17) 'Main, logo and sub-ROM retained at their original offsets'
+    Assert-True ((Get-ChildItem -LiteralPath (Join-Path $biosRoot 'omega') -Filter '*.ROM').Count -eq 1) 'Exactly one Omega ROM file'
     Assert-True ((Get-Item -LiteralPath (Join-Path $biosRoot 'expert\MSX.ROM')).Length -eq 32768) 'Expert ROM import'
     Assert-True ((Get-Item -LiteralPath (Join-Path $biosRoot 'hotbit\MSX.ROM')).Length -eq 32768) 'Hotbit ROM import'
     Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $biosRoot 'omega\profile.ini')) -eq "name=Omega MSX2+ NTSC (bank 0)`nmodel=MSX2+`nram=512`n") 'Firmware-compatible manifest'
-    $hash = (Get-FileHash -LiteralPath (Join-Path $biosRoot 'omega\MSX2P.ROM')).Hash
-    Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $biosRoot 'omega\SHA256SUMS.txt')).Contains("$hash  MSX2P.ROM")) 'SHA256 manifest'
+    $hash = (Get-FileHash -LiteralPath (Join-Path $biosRoot 'omega\OMEGA.ROM')).Hash
+    Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $biosRoot 'omega\SHA256SUMS.txt')).Contains("$hash  OMEGA.ROM")) 'Combined ROM checksum'
     Assert-Rejected { & $importer -Destination $destination -OmegaRom $omegaPath -OmegaBank 1 } 'No implicit overwrite'
+    foreach ($legacy in @('MSX2P.ROM', 'MSX2PEXT.ROM', 'MSX2PLOGO.ROM', 'DISK.ROM')) {
+        [System.IO.File]::WriteAllBytes((Join-Path $biosRoot "omega\$legacy"), [byte[]]::new(16384))
+    }
     & $importer -Destination $destination -OmegaRom $omegaPath -OmegaBank 1 -Force | Out-Null
-    $main = [System.IO.File]::ReadAllBytes((Join-Path $biosRoot 'omega\MSX2P.ROM'))
-    $sub = [System.IO.File]::ReadAllBytes((Join-Path $biosRoot 'omega\MSX2PEXT.ROM'))
-    Assert-True (($main | Where-Object { $_ -ne 20 }).Count -eq 0) 'Second Omega bank main ROM content'
-    Assert-True (($sub | Where-Object { $_ -ne 21 }).Count -eq 0) 'Second Omega bank extension content'
+    $bank = [System.IO.File]::ReadAllBytes((Join-Path $biosRoot 'omega\OMEGA.ROM'))
+    $same = $bank.Length -eq 262144
+    for ($i = 0; $i -lt $bank.Length; $i++) { if ($bank[$i] -ne $omega[$i + 262144]) { $same = $false; break } }
+    Assert-True $same 'Second Omega bank preserved byte-for-byte'
+    Assert-True ($bank[0] -eq 20 -and $bank[0x8000] -eq 43 -and $bank[0x10000] -eq 21) 'Second bank logo and extension remain distinct'
+    foreach ($legacy in @('MSX2P.ROM', 'MSX2PEXT.ROM', 'MSX2PLOGO.ROM')) {
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $biosRoot "omega\$legacy"))) "Removed obsolete imported $legacy"
+    }
+    Assert-True (Test-Path -LiteralPath (Join-Path $biosRoot 'omega\DISK.ROM')) 'Unrelated optional ROM retained'
     $singleBank = Join-Path $root 'single.bin'
     [System.IO.File]::WriteAllBytes($singleBank, [byte[]]::new(262144))
     Assert-Rejected { & $importer -Destination $destination -OmegaRom $singleBank -OmegaBank 1 -Force } 'Reject bank 1 for a 256 KiB image'
+    $singleDestination = Join-Path $root 'single-card'
+    & $importer -Destination $singleDestination -OmegaRom $singleBank | Out-Null
+    Assert-True ((Get-FileHash -LiteralPath $singleBank).Hash -eq
+        (Get-FileHash -LiteralPath (Join-Path $singleDestination 'msx\bios\omega\OMEGA.ROM')).Hash) 'Standalone 256 KiB image preserved unchanged'
     Assert-Rejected { & $importer -Destination $destination -ExpertRom $subPath -Force } 'Reject short MSX1 BIOS'
     Assert-Rejected { & $importer -Destination $destination -BiosRom $biosPath -Model MSX2 -ProfileId custom -Name Custom } 'Require MSX2 extension'
     Assert-Rejected { & $importer -Destination $destination -BiosRom $biosPath -Model MSX1 -ProfileId custom -Name Custom -ExtensionRom $subPath } 'Reject extension for MSX1'
@@ -58,6 +74,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $biosRoot 'custom2p\MSX2PEXT.ROM')) 'Custom MSX2+ profile'
     & $importer -Destination $destination -BiosRom $biosPath -ProfileId custom1 -Name 'Custom MSX1' | Out-Null
     Assert-True (Test-Path -LiteralPath (Join-Path $biosRoot 'custom1\MSX.ROM')) 'Custom MSX1 profile'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $biosRoot 'custom1\MSX2PLOGO.ROM'))) 'MSX1 has no implicit logo ROM'
     $invalidBatch = Join-Path $root 'invalid-batch'
     Assert-Rejected { & $importer -Destination $invalidBatch -OmegaRom $omegaPath -ExpertRom $subPath } 'Validate entire batch before writing'
     Assert-True (-not (Test-Path -LiteralPath $invalidBatch)) 'Rejected batch left no output'

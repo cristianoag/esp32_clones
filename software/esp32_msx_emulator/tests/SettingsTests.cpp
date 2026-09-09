@@ -7,12 +7,12 @@
 
 int main()
 {
-    static_assert(MsxMenuCount == 11, "All F12 options must be reachable.");
+    static_assert(MsxMenuCount == 12, "All F12 options must be reachable.");
     for (unsigned i = 1; i < MsxMenuCount; ++i)
         assert(MsxMenuRowY(i) - MsxMenuRowY(i - 1) == 8);
     assert(MsxMenuRowHeight == 8);
-    assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuUpdate);
-    assert(MsxMoveSelection(MsxMenuUpdate, 1, MsxMenuCount) == MsxMenuResume);
+    assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuJoysticks);
+    assert(MsxMoveSelection(MsxMenuJoysticks, 1, MsxMenuCount) == MsxMenuResume);
     assert(MsxMoveSelection(15, 1, 33) == 16);
     assert(MsxMoveSelection(32, 1, 33) == 0);
     assert(MsxMoveSelection(0, -1, 0) == 0);

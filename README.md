@@ -47,7 +47,9 @@ MSX1, MSX2, and MSX2+ share one firmware project and the existing VGA, USB keybo
 
 The MSX firmware provides BIOS/BASIC and cartridge boot, keyboard input, graphics, sound, and F12 configuration. The menu selects BIOS profiles, SD-card ROMs for two cartridge slots, RAM size, sound, and saved boot defaults, and installs MSX FLH firmware updates from SD. Additional BIOS profiles and cartridge ROM files can be added without rebuilding firmware.
 
-All three initial BIOS profiles reached BASIC's `Ok` prompt in host emulation tests, and the ESP32-S3 firmware builds successfully. Physical-board VGA, USB, audio, cartridge compatibility, firmware updates, and real-time performance validation remains outstanding. Disk/tape browsers, joystick support and save states are not yet exposed by the MSX firmware; the Omega profile uses fMSX's generic MSX2+ model rather than emulating all physical Omega expansions.
+MSX also supports two independent low-speed USB HID gamepads on the board's joystick connectors, with per-port calibration and live input testing in F12. Full-speed controllers and USB hubs are not supported by these software-host ports.
+
+All three initial BIOS profiles reached BASIC's `Ok` prompt in host emulation tests, and the ESP32-S3 firmware builds successfully. Physical-board VGA, USB, joystick compatibility, audio, cartridge compatibility, firmware updates, and real-time performance validation remains outstanding. Disk/tape browsers and save states are not yet exposed by the MSX firmware; the Omega profile uses fMSX's generic MSX2+ model rather than emulating all physical Omega expansions.
 
 ## Repository Layout
 

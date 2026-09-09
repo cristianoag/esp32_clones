@@ -39,6 +39,13 @@ void IRAM_ATTR printState();
 void IRAM_ATTR usb_process();
 typedef void (*onusbmesscb_t)( uint8_t src,uint8_t len,uint8_t *data );
 void set_usb_mess_cb( onusbmesscb_t onUSBMessCb );
+#ifdef MSX_SOFT_USB
+typedef void (*usbrawcb_t)(uint8_t port, uint8_t endpoint, uint8_t len, const uint8_t *data);
+void set_usb_raw_cb(usbrawcb_t cb);
+// Task-context only, serialized with usb_process()/printState().
+void msx_usb_reset(void);
+bool msx_usb_timing_valid(void);
+#endif
 typedef void (*printcb_t)( uint8_t usbNum, uint8_t byte_depth, uint8_t* data, uint8_t data_len );
 void set_print_cb( printcb_t onDataCB );
 typedef void (*ondetectcb_t)( uint8_t usbNum, void *device );

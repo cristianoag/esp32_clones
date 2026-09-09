@@ -30,6 +30,10 @@ $sources = @("$core\fMSX\MSX.c", "$core\fMSX\V9938.c", "$core\fMSX\Patch.c",
 $sources += @(Get-ChildItem "$core\EMULib\*.c" | ForEach-Object FullName)
 try {
   Set-Location $build
+  & g++ -O2 -std=gnu++11 "$PSScriptRoot\frame_pacer.cpp" -o frame_pacer.exe
+  if ($LASTEXITCODE -ne 0) { throw 'Frame pacing test compilation failed.' }
+  & '.\frame_pacer.exe'
+  if ($LASTEXITCODE -ne 0) { throw 'Frame pacing regression failed.' }
   & gcc @flags -std=gnu99 -c @sources
   if ($LASTEXITCODE -ne 0) { throw 'Core C compilation failed.' }
   & g++ @flags -std=gnu++11 "-I$Sdk\include\heap\include" "-I$Sdk\qio_opi\include" `

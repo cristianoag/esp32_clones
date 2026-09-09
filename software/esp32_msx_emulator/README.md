@@ -15,6 +15,8 @@ The pin assignments match the existing CP400 firmware, not S3-MSX-PC:
 | VGA blue, low/high bits | 9 / 8 |
 | VGA HSYNC / VSYNC | 2 / 1 |
 | USB keyboard D- / D+ | 19 / 20 |
+| USB joystick 1 D- / D+ | 15 / 16 |
+| USB joystick 2 D- / D+ | 17 / 18 |
 | SD/MMC CMD / CLK / D0 | 38 / 39 / 40 |
 | Mono PWM audio | 47 |
 | Onboard RGB LED (cleared, then disconnected) | 48 |
@@ -131,6 +133,8 @@ Press **Esc** or **F12** to restore the previous screen and resume.
   and boot the selected BIOS with both selected cartridges attached.
   This does not implicitly save the default.
 - **Rescan SD card / other BIOS profiles:** remount and rediscover profiles.
+- **USB joysticks - calibrate / test:** configure both gamepads and view
+  live directions, buttons, device IDs and raw USB reports.
 - **Firmware update from SD:** select an MSX FLH package, confirm, install
   it to the inactive firmware partition and reboot.
 
@@ -143,6 +147,76 @@ On startup there is a 2.5-second opportunity to
 press F12 before auto-boot. A fresh installation defaults to Omega bank 0;
 missing SD/BIOS/cartridge files leave the menu available for recovery
 instead of silently booting with a configured cartridge missing.
+
+## USB joysticks
+
+Connect one **low-speed USB HID gamepad** directly to each joystick USB
+connector. Physical USB joystick port 1 controls MSX joystick 1; physical
+port 2 controls MSX joystick 2. Ports are independent: a single pad is
+not mirrored to both players. The keyboard remains on its native USB port,
+and gamepads do not generate keyboard or F12-menu commands.
+
+These GPIO-wired ports use the board's software USB host, not the native
+USB controller. Full-speed/high-speed controllers, USB hubs, XInput and
+Bluetooth controllers are not supported. Low-speed reports must fit in
+eight bytes. A supported pad must expose controls that can be learned
+from a single report stream and a joystick/gamepad HID report descriptor
+of at most 255 bytes; the configuration descriptor also has a 255-byte
+limit. The host uses the first configuration and first eligible nonboot
+HID interface; mixed keyboard/mouse application collections are rejected.
+Calibration is not a universal HID parser.
+No report layout is guessed: **an uncalibrated pad produces neutral input**.
+
+### Calibrate each pad
+
+1. Open **F12 > USB joysticks - calibrate / test**.
+2. Select joystick 1 or 2 with the arrows and press Enter.
+3. Follow the eleven prompts: release all controls, then hold each of the
+   eight directions clockwise from Up (including diagonals), then the
+   buttons you want for fire A and fire B.
+4. At each prompt, hold only the requested control, press **Enter on the
+   keyboard**, and keep it steady during the 600 ms capture. Use the same
+   stick or D-pad throughout. Esc/F12 cancels without replacing the old
+   calibration.
+5. After successful calibration, check the live U/D/L/R/A/B indicators.
+   Both buttons and diagonal movement can be combined. Return with Esc,
+   then resume the emulator; a machine reset is not required.
+
+Calibration is saved immediately in NVS, separately for each physical
+port and USB vendor/product identity. It survives power-off and is
+independent of **Save BIOS + slots as boot default**. A different pad
+requires calibration; identical VID/PID models with different report
+layouts may need recalibration too. Delete on the selected joystick row
+clears its calibration. Unsupported or ambiguous samples are rejected
+with an explanation instead of installing a guessed mapping.
+
+Disconnect releases that port's directions and buttons without affecting
+the other player. Joystick polling continues while F12 is open, so released
+controls do not stay held on resume. For flash writes (saving settings or
+installing firmware), the software host is paused and then restarted;
+pads may take a moment to reconnect, and input stays neutral until fresh
+reports arrive.
+
+If a pad shows no reports, inspect the UART startup log. At the board's
+240 MHz CPU clock, the MSX host prints `cycle-timed TX, 160 cycles/bit`.
+The transmitter uses absolute CPU-cycle deadlines in IRAM rather than
+compiler-dependent NOP delay calibration. It releases the bus after the
+end-of-packet J bit so the receiver can listen for the device's reply.
+Enumeration progress, failed-control packet results/edge counts, and device
+VID/PID messages help distinguish transport failures from unsupported HID
+descriptors. Receive sampling also runs in IRAM, with cycle-based inactivity
+timeouts and a bounded capture buffer. Missing saved calibration is
+normal on first use; the pad must enumerate before F12 calibration can run.
+
+To check the MSX BIOS input path in BASIC:
+
+```basic
+10 PRINT STICK(1),STRIG(1),STRIG(3),STICK(2),STRIG(2),STRIG(4)
+20 GOTO 10
+```
+
+`STICK` returns 0 for neutral and 1-8 for the directions. `STRIG(1)` /
+`STRIG(3)` are port 1's A/B buttons; `STRIG(2)` / `STRIG(4)` are port 2's.
 
 ## Cartridge ROMs on SD
 
@@ -235,6 +309,31 @@ contains only the application, not the bootloader or partition table.
 
 ## Validation and current scope
 
+### Emulation speed
+
+The emulated CPU retains its normal clock. To reduce slowdowns, small
+CPU-addressed RAM, BIOS and cartridge allocations prefer internal SRAM
+while keeping 64 KiB free for board drivers. Larger allocations, including
+Omega's 512 KiB RAM, remain in PSRAM; their placement is logged at boot.
+
+When rendering exceeds the frame budget, the firmware automatically draws
+fewer frames rather than slowing the emulated clock deliberately. CPU,
+VDP state, sound and input still advance on every emulated frame. Drawing
+returns towards 100% when there is spare processing time. This can improve
+speed at the cost of visual smoothness; it cannot guarantee full speed for
+CPU-heavy games or every MSX2 video mode.
+
+Every five active seconds, UART prints a line such as:
+
+```text
+MSX speed: 59.9/60 emulated fps, 35.9 presented fps, draw=60%
+```
+
+This is an example, not a measured result for your board. The first number
+shows actual emulation speed versus the NTSC 60 / PAL 50 fps target; the
+presented rate reports display updates. Time spent in F12 menus is excluded.
+Use these lines and the game/profile name when reporting remaining slowdown.
+
 Run the ROM importer regression checks without any copyrighted ROMs:
 
 ```powershell
@@ -242,6 +341,9 @@ Run the ROM importer regression checks without any copyrighted ROMs:
 .\tools\Test-Profiles.ps1  # Requires the existing g++ toolchain on PATH.
 .\tools\Test-Settings.ps1
 .\tools\Test-FirmwareUpdate.ps1
+.\tools\Test-Joysticks.ps1
+.\tools\Test-JoystickRuntime.ps1
+.\tools\Test-JoystickTiming.ps1
 .\lib\fmsx\tests\host_smoke.ps1 -ProfilesRoot .\sdcard\msx\bios
 ```
 
@@ -249,7 +351,9 @@ The checks use synthetic byte arrays to cover bank extraction, file sizes,
 profile manifests, custom machines, checksums, overwrite protection and
 invalid inputs. The native C++ checks exercise the firmware's actual manifest
 parser, including malformed and duplicate settings, compact menu geometry,
-SD paths, and old/new saved settings. The firmware updater tests cover the
+SD paths, and old/new saved settings. Joystick tests cover report mapping,
+calibration rejection, independent ports, saved calibration, disconnects,
+and the core's PSG port selection. The firmware updater tests cover the
 FLH validation and failure paths. The core regression checks repeated boots,
 cartridge slots, allocation failures/recovery, emulated sound, video and
 keyboard input. With `-ProfilesRoot`, it also runs all three imported
@@ -258,8 +362,8 @@ A successful cross-build does not prove VGA timing, USB
 enumeration, analog audio quality or emulation speed on the physical board.
 
 This initial port includes BIOS/BASIC and cartridge boot, keyboard, video,
-audio, F12 configuration and SD firmware updates. Disk/tape browsers,
-save states, joystick ports and physical Omega expansion devices are not
+audio, calibrated low-speed USB joysticks, F12 configuration and SD firmware
+updates. Disk/tape browsers, save states and physical Omega expansion devices are not
 exposed by this firmware. The original core is not the reference project's
 ESP32-optimized engine; real-time performance must be measured on hardware.
 VGA has a 320x240 framebuffer and six physically wired color bits.
@@ -277,6 +381,9 @@ Before treating a board as validated:
    the assignments persist only after saving the defaults.
 8. Install a trusted MSX FLH from the update menu and check the reboot;
    cancel another update and verify the paused emulator can resume.
+9. Calibrate both low-speed gamepads and run the BASIC test above. Check
+   diagonals and both buttons, unplug/reconnect one pad while the other
+   stays held, and verify calibration survives a power cycle.
 
 ## Attribution and licensing
 

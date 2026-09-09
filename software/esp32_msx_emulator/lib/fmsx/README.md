@@ -87,13 +87,21 @@ reads only the mapped regions directly into their CPU buffers:
 | File offset | Size | Mapping |
 | --- | --- | --- |
 | `0x00000` | 32 KiB | Primary slot 0, `0x0000–0x7FFF` |
-| `0x08000` | 16 KiB | Primary slot 0, `0x8000–0xBFFF` |
+| `0x08000` | 16 KiB | Auxiliary primary-slot-0 window, `0x8000–0xBFFF` |
 | `0x10000` | 16 KiB | Slot 3/subslot 1, `0x0000–0x3FFF` |
+| `0x14000` | 32 KiB | Kanji BASIC/startup, slot 3/subslot 1, `0x4000–0xBFFF` |
 
 It neither extracts separate files nor allocates the entire 256 KiB container.
 An invalid size, open/read failure or allocation failure stops boot; an existing
 but invalid combined bank never falls back to legacy files. The bank's unused
 regions and expansion ROMs do not automatically add emulated peripherals.
+The combined image's extension and Kanji BASIC form one contiguous 48 KiB
+allocation. A separate generic `DISK.ROM` is not overlaid on this system
+window. The MSX2+ F4 register reports inverted cold/warm reset status.
+Sprite collision detection accounts for magnification and the current
+visible line, including collision reassertion after status reads during
+an overlapping line. This remains scanline-level emulation, not a
+cycle-exact VDP pixel pipeline.
 MSX1/MSX2 ignore `OMEGA.ROM`. The original generic format remains supported
 when the MSX2+ directory has no combined bank.
 
@@ -169,7 +177,8 @@ boot-time allocation of both SRAM and its filename is mandatory.
   automatic state restoration; call the platform once per emulated frame even
   when rendering is skipped; load the optional MSX2+ logo into slot 0 page 2,
   with exact-size/read checks and tracked, model-safe cleanup; directly load
-  MAIN/LOGO/SUB regions from an authoritative single Omega flash bank.
+  MAIN/auxiliary/SUB/Kanji BASIC regions from an authoritative single Omega
+  flash bank; implement the F4 reset-status latch and raster collision polling.
 - `V9938.c`: add command-engine reset for safe profile switching.
 - `Sound.c`: include embedded audio-driver declarations.
 - `Floppy.c`: include POSIX directory declarations without selecting a desktop
@@ -231,8 +240,10 @@ It also saves frame 30 (or the final frame for shorter runs) to `boot-early.ppm`
 For a non-erased logo image, it requires samples of the real CPU executing
 0x8000–0xBFFF with slot 0 mapped, and captures the most detailed observed frame
 during that execution as `boot-logo.ppm`. These checks supplement, rather than
-replace, visual inspection of the capture. Entirely `FF` logo images are reported
-as erased and tested for BASIC only, never presented as proof of a real logo.
+replace, visual inspection of the capture. For an Omega image containing
+Kanji BASIC, the test instead requires a SCREEN 6 logo frame with white
+lettering before BASIC. An erased auxiliary window is not mistaken for
+absence of the built-in MSX2+ startup logo.
 A successful real-BIOS test requires a detected BASIC `Ok` prompt. An absent
 prompt fails the test but may indicate a graphical boot screen rather than
 broken emulation; inspect the captured image and transcript. Private BIOS
@@ -255,8 +266,10 @@ The Omega test used only the 32 KiB main BIOS and 16 KiB sub-ROM, without the
 physical logo ROM or disk ROM. This confirms the generic fMSX BIOS boot path,
 not full Omega board emulation or real-device operation.
 
-September 8 inspection of the supplied `omega_msx2+_all_ntsc.bin` found that
-both 16 KiB logo regions (`0x08000` and `0x48000`) contain only `FF`.
-Mapping that image cannot display or execute a nonexistent logo program.
+September 8 validation of the single supplied Omega bank captured the
+original MSX logo, including its 512 KiB RAM caption, and then reached BASIC.
+The user also confirmed the logo and subsequent BASIC boot on the ESP32 board.
+The auxiliary areas at `0x08000`/`0x48000` are erased; this ROM's startup
+animation resides in Kanji BASIC at `0x14000` in the selected bank.
 A populated, compatible logo ROM is still required to validate a real Omega
 logo on either the host or hardware; an early-frame capture is not a replacement.

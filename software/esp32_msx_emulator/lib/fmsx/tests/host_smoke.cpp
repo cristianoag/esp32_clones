@@ -34,9 +34,11 @@ static unsigned joystickPolls;
 static unsigned keyboardPolls, requestedDrawPercent = 100;
 static bool requestedPal;
 static bool expectRealLogo, logoTest, expectLogo;
+static bool expectKanjiLogo;
 static bool logoResetTest;
 static bool truncateOmegaOnAllocation;
 static unsigned logoPcSamples, logoPixels, logoFrame;
+static std::vector<byte> expectedKanjiBasic;
 static std::vector<byte> expectedLogo;
 static std::vector<byte> expectedExtension;
 
@@ -70,6 +72,62 @@ static void checkJoystickPorts()
   OutZ80(0xA0, 15);
   OutZ80(0xA1, savedControl);
   OutZ80(0xA0, savedRegister);
+}
+
+static void checkStartupHardware()
+{
+  if (MODEL(MSX_MSX2P)) {
+    assert(InZ80(0xF4) == 0xFF);
+    OutZ80(0xF4, 0);
+    assert(InZ80(0xF4) == 0x7F);
+    OutZ80(0xF4, 0x80);
+    assert(InZ80(0xF4) == 0xFF);
+  } else {
+    OutZ80(0xF4, 0);
+    assert(InZ80(0xF4) == 0xFF);
+  }
+  byte attributes[0x200 + 128] = {}, patterns[2048] = {};
+  byte *oldAttributes = SprTab, *oldPatterns = SprGen;
+  const byte mode = ScrMode;
+  const int line = ScanLine;
+  byte registers[64], status[16];
+  memcpy(registers, VDP, sizeof(registers));
+  memcpy(status, VDPStatus, sizeof(status));
+  SprTab = attributes + 0x200;
+  SprGen = patterns;
+  memset(attributes, 5, 0x200);
+  memset(patterns, 0xff, 8);
+  SprTab[0] = SprTab[4] = 10;
+  SprTab[1] = 20;
+  SprTab[5] = 28;
+  SprTab[8] = 216;
+  ScrMode = 6;
+  ScanLine = 11;
+  VDP[15] = VDP[23] = VDP[8] = VDP[1] = VDP[9] = 0;
+  VDPStatus[2] = 0;
+  VDPStatus[0] = 0;
+  assert(!(InZ80(0x99) & 0x20)); // Adjacent unmagnified sprites.
+  VDP[1] = 1;
+  assert(InZ80(0x99) & 0x20); // Magnification creates an overlap.
+  assert(InZ80(0x99) & 0x20); // Further overlap can reassert after a status read.
+  ScanLine = 9;
+  assert(!(InZ80(0x99) & 0x20)); // Not a colliding scanline.
+  ScanLine = 11;
+  VDP[8] = 2;
+  assert(!(InZ80(0x99) & 0x20)); // Sprites disabled.
+  VDP[8] = 0;
+  attributes[16] = 0x25;
+  assert(!(InZ80(0x99) & 0x20)); // Mode-2 IC suppresses collision.
+  attributes[16] = 0;
+  assert(!(InZ80(0x99) & 0x20)); // Transparent color zero.
+  VDP[8] = 0x20;
+  assert(InZ80(0x99) & 0x20); // Solid color zero participates.
+  SprTab = oldAttributes;
+  SprGen = oldPatterns;
+  ScrMode = mode;
+  ScanLine = line;
+  memcpy(VDP, registers, sizeof(registers));
+  memcpy(VDPStatus, status, sizeof(status));
 }
 
 static void checkCartridges()
@@ -177,12 +235,16 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
   for (int i = 0; i < width * height; ++i)
     if (pixels[i]) { ++coloredFrames; break; }
   ++frames;
+  if (!realBios && frames == 1) checkStartupHardware();
   if (logoTest && frames == 1) {
     if (!expectedExtension.empty())
       assert(memcmp(MemMap[3][1][0], expectedExtension.data(), expectedExtension.size()) == 0);
     if (expectLogo) {
       assert(executingLogo());
       assert(memcmp(MemMap[0][0][4], expectedLogo.data(), expectedLogo.size()) == 0);
+      if (!expectedKanjiBasic.empty())
+        for (unsigned bank = 0; bank < 4; ++bank)
+          assert(!memcmp(MemMap[3][1][bank + 2], expectedKanjiBasic.data() + bank * 8192, 8192));
       assert(MemMap[0][0][5] == MemMap[0][0][4] + 0x2000);
       assert(RdZ80(0xC102) == 0x5A && RdZ80(0xC103) == 0xA5);
       const byte value = RdZ80(0x8000);
@@ -193,14 +255,16 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
       assert(RdZ80(0xC102) == 0xFF);
     }
   }
-  if (realBios && (expectRealLogo || ScrMode >= 2)) {
+  if (realBios && (expectRealLogo || expectKanjiLogo)) {
     if (executingLogo()) ++logoPcSamples;
     unsigned histogram[256] = {};
     for (int i = 0; i < width * height; ++i) ++histogram[pixels[i]];
     unsigned background = 0;
     for (unsigned count : histogram) if (count > background) background = count;
-    const unsigned detail = width * height - background;
-    if ((executingLogo() || ScrMode >= 2) && detail > logoPixels && detail > 100) {
+    unsigned detail = width * height - background;
+    if (expectKanjiLogo) detail = histogram[255]; // White MSX lettering, not a plain blue bitmap.
+    const bool logoMode = expectKanjiLogo ? ScrMode == 6 : executingLogo();
+    if (logoMode && detail > logoPixels && detail > (expectKanjiLogo ? 500U : 100U)) {
       logoPixels = detail;
       logoFrame = frames;
       captureImage("boot-logo.ppm", pixels, width, height, palette);
@@ -550,6 +614,8 @@ static void omegaRegression(const char* directory)
   fclose(f);
   memcpy(bank.data(), main.data(), main.size());
   memcpy(bank.data() + 0x8000, expectedLogo.data(), expectedLogo.size());
+  expectedKanjiBasic.assign(32768, 0x4b);
+  memcpy(bank.data() + 0x14000, expectedKanjiBasic.data(), expectedKanjiBasic.size());
   memcpy(bank.data() + 0x10000, ext.data(), ext.size());
   expectedExtension = ext;
   writeImage("OMEGA.ROM", bank);
@@ -635,6 +701,7 @@ static void omegaRegression(const char* directory)
   logoTest = false;
   for (const auto& name : paths) assert(remove(name.c_str()) == 0);
   puts("PASS: single authoritative 256 KiB Omega bank, direct MAIN/LOGO/SUB mapping, no extracted files, cartridge slots, model resets, invalid/unreadable banks and OOM recovery.");
+  expectedKanjiBasic.clear();
 }
 
 int main(int argc, char** argv)
@@ -658,19 +725,26 @@ int main(int argc, char** argv)
           ++bytesRead;
           if (value != 0xFF) expectRealLogo = true;
         }
+        if (omega) {
+          assert(fseek(logo, 0x14000, SEEK_SET) == 0);
+          expectKanjiLogo = fgetc(logo) == 'A' && fgetc(logo) == 'B';
+        }
         fclose(logo);
         if (bytesRead == 16384 && !expectRealLogo)
-          puts("Logo ROM is entirely FF (erased): no logo program exists in this image; BASIC boot is tested, not a real logo.");
+          puts("Auxiliary slot-0 page-2 area is erased; checking the built-in Kanji BASIC startup logo instead.");
       }
     }
     const bool result = MsxCoreRun(argv[1], atoi(argv[2]), atoi(argv[3]));
     printf("BIOS boot: result=%d, frames=%u, samples=%u, BASIC prompt=%s\n",
            result, frames, audioSamples, basicPrompt ? "yes" : "not detected");
-    if (expectRealLogo)
+    if (expectKanjiLogo)
+      printf("Kanji BASIC startup logo: frame=%u, white lettering pixels=%u\n", logoFrame, logoPixels);
+    else if (expectRealLogo)
       printf("Logo boot: executing slot-0 page-2 samples=%u, captured frame=%u, detail pixels=%u\n",
              logoPcSamples, logoFrame, logoPixels);
     return result && frames == frameLimit && basicPrompt &&
-           (!expectRealLogo || (logoPcSamples && logoFrame)) ? 0 : 1;
+           (!expectRealLogo || (logoPcSamples && logoFrame)) &&
+           (!expectKanjiLogo || logoFrame) ? 0 : 1;
   }
   char directory[1024];
   assert(getcwd(directory, sizeof(directory)));

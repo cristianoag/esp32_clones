@@ -36,7 +36,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Fixed
 
-- Kept Omega's BIOS, BASIC, logo and extension in one 256 KiB ROM file and mapped its original logo region into the BIOS slot for cold boot, without using either cartridge slot.
+- Kept Omega's BIOS, BASIC, extension and startup code in one 256 KiB ROM file and mapped the previously omitted Kanji BASIC region containing the original MSX logo, without using either cartridge slot.
+- Emulated the MSX2+ reset-status register and visible-scanline sprite-collision polling so the original startup animation could finish and proceed to BASIC.
 - Made F12 mute and Sound Off fade GPIO47 to a steady low output and stop its sample timer, rather than continuing a 50% PWM carrier.
 - Faded sustained silent audio to a non-switching GPIO47 output, stopped its sample timer when drained, and restarted playback only for new sound.
 - Held the last audio sample on buffer underrun instead of abruptly switching to midscale, and ramped playback transitions to reduce clicks.

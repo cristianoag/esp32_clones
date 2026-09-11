@@ -35,6 +35,7 @@ bool MsxReadDirectoryPage(const char *directory, const char *extension, bool all
         const char *name = strrchr(entry.name(), '/');
         name = name ? name + 1 : entry.name();
         if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+        if (entry.isDirectory() && !strcasecmp(name, "System Volume Information")) continue;
         if (!entry.isDirectory() && !MsxHasExtension(name, extension)) continue;
         if (!MsxJoinSdPath(directory, name, path, sizeof(path)))
         {

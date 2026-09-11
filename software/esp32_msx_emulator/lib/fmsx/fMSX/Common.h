@@ -807,6 +807,7 @@ void RefreshLine6(register byte Y)
 {
   register pixel *P;
   register byte X,*T,*R,C;
+  unsigned int Fine,Coarse,Mask,Column,Source,Address,Base,ScrollMask,PageOffset;
   byte ZBuf[320];
 
   P=RefreshBorder(Y,XPal[BGColor&0x03]);
@@ -819,16 +820,43 @@ void RefreshLine6(register byte Y)
     R=ZBuf+32;
     T=ChrTab+(((int)(Y+VScroll)<<7)&ChrTabM&0x7FFF);
 
+    /* V9958 scroll units are 256-dot pixels even in 512-dot SCREEN 6.
+     * R#26 moves left, R#27 moves right; sprites do not scroll with VRAM.
+     * Keep the unscrolled fast path for the other VDPs and ordinary games. */
+    if(MODEL(MSX_MSX2P)&&(VDP[26]||VDP[27]||(VDP[25]&3)))
+    {
+      Fine=VDP[27]&7;
+      Coarse=(VDP[26]&(HScroll512? 63:31))*8;
+      Mask=VDP[25]&2? 8:Fine;
+      Base=ChrTab-VRAM;
+      if(HScroll512) Base&=~0x8000;
+      Base+=((int)(Y+VScroll)<<7)&ChrTabM&0x7FFF;
+      ScrollMask=HScroll512? 511:255;
+      PageOffset=0x8000&ChrTabM;
+      for(Column=0;Column<256;++Column)
+      {
+        if(Column<Mask) { P[Column]=XPal[BGColor&3];continue; }
+        Source=(Column+Coarse-Fine)&ScrollMask;
+        Address=Base+(Source&256? PageOffset:0);
+        C=VRAM[Address+((Source&255)>>1)];
+        C=(C>>(Source&1? 2:6))&3;
+        P[Column]=XPal[R[Column]? R[Column]>>2:C];
+      }
+      return;
+    }
+
     for(X=0;X<32;X++)
     {
-      C=R[0];P[0]=XPal[C? C:T[0]>>6];
-      C=R[1];P[1]=XPal[C? C:(T[0]>>2)&0x03];
-      C=R[2];P[2]=XPal[C? C:T[1]>>6];
-      C=R[3];P[3]=XPal[C? C:(T[1]>>2)&0x03];
-      C=R[4];P[4]=XPal[C? C:T[2]>>6];
-      C=R[5];P[5]=XPal[C? C:(T[2]>>2)&0x03];
-      C=R[6];P[6]=XPal[C? C:T[3]>>6];
-      C=R[7];P[7]=XPal[C? C:(T[3]>>2)&0x03];
+      /* Narrow output samples the left dot of each SCREEN 6 pixel pair.
+       * Sprite colors also encode a pair: bits 3:2 left, bits 1:0 right. */
+      C=R[0];P[0]=XPal[C? C>>2:T[0]>>6];
+      C=R[1];P[1]=XPal[C? C>>2:(T[0]>>2)&0x03];
+      C=R[2];P[2]=XPal[C? C>>2:T[1]>>6];
+      C=R[3];P[3]=XPal[C? C>>2:(T[1]>>2)&0x03];
+      C=R[4];P[4]=XPal[C? C>>2:T[2]>>6];
+      C=R[5];P[5]=XPal[C? C>>2:(T[2]>>2)&0x03];
+      C=R[6];P[6]=XPal[C? C>>2:T[3]>>6];
+      C=R[7];P[7]=XPal[C? C>>2:(T[3]>>2)&0x03];
       R+=8;P+=8;T+=4;
     }
   }

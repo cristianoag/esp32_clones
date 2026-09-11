@@ -5,6 +5,8 @@ param(
     [ValidateSet(0, 1)][int]$OmegaBank = 0,
     [string]$ExpertRom,
     [string]$HotbitRom,
+    [string]$PanasonicDirectory,
+    [ValidateSet('FS-A1WSX', 'FS-A1F', 'FS-A1FX')][string[]]$PanasonicModels = @('FS-A1WSX', 'FS-A1F', 'FS-A1FX'),
     [string]$BiosRom,
     [string]$ExtensionRom,
     [ValidatePattern('^[a-zA-Z0-9_-]{1,32}$')][string]$ProfileId,
@@ -61,11 +63,34 @@ if ($ExpertRom) {
 if ($HotbitRom) {
     Add-Profile 'hotbit' 'Sharp Hotbit 1.2' 'MSX1' (Read-SizedRom $HotbitRom @(32768)) $null 'User-supplied 32 KiB BIOS'
 }
+if ($PanasonicDirectory) {
+    $panasonicRoot = (Resolve-Path -LiteralPath $PanasonicDirectory).ProviderPath
+    foreach ($machineName in ($PanasonicModels | Select-Object -Unique)) {
+        $id = $machineName.ToLowerInvariant()
+        $isMsx2 = $machineName -eq 'FS-A1F'
+        $biosSuffix = if ($isMsx2) { 'basic-bios2.rom' } else { 'basic-bios2p.rom' }
+        $subSuffix = if ($isMsx2) { 'msx2sub.rom' } else { 'msx2psub.rom' }
+        $fontSize = if ($machineName -eq 'FS-A1WSX') { 262144 } else { 131072 }
+        $main = Read-SizedRom (Join-Path $panasonicRoot "$id`_$biosSuffix") @(32768)
+        $extension = Read-SizedRom (Join-Path $panasonicRoot "$id`_$subSuffix") @(16384)
+        $kanjiBasic = Read-SizedRom (Join-Path $panasonicRoot "$id`_kanjibasic.rom") @(32768)
+        $kanjiFont = Read-SizedRom (Join-Path $panasonicRoot "$id`_kanjifont.rom") @($fontSize)
+        $image = [byte[]]::new(0x14000 + $fontSize)
+        [Array]::Copy($main, 0, $image, 0, $main.Length)
+        [Array]::Copy($extension, 0, $image, 0x8000, $extension.Length)
+        [Array]::Copy($kanjiBasic, 0, $image, 0xC000, $kanjiBasic.Length)
+        [Array]::Copy($kanjiFont, 0, $image, 0x14000, $kanjiFont.Length)
+        $machineModel = if ($isMsx2) { 'MSX2' } else { 'MSX2+' }
+        Add-Profile $id "Panasonic $machineName" $machineModel $null $null `
+            'Combined local BIOS, sub-ROM, Kanji BASIC and Kanji font; no disk/app ROMs' @{'PANASONIC.ROM' = $image}
+        $profiles[$profiles.Count - 1].Ram = 64
+    }
+}
 if ($BiosRom) {
     if (-not $ProfileId -or -not $Name) {
         throw 'Custom BIOS import requires -ProfileId and -Name.'
     }
-    if ($ProfileId -in @('omega', 'expert', 'hotbit')) {
+    if ($ProfileId -in @('omega', 'expert', 'hotbit', 'fs-a1wsx', 'fs-a1f', 'fs-a1fx')) {
         throw 'Custom profile ID is reserved for a built-in import profile.'
     }
     $main = Read-SizedRom $BiosRom @(32768)

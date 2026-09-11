@@ -4,7 +4,8 @@ param(
   [string]$ProfilesRoot = '',
   [ValidateRange(0,2)][int]$Model = 0,
   [ValidateSet(4,8,16,32)][int]$RamPages = 4,
-  [ValidateRange(1,36000)][int]$Frames = 900
+  [ValidateRange(1,36000)][int]$Frames = 900,
+  [switch]$PanasonicOnly
 )
 $ErrorActionPreference = 'Stop'
 if ($BiosDirectory -and $ProfilesRoot) { throw 'Use either -BiosDirectory or -ProfilesRoot, not both.' }
@@ -13,8 +14,8 @@ if ($BiosDirectory) {
   $profiles += @{ Directory = (Resolve-Path -LiteralPath $BiosDirectory).Path; Name = 'custom'; Model = $Model; Ram = $RamPages }
 }
 if ($ProfilesRoot) {
-  foreach ($name in @('expert', 'hotbit', 'omega')) {
-    $profileModel = if ($name -eq 'omega') { 2 } else { 0 }
+  foreach ($name in @('expert', 'hotbit', 'omega', 'fs-a1wsx', 'fs-a1f', 'fs-a1fx')) {
+    $profileModel = if ($name -eq 'fs-a1f') { 1 } elseif ($name -in @('omega', 'fs-a1wsx', 'fs-a1fx')) { 2 } else { 0 }
     $ram = if ($name -eq 'omega') { 32 } else { 4 }
     $profiles += @{ Directory = (Resolve-Path -LiteralPath (Join-Path $ProfilesRoot $name)).Path; Name = $name; Model = $profileModel; Ram = $ram }
   }
@@ -41,10 +42,11 @@ try {
     "$PSScriptRoot\host_smoke.cpp" @(Get-ChildItem '*.o' | ForEach-Object FullName) `
     -o host_smoke.exe
   if ($LASTEXITCODE -ne 0) { throw 'Core host linking failed.' }
-  & '.\host_smoke.exe'
+  if ($PanasonicOnly) { & '.\host_smoke.exe' --panasonic }
+  else { & '.\host_smoke.exe' }
   if ($LASTEXITCODE -ne 0) { throw 'Core host regression failed.' }
   foreach ($profile in $profiles) {
-    # Prefer the single Omega bank; never write CMOS or test images into originals.
+    # Prefer combined system images; never write CMOS or test images into originals.
     $bios = "$build\bios"
     New-Item -ItemType Directory -Force $bios | Out-Null
     $names = switch ($profile.Model) {
@@ -52,11 +54,15 @@ try {
       1 { @('MSX2.ROM', 'MSX2EXT.ROM') }
       2 { @('MSX2P.ROM', 'MSX2PEXT.ROM') }
     }
-    $combined = $profile.Model -eq 2 -and
-                (Test-Path -LiteralPath (Join-Path $profile.Directory 'OMEGA.ROM'))
-    $logo = $combined -or ($profile.Model -eq 2 -and
+    $omegaPresent = Test-Path -LiteralPath (Join-Path $profile.Directory 'OMEGA.ROM')
+    $combined = $profile.Model -eq 2 -and $omegaPresent
+    $panasonic = $profile.Model -ne 0 -and
+                 (Test-Path -LiteralPath (Join-Path $profile.Directory 'PANASONIC.ROM'))
+    if ($omegaPresent -and $panasonic) { throw 'Ambiguous combined system images.' }
+    $logo = $combined -or ($panasonic -and $profile.Model -eq 2) -or ($profile.Model -eq 2 -and
             (Test-Path -LiteralPath (Join-Path $profile.Directory 'MSX2PLOGO.ROM')))
-    if ($combined) { $names = @('OMEGA.ROM') }
+    if ($panasonic) { $names = @('PANASONIC.ROM') }
+    elseif ($combined) { $names = @('OMEGA.ROM') }
     elseif ($logo) { $names += 'MSX2PLOGO.ROM' }
     try {
       foreach ($name in @('boot-logo.ppm', 'boot-early.ppm', "boot-logo-$($profile.Name).ppm")) {
@@ -75,14 +81,14 @@ try {
         Copy-Item -LiteralPath "$build\boot-logo.ppm" -Destination "$build\boot-logo-$($profile.Name).ppm"
       }
     } finally {
-      foreach ($name in @($names) + @('CMOS.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM')) {
+      foreach ($name in @($names) + @('CMOS.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM', 'PANASONIC.ROM')) {
         $copy = Join-Path $bios $name
         if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy }
       }
     }
   }
 } finally {
-  foreach ($name in @('MSX.ROM', 'MSX2.ROM', 'MSX2EXT.ROM', 'MSX2P.ROM', 'MSX2PEXT.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM',
+  foreach ($name in @('MSX.ROM', 'MSX2.ROM', 'MSX2EXT.ROM', 'MSX2P.ROM', 'MSX2PEXT.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM', 'PANASONIC.ROM', 'KANJI.ROM', 'DISK.ROM',
                       'slot1.rom', 'slot2.rom', 'slot1.sav', 'slot2.sav', 'CARTS.CRC')) {
     $generated = Join-Path $build $name
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }

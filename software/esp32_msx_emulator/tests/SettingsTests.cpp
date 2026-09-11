@@ -1,5 +1,6 @@
 #include "MsxSettings.h"
 #include "MsxMenuLayout.h"
+#include "MsxBootProgress.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -7,6 +8,17 @@
 
 int main()
 {
+    assert(MsxBootPercent(MsxBootBuffers) == 0);
+    for (unsigned i = 1; i <= MsxBootStageCount; ++i)
+    {
+        assert(MsxBootPercent(i) > MsxBootPercent(i - 1));
+        assert(MsxProgressWidth(MsxBootPercent(i)) <= 300);
+    }
+    assert(MsxBootPercent(MsxBootJoysticks) < 100);
+    assert(MsxBootPercent(MsxBootStageCount) == 100);
+    assert(MsxBootPercent(1000) == 100);
+    assert(MsxProgressWidth(0) == 0 && MsxProgressWidth(50) == 150);
+    assert(MsxProgressWidth(100) == 300 && MsxProgressWidth(255) == 300);
     static_assert(MsxMenuCount == 12, "All F12 options must be reachable.");
     for (unsigned i = 1; i < MsxMenuCount; ++i)
         assert(MsxMenuRowY(i) - MsxMenuRowY(i - 1) == 8);

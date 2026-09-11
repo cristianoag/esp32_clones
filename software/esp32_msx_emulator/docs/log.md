@@ -27,6 +27,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Replaced the startup screen's USB keyboard pin text with a progress gauge and named initialization stages, retaining the F12 prompt and visible startup warnings.
 - Hid the Windows-created System Volume Information folder from cartridge and firmware microSD browsers without deleting it or affecting pagination.
 - Redrew the joystick diagnostic screen only when displayed values or menu selection changed, instead of repeatedly flushing an unchanged VGA frame.
 - Reduced joystick calibration to neutral, four cardinal directions and two fire buttons, deriving diagonals without asking the user to capture them.
@@ -39,6 +40,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Fixed
 
+- Reduced the slow-start rendering ramp by reacting to sustained overload every five PAL or six NTSC frames instead of waiting for repeated half-second adjustments.
+- Retained the learned rendering level when resuming from F12 while resetting elapsed-time debt, avoiding another speed ramp after menu use.
 - Corrected the original MSX2+ startup animation's beam-timed sprite collisions and SCREEN 6 coarse/fine scrolling, page wrapping and edge masking so the logo moved progressively instead of appearing abruptly.
 - Corrected SCREEN 6 sprite color-pair sampling, removing a spurious colored bar from the startup logo.
 

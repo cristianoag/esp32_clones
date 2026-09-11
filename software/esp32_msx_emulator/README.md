@@ -66,6 +66,52 @@ The initial profiles are:
 | `msx\bios\omega` | MSX2+ | 512 KiB | `OMEGA.ROM` (one 256 KiB bank) |
 | `msx\bios\expert` | Gradiente Expert 1.1 / MSX1 | 64 KiB | `MSX.ROM` |
 | `msx\bios\hotbit` | Sharp Hotbit 1.2 / MSX1 | 64 KiB | `MSX.ROM` |
+| `msx\bios\fs-a1wsx` | Panasonic FS-A1WSX / MSX2+ | 64 KiB | `PANASONIC.ROM` (336 KiB) |
+| `msx\bios\fs-a1f` | Panasonic FS-A1F / MSX2 | 64 KiB | `PANASONIC.ROM` (208 KiB) |
+| `msx\bios\fs-a1fx` | Panasonic FS-A1FX / MSX2+ | 64 KiB | `PANASONIC.ROM` (208 KiB) |
+
+### Panasonic profiles
+
+Import your machine dumps from the Panasonic directory:
+
+```powershell
+.\tools\Import-Roms.ps1 -Destination .\sdcard `
+    -PanasonicDirectory 'C:\Program Files\openMSX\share\systemroms\systemroms\machines\panasonic'
+```
+
+This imports all three profiles. Use `-PanasonicModels FS-A1FX` to select
+one, or a PowerShell array such as `-PanasonicModels FS-A1F,FS-A1WSX`.
+Replacing an existing profile requires `-Force`.
+
+The importer reads the named `fs-a1f_*`, `fs-a1fx_*` and `fs-a1wsx_*`
+BIOS, sub-ROM, Kanji BASIC and Kanji font files. Each profile gets
+**one combined `PANASONIC.ROM`**, with the source bytes unchanged:
+
+| Offset | Contents |
+| --- | --- |
+| `0x00000` | 32 KiB BIOS/BASIC |
+| `0x08000` | 16 KiB sub-ROM |
+| `0x0C000` | 32 KiB Kanji BASIC/driver |
+| `0x14000` | 128 KiB Kanji font (FS-A1F/FX), or 256 KiB (FS-A1WSX) |
+
+These are emulator system-image layouts assembled from your component dumps,
+not byte-for-byte copies of a physical Panasonic mask-ROM chip.
+Original dumps are only read, never modified. The combined image and its
+checksum stay in the ignored SD preparation directory.
+
+Copy the three generated profile folders to `msx\bios` on the FAT32 SD card,
+install the updated firmware, and select them through **F12 > BIOS**.
+Choose **Boot BIOS + slots (cold reset)** to apply the selection. The existing
+save-default option also retains these profiles across power-off.
+Firmware updates do not install the ROM files on SD.
+
+This release uses each machine's BIOS/BASIC, startup behavior, cartridge
+slots and Kanji ROMs within the emulator's supported machine model. It does
+not map the Panasonic Cockpit/word processor firmware or disk BIOS, and does
+not emulate their TC8566AF disk controllers, Panasonic firmware mapper,
+turbo switch or other built-in applications. FS-A1F is an MSX2, not MSX2+;
+its own BIOS determines its startup screen. The WSX/FX MSX2+ startup animation
+must not be substituted for the FS-A1F's behavior.
 
 ### Omega's two banks
 
@@ -109,6 +155,21 @@ The BIOS runs the original logo code; the host does not draw a replacement
 splash screen or occupy either cartridge slot.
 The supplied bank has been verified to show that logo and then reach BASIC
 both in host tests and on the user's board.
+
+The startup renderer now honors SCREEN 6 coarse/fine horizontal scrolling,
+two-page wrap and left-edge masking. Sprite collision status follows the
+emulated beam instead of immediately re-triggering on the same overlap,
+which previously let the BIOS raster loop advance incorrectly. The collision
+sprites' SCREEN 6 color pairs are also sampled correctly, removing the
+spurious light-blue bar.
+
+Native tests of the corrected original Omega sequence produce 54 distinct
+animation images over 177 emulated frames (about 2.95 seconds at 60 Hz).
+The main movement interval now has 47 distinct images, rather than only two
+in the earlier implementation. The CPU timing is unchanged, and BASIC is
+reached at frame 318 even with rendering reduced to 10%. These are host
+measurements; smoothness on the ESP32 still depends on its presented frame
+rate. No replacement splash image or fixed host-side animation delay is used.
 
 Install the updated MSX firmware, then copy the newly imported
 `msx\bios\omega\OMEGA.ROM` onto the SD card beside `profile.ini`.
@@ -159,7 +220,7 @@ ram=512
 Allowed RAM sizes are 64, 128, 256, or 512 KiB. Names must be printable
 ASCII, at most 40 characters. Directory IDs are 1-32 letters, digits,
 underscores, or hyphens. The F12 menu scans up to 32 profiles, including
-the three initial entries. Missing or invalid BIOS files produce an
+the six initial entries. Missing or invalid BIOS files produce an
 explicit menu error instead of booting a different ROM silently.
 
 ## F12 configuration
@@ -403,6 +464,9 @@ Run the ROM importer regression checks without any copyrighted ROMs:
 .\tools\Test-JoystickTiming.ps1
 .\tools\Test-Audio.ps1
 .\lib\fmsx\tests\host_smoke.ps1 -ProfilesRoot .\sdcard\msx\bios
+.\lib\fmsx\tests\animation.ps1
+# Optional original BIOS animation trace and captures:
+.\lib\fmsx\tests\animation.ps1 -BiosDirectory .\sdcard\msx\bios\omega -Capture -Raster
 ```
 
 The checks use synthetic byte arrays to cover bank extraction, file sizes,
@@ -414,8 +478,12 @@ calibration rejection, independent ports, saved calibration, disconnects,
 and the core's PSG port selection. The firmware updater tests cover the
 FLH validation and failure paths. The core regression checks repeated boots,
 cartridge slots, allocation failures/recovery, emulated sound, video and
-keyboard input. With `-ProfilesRoot`, it also runs all three imported
-BIOS profiles for 900 frames and checks for BASIC's `Ok` prompt.
+keyboard input. With `-ProfilesRoot`, it also runs all six imported
+BIOS profiles for 900 frames and checks for BASIC's `Ok` prompt. The separate
+animation tests check beam-timed collision latching and SCREEN 6 scrolling,
+including fine/coarse offsets, page wrapping, masking and sprite colors.
+For FS-A1FX/WSX animation captures, select their profile directory and add
+`-RamPages 4`. FS-A1F is checked as an MSX2 BIOS, not with this MSX2+ harness.
 A successful cross-build does not prove VGA timing, USB
 enumeration, analog audio quality or emulation speed on the physical board.
 
@@ -429,7 +497,7 @@ VGA has a 320x240 framebuffer and six physically wired color bits.
 Before treating a board as validated:
 
 1. Upload through UART and confirm VGA output and USB enumeration in the log.
-2. Boot each of the three profiles, type `PRINT 2+2`, and verify BASIC prints `4`.
+2. Boot each available profile, type `PRINT 2+2`, and verify BASIC prints `4`.
    With the complete Omega bank installed, check that the MSX startup
    logo appears before BASIC.
 3. Open F12 while a BASIC program runs, resume it, then cold-boot another ROM.

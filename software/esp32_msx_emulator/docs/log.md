@@ -7,6 +7,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Added
 
+- Added Panasonic FS-A1WSX, FS-A1F and FS-A1FX BIOS profiles with 64 KiB RAM defaults and local import of BIOS, sub-ROM, Kanji BASIC and Kanji font components into one ROM file per profile.
+
 - Added independent low-speed USB gamepad input on the two joystick connectors, mapped directions and two fire buttons to MSX joystick ports 1 and 2, and released input when a pad disconnected.
 - Added an F12 joystick calibration wizard and live input display, saved each port's calibration by USB device identity, and kept uncalibrated or incompatible reports neutral.
 
@@ -25,6 +27,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Hid the Windows-created System Volume Information folder from cartridge and firmware microSD browsers without deleting it or affecting pagination.
 - Redrew the joystick diagnostic screen only when displayed values or menu selection changed, instead of repeatedly flushing an unchanged VGA frame.
 - Reduced joystick calibration to neutral, four cardinal directions and two fire buttons, deriving diagonals without asking the user to capture them.
 - Preferred internal SRAM for small CPU RAM, BIOS and cartridge allocations while reserving memory for board drivers, and retained PSRAM for large allocations.
@@ -35,6 +38,9 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 - Placed F12 options on consecutive text rows without blank lines between them.
 
 ### Fixed
+
+- Corrected the original MSX2+ startup animation's beam-timed sprite collisions and SCREEN 6 coarse/fine scrolling, page wrapping and edge masking so the logo moved progressively instead of appearing abruptly.
+- Corrected SCREEN 6 sprite color-pair sampling, removing a spurious colored bar from the startup logo.
 
 - Kept Omega's BIOS, BASIC, extension and startup code in one 256 KiB ROM file and mapped the previously omitted Kanji BASIC region containing the original MSX logo, without using either cartridge slot.
 - Emulated the MSX2+ reset-status register and visible-scanline sprite-collision polling so the original startup animation could finish and proceed to BASIC.
@@ -60,6 +66,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 - The firmware does not yet support all MSX hardware features, such as disk drives.
 
 ### Notes
+
+- Limited the Panasonic profiles to BIOS/BASIC, startup, cartridge and Kanji support; built-in applications, disk hardware and Panasonic turbo/firmware-mapper features were not included.
 
 - Required user-supplied BIOS images and retained the original fMSX author's non-commercial terms and attribution.
 - Used fMSX's generic machine models rather than emulating the physical Omega board's optional flash, disk, and expansion hardware.

@@ -78,6 +78,52 @@ try {
     $invalidBatch = Join-Path $root 'invalid-batch'
     Assert-Rejected { & $importer -Destination $invalidBatch -OmegaRom $omegaPath -ExpertRom $subPath } 'Validate entire batch before writing'
     Assert-True (-not (Test-Path -LiteralPath $invalidBatch)) 'Rejected batch left no output'
+    $panasonic = Join-Path $root 'panasonic'
+    [System.IO.Directory]::CreateDirectory($panasonic) | Out-Null
+    foreach ($modelName in @('fs-a1wsx', 'fs-a1f', 'fs-a1fx')) {
+        $biosSuffix = if ($modelName -eq 'fs-a1f') { 'basic-bios2.rom' } else { 'basic-bios2p.rom' }
+        $subSuffix = if ($modelName -eq 'fs-a1f') { 'msx2sub.rom' } else { 'msx2psub.rom' }
+        $fontSize = if ($modelName -eq 'fs-a1wsx') { 262144 } else { 131072 }
+        foreach ($part in @(@($biosSuffix,32768,17), @($subSuffix,16384,34),
+                            @('kanjibasic.rom',32768,51), @('kanjifont.rom',$fontSize,68))) {
+            $data = [byte[]]::new($part[1])
+            for ($i = 0; $i -lt $data.Length; ++$i) { $data[$i] = $part[2] }
+            [System.IO.File]::WriteAllBytes((Join-Path $panasonic ($modelName + '_' + $part[0])), $data)
+        }
+    }
+    $panCard = Join-Path $root 'panasonic-card'
+    & $importer -Destination $panCard -PanasonicDirectory $panasonic | Out-Null
+    foreach ($modelName in @('fs-a1wsx', 'fs-a1f', 'fs-a1fx')) {
+        $profile = Join-Path $panCard "msx\bios\$modelName"
+        $image = [System.IO.File]::ReadAllBytes((Join-Path $profile 'PANASONIC.ROM'))
+        $expected = if ($modelName -eq 'fs-a1wsx') { 344064 } else { 212992 }
+        Assert-True ($image.Length -eq $expected) "$modelName combined size"
+        foreach ($part in @(@(0,32768,17), @(0x8000,16384,34), @(0xC000,32768,51),
+                            @(0x14000,($expected-0x14000),68))) {
+            $equal = $true
+            for ($i = $part[0]; $i -lt $part[0] + $part[1]; ++$i) {
+                if ($image[$i] -ne $part[2]) { $equal = $false; break }
+            }
+            Assert-True $equal "$modelName region $($part[0]) is byte-identical"
+        }
+        Assert-True ((Get-ChildItem -LiteralPath $profile -Filter '*.ROM').Count -eq 1) "$modelName uses one ROM"
+        $expectedModel = if ($modelName -eq 'fs-a1f') { 'MSX2' } else { 'MSX2+' }
+        Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $profile 'profile.ini')) -eq
+            "name=Panasonic $($modelName.ToUpperInvariant())`nmodel=$expectedModel`nram=64`n") "$modelName hardware defaults"
+        $hash = (Get-FileHash -LiteralPath (Join-Path $profile 'PANASONIC.ROM')).Hash
+        Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $profile 'SHA256SUMS.txt')).Contains("$hash  PANASONIC.ROM")) "$modelName checksum"
+    }
+    $oneCard = Join-Path $root 'one-panasonic-card'
+    & $importer -Destination $oneCard -PanasonicDirectory $panasonic -PanasonicModels 'FS-A1FX' | Out-Null
+    Assert-True ((Get-ChildItem -LiteralPath (Join-Path $oneCard 'msx\bios') -Directory).Count -eq 1) 'Import selected Panasonic only'
+    Assert-Rejected { & $importer -Destination $panCard -PanasonicDirectory $panasonic } 'Panasonic overwrite requires Force'
+    Assert-Rejected { & $importer -Destination $destination -BiosRom $biosPath -ProfileId 'fs-a1f' -Name Custom } 'Panasonic profile IDs reserved'
+    [System.IO.File]::WriteAllBytes((Join-Path $panasonic 'fs-a1fx_kanjifont.rom'), [byte[]]::new(32768))
+    $badPanCard = Join-Path $root 'bad-panasonic-card'
+    Assert-Rejected { & $importer -Destination $badPanCard -PanasonicDirectory $panasonic } 'Reject invalid Panasonic font size'
+    Assert-True (-not (Test-Path -LiteralPath $badPanCard)) 'Validate entire Panasonic batch before writing'
+    Remove-Item -LiteralPath (Join-Path $panasonic 'fs-a1f_msx2sub.rom')
+    Assert-Rejected { & $importer -Destination $badPanCard -PanasonicDirectory $panasonic -PanasonicModels 'FS-A1F' } 'Reject missing Panasonic component'
     Write-Output "All $checks ROM import checks passed."
 }
 finally {

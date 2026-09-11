@@ -14,9 +14,11 @@
 
 extern "C" {
 extern AY8910 PSG;
+extern I8255 PPI;
 extern byte *ROMData[MAXSLOTS], *MemMap[4][4][8], *EmptyRAM, *RAM[8];
 extern byte ROMType[MAXSLOTS], ROMMapper[MAXSLOTS][4], ROMMask[MAXSLOTS], SCCOn[2];
 extern int NChunks;
+extern byte *Kanji;
 }
 
 static unsigned frames, audioSamples, nonzeroSamples, coloredFrames, errors, allocation;
@@ -37,6 +39,9 @@ static bool expectRealLogo, logoTest, expectLogo;
 static bool expectKanjiLogo;
 static bool logoResetTest;
 static bool truncateOmegaOnAllocation;
+static bool truncatePanasonicOnAllocation, panasonicTest, panasonicResetTest;
+static bool panasonicOnly;
+static std::vector<byte> expectedPanasonic;
 static unsigned logoPcSamples, logoPixels, logoFrame;
 static std::vector<byte> expectedKanjiBasic;
 static std::vector<byte> expectedLogo;
@@ -86,48 +91,7 @@ static void checkStartupHardware()
     OutZ80(0xF4, 0);
     assert(InZ80(0xF4) == 0xFF);
   }
-  byte attributes[0x200 + 128] = {}, patterns[2048] = {};
-  byte *oldAttributes = SprTab, *oldPatterns = SprGen;
-  const byte mode = ScrMode;
-  const int line = ScanLine;
-  byte registers[64], status[16];
-  memcpy(registers, VDP, sizeof(registers));
-  memcpy(status, VDPStatus, sizeof(status));
-  SprTab = attributes + 0x200;
-  SprGen = patterns;
-  memset(attributes, 5, 0x200);
-  memset(patterns, 0xff, 8);
-  SprTab[0] = SprTab[4] = 10;
-  SprTab[1] = 20;
-  SprTab[5] = 28;
-  SprTab[8] = 216;
-  ScrMode = 6;
-  ScanLine = 11;
-  VDP[15] = VDP[23] = VDP[8] = VDP[1] = VDP[9] = 0;
-  VDPStatus[2] = 0;
-  VDPStatus[0] = 0;
-  assert(!(InZ80(0x99) & 0x20)); // Adjacent unmagnified sprites.
-  VDP[1] = 1;
-  assert(InZ80(0x99) & 0x20); // Magnification creates an overlap.
-  assert(InZ80(0x99) & 0x20); // Further overlap can reassert after a status read.
-  ScanLine = 9;
-  assert(!(InZ80(0x99) & 0x20)); // Not a colliding scanline.
-  ScanLine = 11;
-  VDP[8] = 2;
-  assert(!(InZ80(0x99) & 0x20)); // Sprites disabled.
-  VDP[8] = 0;
-  attributes[16] = 0x25;
-  assert(!(InZ80(0x99) & 0x20)); // Mode-2 IC suppresses collision.
-  attributes[16] = 0;
-  assert(!(InZ80(0x99) & 0x20)); // Transparent color zero.
-  VDP[8] = 0x20;
-  assert(InZ80(0x99) & 0x20); // Solid color zero participates.
-  SprTab = oldAttributes;
-  SprGen = oldPatterns;
-  ScrMode = mode;
-  ScanLine = line;
-  memcpy(VDP, registers, sizeof(registers));
-  memcpy(VDPStatus, status, sizeof(status));
+  // Beam-timed sprite collision regressions live in animation.ps1.
 }
 
 static void checkCartridges()
@@ -224,9 +188,67 @@ extern "C" void* heap_caps_malloc(size_t size, unsigned)
     FILE* f = fopen("OMEGA.ROM", "wb");
     assert(f && fclose(f) == 0);
   }
+  if (truncatePanasonicOnAllocation && size == 32768) {
+    truncatePanasonicOnAllocation = false;
+    FILE* f = fopen("PANASONIC.ROM", "wb");
+    assert(f && fclose(f) == 0);
+  }
   return malloc(size);
 }
 extern "C" void heap_caps_free(void* ptr) { free(ptr); }
+
+static void checkPanasonic()
+{
+  assert(Kanji && !memcmp(Kanji, expectedPanasonic.data() + 0x14000,
+                           expectedPanasonic.size() - 0x14000));
+  for (int bank = 0; bank < 6; ++bank) {
+    assert(MemMap[3][1][bank] == MemMap[3][1][0] + bank * 8192);
+    assert(!memcmp(MemMap[3][1][bank], expectedPanasonic.data() + 0x8000 + bank * 8192, 8192));
+  }
+  assert(MemMap[0][0][4] == EmptyRAM && MemMap[0][0][5] == EmptyRAM);
+  for (int bank = 0; bank < 8; ++bank)
+    assert(MemMap[3][3][bank] == EmptyRAM); // No Cockpit, firmware mapper or disk.
+  const byte primary = PSLReg, secondary = SSLReg[3];
+  const I8255 savedPpi = PPI;
+  OutZ80(0xAB, 0x82);
+  OutZ80(0xA8, 0xFF);
+  WrZ80(0xFFFF, 0x95); // Extension in pages 0..2, RAM in page 3.
+  for (word address : {0x0123, 0x4123, 0x8123}) {
+    const byte value = RdZ80(address);
+    if (value != expectedPanasonic[0x8000 + address])
+      fprintf(stderr, "Panasonic slot read: addr=%04X value=%02X expected=%02X primary=%02X secondary=%02X\n",
+              address, value, expectedPanasonic[0x8000 + address], PSLReg, SSLReg[3]);
+    assert(value == expectedPanasonic[0x8000 + address]);
+    WrZ80(address, ~value);
+    assert(RdZ80(address) == value);
+  }
+  WrZ80(0xFFFF, secondary);
+  OutZ80(0xA8, primary);
+  PPI = savedPpi;
+
+  const bool level2 = expectedPanasonic.size() == 0x54000;
+  for (unsigned letter : {0U, 65U, 2047U, 4095U}) {
+    OutZ80(0xD8, static_cast<byte>((letter & 63) | 0xC0));
+    OutZ80(0xD9, static_cast<byte>((letter >> 6) | 0xC0));
+    assert(InZ80(0xDB) == 0xFF); // Wrong read level does not advance shared count.
+    for (unsigned count = 0; count < 33; ++count)
+      assert(InZ80(0xD9) == Kanji[letter * 32 + (count & 31)]);
+    OutZ80(0xDA, static_cast<byte>((letter & 63) | 0xC0));
+    OutZ80(0xDB, static_cast<byte>((letter >> 6) | 0xC0));
+    if (level2) {
+      assert(InZ80(0xD9) == 0xFF);
+      for (unsigned count = 0; count < 33; ++count)
+        assert(InZ80(0xDB) == Kanji[0x20000 + letter * 32 + (count & 31)]);
+      OutZ80(0xD8, letter & 63); // The other level shares the high address bits.
+      assert(InZ80(0xD9) == Kanji[letter * 32]);
+      OutZ80(0xDB, letter >> 6); // Either address write resets the count.
+      assert(InZ80(0xDB) == Kanji[0x20000 + letter * 32]);
+    } else {
+      assert(InZ80(0xDB) == 0xFF);
+      assert(InZ80(0xD9) == Kanji[letter * 32 + 1]); // Unmapped DA/DB do nothing.
+    }
+  }
+}
 
 void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* palette)
 {
@@ -236,6 +258,7 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
     if (pixels[i]) { ++coloredFrames; break; }
   ++frames;
   if (!realBios && frames == 1) checkStartupHardware();
+  if (panasonicTest && frames == 1) checkPanasonic();
   if (logoTest && frames == 1) {
     if (!expectedExtension.empty())
       assert(memcmp(MemMap[3][1][0], expectedExtension.data(), expectedExtension.size()) == 0);
@@ -290,6 +313,39 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
         assert(memcmp(MemMap[0][0][4], expectedLogo.data(), expectedLogo.size()) == 0);
       } else assert(MemMap[0][0][4] == EmptyRAM && MemMap[0][0][5] == EmptyRAM);
       assert(RAM[4] == MemMap[0][0][4] && RAM[5] == MemMap[0][0][5]);
+    }
+    assert(NChunks == chunks);
+  }
+  if (panasonicResetTest && frames == frameLimit) {
+    const int chunks = NChunks;
+    byte* font = Kanji;
+    assert(ResetMSX(Mode, RAMPages, VRAMPages) == Mode);
+    assert(Kanji == font && NChunks == chunks);
+    assert(InZ80(0xD9) == Kanji[0] && InZ80(0xDB) == 0xFF);
+    FILE* bank = fopen("PANASONIC.ROM", "wb");
+    assert(bank && fclose(bank) == 0);
+    const int previousMode = Mode;
+    const int otherMode = (Mode & ~MSX_MODEL) | (MODEL(MSX_MSX2P) ? MSX_MSX2 : MSX_MSX2P);
+    assert(ResetMSX(otherMode, 4, 8) == previousMode);
+    assert(Kanji == font && NChunks == chunks);
+    checkPanasonic(); // A failed model change must keep the previous map intact.
+    bank = fopen("PANASONIC.ROM", "wb");
+    assert(bank && fwrite(expectedPanasonic.data(), 1, expectedPanasonic.size(), bank) == expectedPanasonic.size());
+    assert(fclose(bank) == 0);
+    for (int model : {0, 1, 2}) {
+      if (model == 1 && expectedPanasonic.size() == 0x54000) {
+        const int previousMode = Mode;
+        const int previousChunks = NChunks;
+        assert(ResetMSX((Mode & ~MSX_MODEL) | model, 4, 8) == previousMode);
+        assert(!Kanji && NChunks == previousChunks);
+        continue;
+      }
+      assert((ResetMSX((Mode & ~MSX_MODEL) | model, 4, model ? 8 : 2) & MSX_MODEL) == model);
+      if (model) checkPanasonic();
+      else {
+        assert(!Kanji && InZ80(0xD9) == 0xFF && InZ80(0xDB) == 0xFF);
+        for (int bank = 0; bank < 6; ++bank) assert(MemMap[3][1][bank] == EmptyRAM);
+      }
     }
     assert(NChunks == chunks);
   }
@@ -704,15 +760,119 @@ static void omegaRegression(const char* directory)
   expectedKanjiBasic.clear();
 }
 
+static void panasonicRegression(const char* directory)
+{
+  const auto main = slotScanningBios();
+  const std::string paths[] = {std::string(directory) + "/slot1.rom",
+                               std::string(directory) + "/slot2.rom"};
+  for (unsigned size : {0x34000U, 0x54000U}) {
+    expectedPanasonic.assign(size, 0);
+    memcpy(expectedPanasonic.data(), main.data(), main.size());
+    for (unsigned i = 0x8000; i < size; ++i)
+      expectedPanasonic[i] = static_cast<byte>((i >> 17) * 71 + (i >> 11) * 19 + (i >> 5) * 13 + i);
+    writeImage("PANASONIC.ROM", expectedPanasonic);
+    // Neither broken legacy files nor separate fonts/disks override this bank.
+    for (const char* name : {"MSX2.ROM", "MSX2EXT.ROM", "MSX2P.ROM", "MSX2PEXT.ROM",
+                             "MSX2PLOGO.ROM", "KANJI.ROM", "DISK.ROM"}) writeImage(name, {});
+    panasonicTest = cartridgeTest = true;
+    for (int model : {1, 2}) {
+      if (model == 1 && size == 0x54000) {
+        resetCounters();
+        assert(!MsxCoreRun(directory, model, 4));
+        assert(errors == 1 && !frames && !NChunks && !Kanji);
+        continue;
+      }
+      for (int selection = 0; selection < 4; ++selection) {
+        for (int slot = 0; slot < 2; ++slot) {
+          const bool inserted = selection & (1 << slot);
+          expectedCarts[slot] = inserted ? makeCartridge(16384, 0x40 + slot * 0x20) : std::vector<byte>();
+          expectedMappers[slot] = -1;
+          expectedResults[slot] = inserted ? 0x40 + slot * 0x20 : 0xFF;
+          if (inserted) writeImage(paths[slot].c_str(), expectedCarts[slot]);
+        }
+        runCartridges(directory, selection & 1 ? paths[0].c_str() : nullptr,
+                       selection & 2 ? paths[1].c_str() : nullptr, model);
+      }
+    }
+    cartridgeTest = false;
+    panasonicResetTest = true;
+    resetCounters();
+    assert(MsxCoreRun(directory, 2, 4));
+    panasonicResetTest = false;
+    resetCounters();
+    assert(MsxCoreRun(directory, 2, 4));
+    const unsigned allocations = allocation;
+    for (unsigned failure = 1; failure <= allocations; ++failure) {
+      resetCounters();
+      failAllocation = failure;
+      assert(!MsxCoreRun(directory, 2, 4));
+      assert(errors == 1 && frames == 0 && !NChunks && !Kanji && strstr(lastError, "PSRAM"));
+      resetCounters();
+      assert(MsxCoreRun(directory, 2, 4));
+    }
+    for (const char* name : {"MSX2.ROM", "MSX2P.ROM"}) writeImage(name, main);
+    for (const char* name : {"MSX2EXT.ROM", "MSX2PEXT.ROM"}) writeImage(name, std::vector<byte>(16384));
+    for (const char* name : {"MSX2PLOGO.ROM", "KANJI.ROM", "DISK.ROM"}) assert(remove(name) == 0);
+    truncatePanasonicOnAllocation = true;
+    resetCounters();
+    assert(!MsxCoreRun(directory, 2, 4));
+    assert(!truncatePanasonicOnAllocation && errors == 1 && !frames && !NChunks && !Kanji);
+    writeImage("PANASONIC.ROM", expectedPanasonic);
+    writeImage("OMEGA.ROM", std::vector<byte>(0x40000));
+    for (int model : {1, 2}) {
+      resetCounters();
+      assert(!MsxCoreRun(directory, model, 4));
+      assert(errors == 1 && !frames && !NChunks && !Kanji);
+    }
+    assert(remove("OMEGA.ROM") == 0);
+    for (unsigned bad : {0U, 1U, size - 1, size + 1, 0x40000U}) {
+      writeImage("PANASONIC.ROM", std::vector<byte>(bad));
+      for (int model : {1, 2}) {
+        resetCounters();
+        assert(!MsxCoreRun(directory, model, 4));
+        assert(errors == 1 && !frames && !NChunks && !Kanji);
+      }
+      panasonicTest = false;
+      resetCounters();
+      assert(MsxCoreRun(directory, 0, 4)); // MSX1 ignores combined Panasonic images.
+      panasonicTest = true;
+      writeImage("PANASONIC.ROM", expectedPanasonic);
+      resetCounters();
+      assert(MsxCoreRun(directory, 2, 4));
+    }
+    assert(remove("PANASONIC.ROM") == 0);
+    panasonicTest = false;
+    resetCounters();
+    assert(MsxCoreRun(directory, 2, 4));
+    assert(!Kanji);
+  }
+#ifdef _WIN32
+  assert(mkdir("PANASONIC.ROM") == 0);
+#else
+  assert(mkdir("PANASONIC.ROM", 0700) == 0);
+#endif
+  resetCounters();
+  assert(!MsxCoreRun(directory, 2, 4));
+  assert(errors == 1 && !frames && !NChunks && !Kanji);
+  assert(rmdir("PANASONIC.ROM") == 0);
+  for (const auto& name : paths) assert(remove(name.c_str()) == 0);
+  expectedPanasonic.clear();
+  puts("PASS: authoritative Panasonic 208/336 KiB banks, read-only 48 KiB extension, both cartridges, JIS1/2 addressing/interlock/wrap, resets, invalid/short reads, OOM and legacy recovery.");
+}
+
 int main(int argc, char** argv)
 {
-  if (argc > 1) {
+  panasonicOnly = argc == 2 && strcmp(argv[1], "--panasonic") == 0;
+  if (argc > 1 && !panasonicOnly) {
     assert(argc == 5);
     realBios = true;
     frameLimit = static_cast<unsigned>(atoi(argv[4]));
     assert(frameLimit > 0);
     const std::string omegaPath = std::string(argv[1]) + "/OMEGA.ROM";
     const bool omega = atoi(argv[2]) == 2 && access(omegaPath.c_str(), F_OK) == 0;
+    const std::string panasonicPath = std::string(argv[1]) + "/PANASONIC.ROM";
+    if (atoi(argv[2]) == 2 && access(panasonicPath.c_str(), F_OK) == 0)
+      expectKanjiLogo = true;
     const std::string logoPath = omega ? omegaPath : std::string(argv[1]) + "/MSX2PLOGO.ROM";
     if (atoi(argv[2]) == 2) {
       FILE* logo = fopen(logoPath.c_str(), "rb");
@@ -776,6 +936,11 @@ int main(int argc, char** argv)
     assert(fwrite(rom, 1, size, f) == size);
     fclose(f);
   }
+  if (panasonicOnly) {
+    panasonicRegression(path);
+    for (const char* name : names) assert(remove(name) == 0);
+    return 0;
+  }
   for (int pass = 0; pass < 2; ++pass)
     for (int model = 0; model < 3; ++model)
       for (int pages = 4; pages <= 32; pages *= 2) {
@@ -798,6 +963,7 @@ int main(int argc, char** argv)
   cartridgeRegression(path);
   logoRegression(path);
   omegaRegression(path);
+  panasonicRegression(path);
   frameLimit = 30;
   for (int pal = 0; pal < 2; ++pal) {
     requestedPal = pal != 0;

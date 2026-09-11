@@ -78,6 +78,54 @@ Required files:
 | MSX2 | `MSX2.ROM` (32768), `MSX2EXT.ROM` (16384) |
 | MSX2+ | `MSX2P.ROM` (32768), `MSX2PEXT.ROM` (16384) |
 | Omega / MSX2+ | `OMEGA.ROM` (262144 bytes), instead of separate files |
+| Panasonic FS-A1F / MSX2 | `PANASONIC.ROM` (212992 bytes) |
+| Panasonic FS-A1FX / MSX2+ | `PANASONIC.ROM` (212992 bytes) |
+| Panasonic FS-A1WSX / MSX2+ | `PANASONIC.ROM` (344064 bytes) |
+
+### Panasonic BIOS profiles
+
+On MSX2/MSX2+, `PANASONIC.ROM` is an authoritative, headerless concatenation
+of the user's original ROMs (no firmware modification or extracted sidecars):
+
+| File offset | Size | Mapping |
+| --- | --- | --- |
+| `0x00000` | 32 KiB | BASIC/BIOS, primary slot 0, `0x0000–0x7FFF` |
+| `0x08000` | 16 KiB | Sub-ROM, slot 3/subslot 1, `0x0000–0x3FFF` |
+| `0x0C000` | 32 KiB | Kanji BASIC/driver, slot 3/subslot 1, `0x4000–0xBFFF` |
+| `0x14000` | 128 or 256 KiB | Kanji font through I/O, not a memory slot |
+
+The exact accepted totals are `0x34000` (FS-A1F/FS-A1FX) and `0x54000`
+(FS-A1WSX). MSX2 accepts only `0x34000`; the larger WSX image requires MSX2+.
+Open/read/allocation failures and wrong sizes stop boot rather
+than falling back to split images. A directory containing both Panasonic and
+Omega combined images is rejected. MSX1 ignores Panasonic images.
+The sub-ROM and Kanji BASIC are one contiguous 48 KiB read-only allocation;
+`DISK.ROM` cannot overwrite this window. The combined font takes precedence
+over a separate `KANJI.ROM`. Same-model reset retains these allocations and
+resets the font address; switching models releases/reloads the relevant ROMs.
+
+These are **64 KiB generic fMSX BIOS/BASIC profiles**, not complete emulations
+of each Panasonic motherboard. RAM remains in fMSX slot 3/subslot 2; original
+BIOS code discovers it. Physical cartridge slots 1 and 2 remain available.
+Original MSX2+ Kanji BASIC executes its own startup animation. No substitute
+logo, forced boot patch, built-in application, disk ROM/controller configuration,
+firmware mapper, turbo control, FM-BASIC ROM or model-specific SRAM is added.
+Standard upstream cassette BIOS traps remain unchanged.
+
+Font level 1 uses D8h (column/address bits 5–10), D9h (row/bits 11–16),
+and D9h reads. FS-A1WSX additionally uses DAh/DBh for level 2. Its address
+and five-bit byte counter are shared by both levels: either address write
+resets the counter, valid reads wrap within 32 bytes, and the read level must
+match the most recent address-write level. A mismatched read returns FFh
+without advancing the counter. FS-A1F/FS-A1FX have only D8h/D9h; DAh/DBh
+are unmapped. This follows the hardware-tested openMSX configurations and
+shared-latch/interlocked behavior in
+[MSXKanji.cc](https://github.com/openMSX/openMSX/blob/master/src/MSXKanji.cc),
+[FS-A1WSX](https://github.com/openMSX/openMSX/blob/master/share/machines/Panasonic_FS-A1WSX.xml),
+[FS-A1F](https://github.com/openMSX/openMSX/blob/master/share/machines/Panasonic_FS-A1F.xml),
+and [FS-A1FX](https://github.com/openMSX/openMSX/blob/master/share/machines/Panasonic_FS-A1FX.xml).
+
+### Omega combined bank
 
 For MSX2+, an existing `OMEGA.ROM` takes precedence over the generic files,
 regardless of the profile directory's name. This is **one selected 256 KiB flash
@@ -98,10 +146,15 @@ regions and expansion ROMs do not automatically add emulated peripherals.
 The combined image's extension and Kanji BASIC form one contiguous 48 KiB
 allocation. A separate generic `DISK.ROM` is not overlaid on this system
 window. The MSX2+ F4 register reports inverted cold/warm reset status.
-Sprite collision detection accounts for magnification and the current
-visible line, including collision reassertion after status reads during
-an overlapping line. This remains scanline-level emulation, not a
-cycle-exact VDP pixel pipeline.
+Sprite collision events are prepared per visible line and consumed up to the
+emulated horizontal beam position on status reads. A cleared collision cannot
+reassert until the beam reaches another overlapping pixel; elapsed pixels are
+never replayed. Magnification, clipping, sprite limits and mode-2 IC/color
+controls participate in collision detection even when rendering is skipped.
+This is a beam-timed collision approximation, not a cycle-exact VDP pipeline.
+SCREEN 6 rendering applies the coarse/fine horizontal scroll registers, optional
+two-page wrap and left-edge mask; its downsampled sprites select the proper
+two-bit palette pair rather than producing a spurious light-blue bar.
 MSX1/MSX2 ignore `OMEGA.ROM`. The original generic format remains supported
 when the MSX2+ directory has no combined bank.
 
@@ -178,15 +231,19 @@ boot-time allocation of both SRAM and its filename is mandatory.
   when rendering is skipped; load the optional MSX2+ logo into slot 0 page 2,
   with exact-size/read checks and tracked, model-safe cleanup; directly load
   MAIN/auxiliary/SUB/Kanji BASIC regions from an authoritative single Omega
-  flash bank; implement the F4 reset-status latch and raster collision polling.
+  flash bank; load Panasonic BASIC/sub-ROM/Kanji BASIC/font combined images;
+  implement WSX shared-latch, interlocked JIS level-2 font reads; implement the
+  F4 reset-status latch and raster collision polling.
 - `V9938.c`: add command-engine reset for safe profile switching.
+- `Common.h`: apply SCREEN 6 coarse/fine horizontal scroll, two-page wrapping,
+  left-edge masking and correct sprite palette-pair sampling.
 - `Sound.c`: include embedded audio-driver declarations.
 - `Floppy.c`: include POSIX directory declarations without selecting a desktop
   backend.
 - `Esp32Port.h`, `library.json`, and `src/MsxCore.*`: new integration code.
 
-All other vendored core files, including the Z80 interpreter, emulated sound
-chips, and software scanline renderer, remain original upstream sources.
+All other vendored core files, including the Z80 interpreter and emulated sound
+chips, remain original upstream sources.
 
 ## Host regression
 
@@ -218,6 +275,18 @@ files, operation with no split files, correct region offsets, absence of
 extracted files, truncated/oversized banks (including an unselected 512 KiB
 source), a short read after size validation, generic fallback only when the
 bank is absent, and allocation-failure recovery.
+Panasonic tests cover the model-specific combined sizes (including rejection
+of a WSX-sized image on MSX2), immutable
+48 KiB extension mapping, all cartridge-slot selections, font contents and
+maximum addresses, 32-byte wrapping, shared address/counter and mismatched-level
+reads, absent level-2 ports, model/reset cleanup, ambiguous combined banks,
+unreadable/short files, allocation failures and successful legacy recovery.
+Use `-PanasonicOnly` to select just the Panasonic ROM/slot/font regressions
+(plus the portable frame-pacing tests); the default still runs the complete
+synthetic lifecycle, cartridge and video suites. This selector can be combined
+with either real-BIOS directory option below.
+Beam-timed sprite collision tests are separate in `tests\animation.ps1`;
+the lifecycle suite does not assume collisions can reassert without beam progress.
 The host test replaces only ESP32 allocation and
 platform I/O, not any emulated component. Build artifacts and generated test
 ROMs are confined to the ignored `tests\.build` directory.
@@ -232,7 +301,8 @@ directory path to the same script, for example:
 powershell -File lib\fmsx\tests\host_smoke.ps1 -BiosDirectory C:\private\omega -Model 2 -RamPages 32 -Frames 900
 ```
 
-The script copies `OMEGA.ROM` alone when present for MSX2+, otherwise the model's
+The script copies `PANASONIC.ROM` alone for Panasonic MSX2/MSX2+ or `OMEGA.ROM`
+alone when present for MSX2+, otherwise the model's
 generic BIOS files and optional MSX2+ logo, into its ignored build
 directory (the originals are never modified), runs 900 unpaced emulated frames,
 prints the final text-mode character table and writes `tests\.build\boot.ppm`.
@@ -240,17 +310,18 @@ It also saves frame 30 (or the final frame for shorter runs) to `boot-early.ppm`
 For a non-erased logo image, it requires samples of the real CPU executing
 0x8000–0xBFFF with slot 0 mapped, and captures the most detailed observed frame
 during that execution as `boot-logo.ppm`. These checks supplement, rather than
-replace, visual inspection of the capture. For an Omega image containing
+replace, visual inspection of the capture. For a Panasonic MSX2+ or Omega image containing
 Kanji BASIC, the test instead requires a SCREEN 6 logo frame with white
 lettering before BASIC. An erased auxiliary window is not mistaken for
 absence of the built-in MSX2+ startup logo.
 A successful real-BIOS test requires a detected BASIC `Ok` prompt. An absent
 prompt fails the test but may indicate a graphical boot screen rather than
 broken emulation; inspect the captured image and transcript. Private BIOS
-copies are removed in a `finally` block. To test all three imported profiles
+copies are removed in a `finally` block. To test all six imported profiles
 with one compilation, use `-ProfilesRoot .\sdcard\msx\bios` instead of
 `-BiosDirectory`. Captures are also saved as `boot-expert.ppm`,
-`boot-hotbit.ppm`, and `boot-omega.ppm`.
+`boot-hotbit.ppm`, `boot-omega.ppm`, `boot-fs-a1f.ppm`,
+`boot-fs-a1fx.ppm`, and `boot-fs-a1wsx.ppm`.
 Early/logo captures receive the corresponding profile suffix as well.
 
 Real-BIOS host validation on September 7, 2026 reached a rendered BASIC `Ok`
@@ -261,6 +332,63 @@ prompt after 900 frames in each of the supplied profiles:
 | Expert | MSX1 / 64 KiB | MSX BASIC 1.1 Br, Gradiente |
 | Hotbit | MSX1 / 64 KiB | HOT-BASIC V1.2, EPCOM |
 | Omega | MSX2+ / 512 KiB | MSX BASIC 3.0, Microsoft |
+
+Additional native validation on September 10, 2026 reached BASIC `Ok` after
+900 frames with all three user-supplied Panasonic combined images:
+
+| Profile | Model / RAM | Reported BASIC |
+| --- | --- | --- |
+| FS-A1F | MSX2 / 64 KiB | MSX BASIC 2.0, 28815 bytes free |
+| FS-A1FX | MSX2+ / 64 KiB | MSX BASIC 3.0, 28815 bytes free |
+| FS-A1WSX | MSX2+ / 64 KiB | MSX BASIC 3.0, 28815 bytes free |
+
+FX and WSX each produced a SCREEN 6 startup logo capture at frame 174 with
+7471 white lettering pixels. FS-A1F booted without needing S1985-specific
+mirrors or extra peripheral emulation. These are native-core results, not
+proof of board timing, full motherboard emulation or every Kanji application.
+
+### Focused startup-animation regression
+
+Run `powershell -File lib\fmsx\tests\animation.ps1` from the firmware directory
+for BIOS-free synthetic tests of all 512 SCREEN 6 coarse/fine scroll
+combinations, two-page wrapping, masks, sprite palette pairs, beam-timed
+collision reads, EI/HBlank timing, magnification, clipping, sprite limits,
+IC/color handling and MSX1 compatibility.
+
+For evidence from a local, user-supplied Omega image:
+
+```powershell
+powershell -File lib\fmsx\tests\animation.ps1 -BiosDirectory .\sdcard\msx\bios\omega -Capture -Raster
+```
+
+For FS-A1FX or FS-A1WSX, select that profile's directory and add `-RamPages 4`
+(64 KiB). The animation harness tests MSX2+; use the lifecycle boot test for
+FS-A1F/MSX2, which does not have the MSX2+ startup animation.
+
+The isolated `tests\.build\animation` directory contains the measurements in
+`animation.csv`, optional ordered `animation-*.ppm` captures and `animation.gif`,
+and optional `raster.csv` CPU/VDP-write traces. The GIF is a preview capped at
+30 Hz to avoid browser minimum-delay stretching and includes the final BASIC
+screen; CSV/PPM evidence retains the full emulated 60 Hz timeline.
+The script copies `OMEGA.ROM` or, when absent,
+`PANASONIC.ROM` into its isolated BIOS directory and cleans that copy and CMOS
+output afterward. `-RamPages` defaults to 32 (Omega's 512 KiB); `-Frames` defaults
+to 900; `-DrawPercent 10` tests low presentation frequency without changing
+emulated timing. `-Raster` enables debug tracing only for this native test.
+
+Native Omega measurements with the corrected renderer/collision timing showed
+54 distinct full-rate animation frames versus 10 in the baseline, with SCREEN 6
+present for 177 emulated frames (about 2.95 seconds) and BASIC reached at
+emulated frame 318. At 10% drawing, nine distinct presentations were observed
+while BASIC still arrived at frame 318. These are emulated-frame measurements,
+not ESP32 wall-clock performance claims; no additional pacing change was made
+for this animation fix.
+
+FS-A1FX and FS-A1WSX at 64 KiB each also produced 54 distinct animation frames,
+177 emulated SCREEN 6 frames and BASIC at frame 318, with 7471 white lettering
+pixels. The same capture/raster harness exercised the unmodified combined
+images; FS-A1F's separate MSX2 boot check reached BASIC without requiring this
+MSX2+ animation.
 
 The Omega test used only the 32 KiB main BIOS and 16 KiB sub-ROM, without the
 physical logo ROM or disk ROM. This confirms the generic fMSX BIOS boot path,

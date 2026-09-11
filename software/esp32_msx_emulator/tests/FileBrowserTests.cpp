@@ -11,7 +11,9 @@ unsigned BrowserYields = 0;
 int main()
 {
     SD_MMC.nodes["/"] = std::make_shared<TestNode>("/", true);
+    SD_MMC.add("/", "System Volume Information", true);
     SD_MMC.add("/", "games", true);
+    SD_MMC.add("/games", "sYsTeM VoLuMe InFoRmAtIoN", true);
     SD_MMC.add("/", "readme.txt", false);
     SD_MMC.add("/", "ESP32_MSX-1.00.FLH", false);
     for (unsigned i = 0; i < 140; ++i)
@@ -47,5 +49,14 @@ int main()
     SD_MMC.nodes["/"] = std::make_shared<TestNode>("/", true);
     assert(MsxReadDirectoryPage("/", ".flh", false, 0, page, count, total, error, sizeof(error)));
     assert(!count && !total && !*error);
-    puts("PASS: real browser pagination over 140 ROMs, folders, eject, extension filtering, path errors and empty SD.");
+    SD_MMC.add("/", "SYSTEM VOLUME INFORMATION", true);
+    assert(MsxReadDirectoryPage("/", ".flh", false, 0, page, count, total, error, sizeof(error)));
+    assert(!count && !total && !*error);
+    SD_MMC.add("/", "System Volume Information backup", true);
+    SD_MMC.add("/", "System Volume Information.rom", false);
+    assert(MsxReadDirectoryPage("/", ".rom", false, 0, page, count, total, error, sizeof(error)));
+    assert(count == 2 && total == 2 && !*error);
+    assert(page[0].kind == MsxFileKind::Directory && !strcmp(page[0].name, "System Volume Information backup"));
+    assert(page[1].kind == MsxFileKind::File && !strcmp(page[1].name, "System Volume Information.rom"));
+    puts("PASS: browser pagination, ROM/FLH filtering, hidden Windows metadata folder, ordinary names and empty SD.");
 }

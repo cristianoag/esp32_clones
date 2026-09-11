@@ -41,7 +41,7 @@ The [CP400 firmware](software/esp32_cp400_emulator/) implements the CoCo 2 / CP4
 
 ## MSX1, MSX2, and MSX2+
 
-The [MSX firmware](software/esp32_msx_emulator/README.md) uses the original fMSX core with an independent integration for the shared board. It provides SD-loaded BIOS profiles for Omega MSX2+, Gradiente Expert 1.1, and Sharp Hotbit 1.2, plus an F12 configuration and boot-ROM selection menu.
+The [MSX firmware](software/esp32_msx_emulator/README.md) uses the original fMSX core with an independent integration for the shared board. It provides SD-loaded BIOS profiles for Omega MSX2+, Gradiente Expert 1.1, Sharp Hotbit 1.2, and Panasonic FS-A1WSX, FS-A1F and FS-A1FX, plus an F12 configuration and boot-ROM selection menu. Panasonic profiles cover BIOS/BASIC, startup, cartridge and Kanji support, not their built-in applications or disk hardware.
 
 MSX1, MSX2, and MSX2+ share one firmware project and the existing VGA, USB keyboard, SD/MMC, and mono audio wiring. Bring your own legally obtained BIOS files; they are not embedded in the firmware or distributed by this repository.
 

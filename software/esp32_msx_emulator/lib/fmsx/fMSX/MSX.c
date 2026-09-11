@@ -83,6 +83,7 @@ byte *EmptyRAM;                    /* Empty RAM page (8kB)   */
 byte SaveCMOS;                     /* Save CMOS.ROM on exit  */
 static byte ResetStatus;
 static byte OmegaBankLoaded;
+static byte PanasonicBankLoaded;
 byte *MemMap[4][4][8];   /* Memory maps [PPage][SPage][Addr] */
 
 byte *RAMData;                     /* RAM Mapper contents    */
@@ -145,9 +146,11 @@ FILE *ComIStream;
 FILE *ComOStream;
 
 /** Kanji font ROM *******************************************/
-byte *Kanji;                       /* Kanji ROM 4096x32      */
+byte *Kanji;                       /* Kanji ROM, 128/256 KiB */
 int  KanLetter;                    /* Current letter index   */
 byte KanCount;                     /* Byte count 0..31       */
+static int KanjiSize;
+static byte KanWriteLevel;
 
 /** Keyboard, joystick, and mouse ****************************/
 volatile byte KeyState[16];        /* Keyboard map state     */
@@ -320,7 +323,10 @@ void VDPOut(byte R,byte V);       /* Write value into a VDP register */
 void Printer(byte V);             /* Send a character to a printer   */
 void PPIOut(byte New,byte Old);   /* Set PPI bits (key click, etc.)  */
 int  CheckSprites(void);          /* Check for sprite collisions     */
-static int CheckSpriteLine(unsigned int Y);
+static byte SpriteCollisions[32];
+static int SpriteCollisionCursor=256;
+static void PrepareSpriteLine(unsigned int Y);
+static void SyncSpriteCollision(int X);
 byte RTCIn(byte R);               /* Read RTC registers              */
 byte SetScreen(void);             /* Change screen mode              */
 word SetIRQ(byte IRQ);            /* Set/Reset IRQ                   */
@@ -465,10 +471,12 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   RAMData     = 0;
   VRAM        = 0;
   Kanji       = 0;
+  KanjiSize   = 0;
   WorkDir     = 0;
   SaveCMOS    = 0;
   ResetStatus = 0xFF;
   OmegaBankLoaded = 0;
+  PanasonicBankLoaded = 0;
   FMPACKey    = 0x0000;
   ExitNow     = 0;
   NChunks     = 0;
@@ -537,8 +545,8 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   else memcpy(RTC,RTCInit,sizeof(RTC));
 
   /* Try loading Kanji alphabet ROM */
-  if((Kanji=LoadROM("KANJI.ROM",0x20000,0)))
-  { if(Verbose) printf("KANJI.ROM.."); }
+  if(!Kanji&&(Kanji=LoadROM("KANJI.ROM",0x20000,0)))
+  { KanjiSize=0x20000;if(Verbose) printf("KANJI.ROM.."); }
 
   /* Try loading RS232 support ROM to slot */
   if((P=LoadROM("RS232.ROM",0x4000,0)))
@@ -693,6 +701,10 @@ void TrashMSX(void)
 
   /* Free all remaining allocated memory */
   FreeAllMemory();
+  Kanji=0;
+  KanjiSize=0;
+  OmegaBankLoaded=PanasonicBankLoaded=0;
+  KanLetter=KanCount=KanWriteLevel=0;
   MemMap[0][0][4]=MemMap[0][0][5]=0;
   RAM[4]=RAM[5]=0;
 }
@@ -762,6 +774,55 @@ static int LoadOmegaROM(byte **Main,byte **Ext,byte **Logo)
   return(1);
 }
 
+/* Headerless main (32K), sub + Kanji BASIC (48K), then JIS font (128/256K).
+ * An existing combined image is authoritative, including on any load error. */
+static int LoadPanasonicROM(byte **Main,byte **Ext,byte **Font,int *FontSize,int Model)
+{
+  byte **Regions[3] = { Main,Ext,Font };
+  int Sizes[3] = { 0x8000,0xC000,0 };
+  FILE *F,*Other;
+  long Size;
+  int J,Error;
+
+  *Main=*Ext=*Font=0;
+  *FontSize=0;
+  if(!(F=fopen("PANASONIC.ROM","rb"))) return(errno==ENOENT? 0:-1);
+  Error=0;
+  Other=fopen("OMEGA.ROM","rb");
+  if(Other) { fclose(Other);Error=EINVAL; }
+  else if(errno!=ENOENT) Error=errno;
+  if(!Error)
+  {
+    if(fseek(F,0,SEEK_END)) Error=EIO;
+    else
+    {
+      Size=ftell(F);
+      if((Size!=0x34000&&Size!=0x54000)||(Model==MSX_MSX2&&Size!=0x34000)) Error=EINVAL;
+      else Sizes[2]=(int)Size-0x14000;
+    }
+    if(!Error&&fseek(F,0,SEEK_SET)) Error=EIO;
+  }
+  for(J=0;J<3&&!Error;++J)
+  {
+    if(!(*Regions[J]=GetCpuMemory(Sizes[J]))) Error=ENOMEM;
+    else if(fread(*Regions[J],1,Sizes[J],F)!=Sizes[J]) Error=EIO;
+  }
+  if(!Error&&(fgetc(F)!=EOF||ferror(F))) Error=EIO;
+  if(fclose(F)&&!Error) Error=EIO;
+  if(Error)
+  {
+    FreeMemory(*Main);
+    FreeMemory(*Ext);
+    FreeMemory(*Font);
+    *Main=*Ext=*Font=0;
+    if(Verbose) printf("  Failed loading PANASONIC.ROM (expected 212992/344064 bytes, without OMEGA.ROM).\n");
+    errno=Error;
+    return(-1);
+  }
+  *FontSize=Sizes[2];
+  return(1);
+}
+
 /** ResetMSX() ***********************************************/
 /** Reset MSX hardware to new operating modes. Returns new  **/
 /** modes, possibly not the same as NewMode.                **/
@@ -793,7 +854,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   };
 
   byte *P1,*P2,*P3;
-  int J,I;
+  int J,I,FontSize,Panasonic;
 
   /* If changing hardware model, load new system ROMs */
   if((Mode^NewMode)&MSX_MODEL)
@@ -802,7 +863,26 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
     if(ProgDir && chdir(ProgDir))
     { if(Verbose) printf("  Failed changing to '%s' directory!\n",ProgDir); }
 
-    switch(NewMode&MSX_MODEL)
+    Panasonic=0;
+    if((NewMode&MSX_MODEL)==MSX_MSX2||(NewMode&MSX_MODEL)==MSX_MSX2P)
+      Panasonic=LoadPanasonicROM(&P1,&P2,&P3,&FontSize,NewMode&MSX_MODEL);
+    if(Panasonic<0) return(Mode);
+    if(Panasonic)
+    {
+      FreeMemory(MemMap[0][0][0]);
+      FreeMemory(MemMap[3][1][0]);
+      FreeMemory(MemMap[0][0][4]);
+      if(!OmegaBankLoaded&&!PanasonicBankLoaded) FreeMemory(MemMap[3][1][2]);
+      FreeMemory(Kanji);
+      for(J=0;J<4;++J) MemMap[0][0][J]=P1+J*0x2000;
+      MemMap[0][0][4]=MemMap[0][0][5]=EmptyRAM;
+      for(J=0;J<6;++J) MemMap[3][1][J]=P2+J*0x2000;
+      Kanji=P3;
+      KanjiSize=FontSize;
+      PanasonicBankLoaded=1;
+      OmegaBankLoaded=0;
+    }
+    else switch(NewMode&MSX_MODEL)
     {
       case MSX_MSX1:
         if(Verbose) printf("  Opening MSX.ROM...");
@@ -811,7 +891,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         if(!P1) NewMode=(NewMode&~MSX_MODEL)|(Mode&MSX_MODEL);
         else
         {
-          if(OmegaBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
+          if(OmegaBankLoaded||PanasonicBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
           OmegaBankLoaded=0;
           FreeMemory(MemMap[0][0][0]);
           FreeMemory(MemMap[3][1][0]);
@@ -839,7 +919,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         }
         else
         {
-          if(OmegaBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
+          if(OmegaBankLoaded||PanasonicBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
           OmegaBankLoaded=0;
           FreeMemory(MemMap[0][0][0]);
           FreeMemory(MemMap[3][1][0]);
@@ -881,7 +961,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         }
         else
         {
-          if(OmegaBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
+          if(OmegaBankLoaded||PanasonicBankLoaded) for(J=2;J<6;++J) MemMap[3][1][J]=EmptyRAM;
           OmegaBankLoaded=I>0;
           FreeMemory(MemMap[0][0][0]);
           FreeMemory(MemMap[3][1][0]);
@@ -905,6 +985,14 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
         if(Verbose) printf("ResetMSX(): INVALID HARDWARE MODEL!\n");
         NewMode=(NewMode&~MSX_MODEL)|(Mode&MSX_MODEL);
         break;
+    }
+
+    if(!Panasonic&&PanasonicBankLoaded&&((Mode^NewMode)&MSX_MODEL))
+    {
+      FreeMemory(Kanji);
+      Kanji=0;
+      KanjiSize=0;
+      PanasonicBankLoaded=0;
     }
 
     /* Change to the working directory */
@@ -932,7 +1020,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   }
 
   /* If toggling BDOS patches... */
-  if(!OmegaBankLoaded&&((Mode^NewMode)&MSX_PATCHBDOS))
+  if(!OmegaBankLoaded&&!PanasonicBankLoaded&&((Mode^NewMode)&MSX_PATCHBDOS))
   {
     /* Change to the program directory */
     if(ProgDir && chdir(ProgDir))
@@ -1087,6 +1175,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   ResetVDP();
   memcpy(VDP,VDPInit,sizeof(VDP));
   memcpy(VDPStatus,VDPSInit,sizeof(VDPStatus));
+  SpriteCollisionCursor=256;
 
   /* Reset keyboard */
   memset((void *)KeyState,0xFF,16);
@@ -1106,6 +1195,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   SCCOn[0]=SCCOn[1]=0;                  /* SCCs off for now */
   RTCReg=RTCMode=0;                     /* Clock registers  */
   KanCount=0;KanLetter=0;               /* Kanji extension  */
+  KanWriteLevel=0;
   ChrTab=ColTab=ChrGen=VRAM;            /* VDP tables       */
   SprTab=SprGen=VRAM;
   ChrTabM=ColTabM=ChrGenM=SprTabM=~0;   /* VDP addr. masks  */
@@ -1239,7 +1329,14 @@ case 0xFF: /* Mapper page at C000h */
   return(RAMMapper[Port-0xFC]|~RAMMask);
 
 case 0xD9: /* Kanji support */
+  if(PanasonicBankLoaded&&KanjiSize==0x40000&&KanWriteLevel) return(NORAM);
   Port=Kanji? Kanji[KanLetter+KanCount]:NORAM;
+  KanCount=(KanCount+1)&0x1F;
+  return(Port);
+
+case 0xDB: /* WSX shares its address latch; read/write levels must match. */
+  if(!Kanji||KanjiSize!=0x40000||!KanWriteLevel) return(NORAM);
+  Port=Kanji[0x20000+KanLetter+KanCount];
   KanCount=(KanCount+1)&0x1F;
   return(Port);
 
@@ -1272,9 +1369,11 @@ case 0x98: /* VRAM read port */
   return(Port);
 
 case 0x99: /* VDP status registers */
-  /* Overlapping pixels can set the latch again after an earlier S#0 read
-   * on the same visible scanline; the startup animation polls this way. */
-  if(!VDP[15]&&!(VDPStatus[2]&0x20)&&CheckSpriteLine(ScanLine)) VDPStatus[0]|=0x20;
+  /* Advance the collision latch to the beam, not to the end of this line.
+   * EI temporarily replaces ICount; include its saved counter if necessary. */
+  if(!(VDPStatus[2]&0x20))
+    SyncSpriteCollision((CPU.IPeriod-CPU.ICount-
+      (CPU.IFF&IFF_EI? CPU.IBackup-1:0))*3/2);
   /* Read an appropriate status register */
   Port=VDPStatus[VDP[15]];
   /* Reset VAddr latch sequencer */
@@ -1385,14 +1484,30 @@ case 0xF4:
   if(MODEL(MSX_MSX2P)) ResetStatus=Value|0x7F;
   return;
 
-case 0xD8: /* Upper bits of Kanji ROM address */
+case 0xD8: /* Bits 5..10 of JIS level 1 address */
   KanLetter=(KanLetter&0x1F800)|((int)(Value&0x3F)<<5);
   KanCount=0;
+  KanWriteLevel=0;
   return;
 
-case 0xD9: /* Lower bits of Kanji ROM address */
+case 0xD9: /* Bits 11..16 of JIS level 1 address */
   KanLetter=(KanLetter&0x007E0)|((int)(Value&0x3F)<<11);
   KanCount=0;
+  KanWriteLevel=0;
+  return;
+
+case 0xDA: /* Bits 5..10 of JIS level 2 address */
+  if(KanjiSize!=0x40000) return;
+  KanLetter=(KanLetter&0x1F800)|((int)(Value&0x3F)<<5);
+  KanCount=0;
+  KanWriteLevel=1;
+  return;
+
+case 0xDB: /* Bits 11..16 of JIS level 2 address */
+  if(KanjiSize!=0x40000) return;
+  KanLetter=(KanLetter&0x007E0)|((int)(Value&0x3F)<<11);
+  KanCount=0;
+  KanWriteLevel=1;
   return;
 
 case 0x80: /* SIO data */
@@ -2170,6 +2285,9 @@ word LoopZ80(Z80 *R)
 {
   register int J;
 
+  /* Finish visible-dot events even when this frame is not being rendered. */
+  if(!(VDPStatus[2]&0x20)) SyncSpriteCollision(256);
+
   /* Flip HRefresh bit */
   VDPStatus[2]^=0x20;
 
@@ -2245,6 +2363,8 @@ word LoopZ80(Z80 *R)
       }
     }
 
+    PrepareSpriteLine(ScanLine);
+
     /* Return whatever interrupt is pending */
     R->IRequest=IRQPending? INT_IRQ:INT_NONE;
     return(R->IRequest);
@@ -2311,10 +2431,6 @@ word LoopZ80(Z80 *R)
     /* Render and play all sound now */
     PlayAllSound(J);
   }
-
-  /* Collision is a raster event, not a once-per-frame event. The MSX2+
-   * startup animation clears S#0 and waits for a later overlapping line. */
-  if(!(VDPStatus[2]&0x20)&&!(VDPStatus[0]&0x20)&&CheckSpriteLine(ScanLine)) VDPStatus[0]|=0x20;
 
   /* Keyboard, sound, and other stuff always runs at line 192    */
   /* This way, it can't be shut off by overscan tricks (Maarten) */
@@ -2399,22 +2515,22 @@ word LoopZ80(Z80 *R)
 /** CheckSprites() *******************************************/
 /** Check for sprite collisions.                            **/
 /*************************************************************/
-static int CheckSpriteLine(unsigned int Y)
+static void PrepareSpriteLine(unsigned int Y)
 {
   byte Occupied[32] = {0};
   unsigned int I,Active=0,Width=Sprites16x16? 16:8,Zoom=BigSprites? 2:1;
-  int X,Top,Row,Pixel;
+  int X,Row,Pixel;
   byte *Attribute,*Pattern,Color,Bit;
 
-  if(SpritesOFF||!ScrMode||ScrMode>=MAXSCREEN+1||Y>=(ScanLines212? 212:192)) return(0);
+  SpriteCollisionCursor=256;
+  if(!ScreenON||SpritesOFF||!ScrMode||ScrMode>=MAXSCREEN+1||Y>=(ScanLines212? 212:192)) return;
+  memset(SpriteCollisions,0,sizeof(SpriteCollisions));
   for(I=0;I<32;++I)
   {
     Attribute=SprTab+I*4;
     if(Attribute[0]==(ScrMode>3? 216:208)) break;
-    Top=(byte)(Attribute[0]-VScroll);
-    if(Top>256-(int)Width) Top-=256;
-    Row=(int)Y-Top-1;
-    if(Row<0||Row>=(int)(Width*Zoom)) continue;
+    Row=(byte)(Y+VScroll-Attribute[0]-1);
+    if(Row>=(int)(Width*Zoom)) continue;
     if(++Active>(ScrMode>3? MAXSPRITE2:MAXSPRITE1)) break;
     Row/=Zoom;
     Color=ScrMode>3? SprTab[(int)I*16+Row-0x200]:Attribute[3];
@@ -2433,14 +2549,41 @@ static int CheckSpriteLine(unsigned int Y)
           if(ScreenX>=0&&ScreenX<256)
           {
             byte Mask=1<<(ScreenX&7);
-            if(Occupied[ScreenX>>3]&Mask) return(1);
+            if(Occupied[ScreenX>>3]&Mask)
+            {
+              SpriteCollisions[ScreenX>>3]|=Mask;
+              SpriteCollisionCursor=0;
+            }
             Occupied[ScreenX>>3]|=Mask;
           }
         }
       }
     }
   }
-  return(0);
+}
+
+static void SyncSpriteCollision(int X)
+{
+  int Pixel;
+
+  if(X>256) X=256;
+  if(X<=SpriteCollisionCursor) return;
+  if(!(VDPStatus[0]&0x20))
+    for(Pixel=SpriteCollisionCursor;Pixel<X;++Pixel)
+      if(SpriteCollisions[Pixel>>3]&(1<<(Pixel&7)))
+      {
+        VDPStatus[0]|=0x20;
+        if(!MODEL(MSX_MSX1))
+        {
+          VDPStatus[3]=(Pixel+12)&0xFF;
+          VDPStatus[4]=(VDPStatus[4]&0xFE)|((Pixel+12)>>8);
+          VDPStatus[5]=(ScanLine+8)&0xFF;
+          VDPStatus[6]=(VDPStatus[6]&0xFC)|((ScanLine+8)>>8);
+        }
+        break;
+      }
+  /* A read acknowledges elapsed dots, never replaying an old overlap. */
+  SpriteCollisionCursor=X;
 }
 
 int CheckSprites(void)

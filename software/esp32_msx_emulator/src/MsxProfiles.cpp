@@ -59,6 +59,20 @@ bool MsxValidateProfile(MsxProfile &profile)
     }
     static const char *mainNames[] = {"MSX.ROM", "MSX2.ROM", "MSX2P.ROM"};
     static const char *subNames[] = {"", "MSX2EXT.ROM", "MSX2PEXT.ROM"};
+    if (profile.model != 0)
+    {
+        snprintf(path, sizeof(path), "/msx/bios/%s/PANASONIC.ROM", profile.id);
+        if (SD_MMC.exists(path))
+        {
+            snprintf(path, sizeof(path), "/msx/bios/%s/OMEGA.ROM", profile.id);
+            if (SD_MMC.exists(path)) return fail(profile, "Ambiguous profile: remove one combined system ROM.");
+            if (!sizedRom(profile, "PANASONIC.ROM", 0x34000) &&
+                !(profile.model == 2 && sizedRom(profile, "PANASONIC.ROM", 0x54000)))
+                return fail(profile, "Invalid PANASONIC.ROM size (212992 or MSX2+ 344064 bytes).");
+            profile.available = true;
+            return true;
+        }
+    }
     if (profile.model == 2)
     {
         snprintf(path, sizeof(path), "/msx/bios/%s/OMEGA.ROM", profile.id);
@@ -100,10 +114,13 @@ bool MsxMountSd()
 
 void MsxScanProfiles()
 {
-    MsxProfileCount = 3;
+    MsxProfileCount = 6;
     MsxProfiles[0] = MsxProfile{"omega", "Omega MSX2+ NTSC", 2, 32, false, ""};
     MsxProfiles[1] = MsxProfile{"expert", "Gradiente Expert 1.1", 0, 4, false, ""};
     MsxProfiles[2] = MsxProfile{"hotbit", "Sharp Hotbit 1.2", 0, 4, false, ""};
+    MsxProfiles[3] = MsxProfile{"fs-a1wsx", "Panasonic FS-A1WSX", 2, 4, false, ""};
+    MsxProfiles[4] = MsxProfile{"fs-a1f", "Panasonic FS-A1F", 1, 4, false, ""};
+    MsxProfiles[5] = MsxProfile{"fs-a1fx", "Panasonic FS-A1FX", 2, 4, false, ""};
     if (mounted)
     {
         File directory = SD_MMC.open("/msx/bios");

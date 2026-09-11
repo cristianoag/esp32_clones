@@ -3,7 +3,7 @@
 This log tracks user-visible changes to the ESP32 MSX / fMSX firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
-## 1.00 - Unreleased
+## 1.00 - 2026-09-10
 
 ### Added
 

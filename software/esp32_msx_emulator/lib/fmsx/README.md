@@ -40,14 +40,19 @@ RGB888 values. Programmable colors and MSX2+ YJK colors are quantized to this
 monotonic ESP timer to pace PAL at 50 Hz and NTSC at 60 Hz, independently of
 presentation. Fractional NTSC deadlines avoid integer-period drift. Z80 clock
 constants, scanlines, keyboard/joystick polling and sound generation are unchanged.
-Every half-second of emulated frames, a portable governor measures execution
-time excluding pacing sleeps. Under budget pressure it reduces upstream
-`UPeriod` by 10 percentage points, and with ample headroom restores 5 points
-(10–100% rendering). This skips only rendering/presentation; it cannot make an
-overloaded CPU or audio path run at real-time speed. It starts at 100% each boot.
+The portable governor measures execution time excluding pacing sleeps.
+Every 100 ms of emulated time (six NTSC frames or five PAL frames), sustained
+work above 105% of budget reduces upstream `UPeriod` proportionally, with
+headroom, instead of slowly stepping down through multiple half-second windows.
+The half-second window still handles small adjustments and restores five
+percentage points when there is ample headroom (10–100% rendering).
+This skips only rendering/presentation; it cannot make an overloaded CPU or
+audio path run at real-time speed. It starts at 100% on a new boot or video
+standard, so light workloads retain all display frames.
 
 A keyboard callback blocked for at least 100 ms (the firmware F12 menu) resets
-pacing and measurement history on return, avoiding menu-time catch-up bursts.
+pacing and measurement history on return, avoiding menu-time catch-up bursts,
+but retains the learned drawing percentage to avoid another slow ramp-up.
 Short scheduler jitter is retained, but overdue deadlines never accumulate
 more than one frame of catch-up debt. FreeRTOS delays service the idle/task
 watchdog while ahead; when behind, a one-tick yield is requested at the next

@@ -49,6 +49,20 @@ The initial profiles are:
 
 ## Notes
 
+Once VGA is ready, the startup page shows a progress gauge for menu buffers,
+keyboard, audio, microSD, BIOS scanning, saved settings and joystick startup.
+The percentage counts completed initialization stages, not elapsed time or
+ROM-loading bytes. Warnings remain visible, and the F12 startup selection
+window is unchanged.
+
+Rendering adapts to keep emulation near the normal 50/60 Hz rate without
+changing the Z80 clock. Sustained overload is checked every five PAL or six
+NTSC frames, so a heavy cartridge should no longer spend several seconds
+gradually reducing rendering load. F12 resume keeps the learned rendering
+level. This can trade display smoothness for speed; it cannot guarantee full
+speed for every ROM. The UART `MSX speed:` lines show the measured emulated
+and presented frame rates.
+
 This project keeps the original hardware and software assumptions in mind, but it is still an emulator build on modern hardware. That means the goal is a working, usable system rather than a perfect cycle-accurate reproduction of every board detail.
 
 For setup, build, and firmware update details, read the rest of this folder's documentation and use the project notes in the repository as the main reference.

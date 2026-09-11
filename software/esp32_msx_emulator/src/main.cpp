@@ -16,6 +16,7 @@
 #include "MsxJoysticks.h"
 #include "MsxJoystickHost.h"
 #include "MsxJoystickDisplay.h"
+#include "MsxBootProgress.h"
 
 static VGA video;
 static uint8_t *screenBackup = nullptr;
@@ -375,15 +376,31 @@ static void chooseCartridge(unsigned slot)
     MsxKeyboardClearEvents();
 }
 
+static void drawProgressGauge(unsigned percent)
+{
+    display.drawRect(8, 72, 304, 12, 255);
+    display.fillRect(10, 74, MsxProgressWidth(percent), 8, 0xdf);
+    char label[16];
+    snprintf(label, sizeof(label), "%u%%", std::min<unsigned>(percent, 100));
+    text(8, 90, label);
+}
+
+static void bootProgress(const char *stage, unsigned completed)
+{
+    frame("INITIALIZING");
+    text(8, 53, stage);
+    drawProgressGauge(MsxBootPercent(completed));
+    text(8, 113, "Press F12 for ROM selection and settings.");
+    if (MsxProfileCount) text(8, 130, MsxProfiles[selectedProfile].name);
+    if (statusMessage[0]) messageLines(statusMessage);
+    video.show();
+}
+
 static void firmwareProgress(const char *stage, uint8_t percent)
 {
     frame("Firmware update");
     text(8, MsxMenuRowY(0), stage);
-    display.drawRect(8, 72, 304, 12, 255);
-    display.fillRect(10, 74, 300 * std::min<unsigned>(percent, 100) / 100, 8, 0xdf);
-    char label[16];
-    snprintf(label, sizeof(label), "%u%%", percent);
-    text(8, 90, label);
+    drawProgressGauge(percent);
     text(8, 188, "Do not switch off or remove the SD card.");
     video.show();
 }
@@ -798,25 +815,35 @@ void setup()
     pinMode(MsxBoard::RgbLed, INPUT);
     videoReady = video.start();
     if (!videoReady) fatal("VGA output could not start.");
+    bootProgress("Preparing menu buffers...", MsxBootBuffers);
     screenBackup = static_cast<uint8_t *>(heap_caps_malloc(MsxBoard::Width * MsxBoard::Height,
                                                           MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!screenBackup) fatal("Cannot allocate F12 screen backup.");
+    bootProgress("Starting keyboard host...", MsxBootKeyboard);
     if (!MsxKeyboardStart()) fatal("USB keyboard host initialization failed. See UART log.");
+    bootProgress("Initializing audio...", MsxBootAudio);
     audioReady = MsxAudioStart();
-    MsxMountSd();
+    if (!audioReady) snprintf(statusMessage, sizeof(statusMessage), "Audio unavailable. Check UART log.");
+    bootProgress("Mounting microSD card...", MsxBootSd);
+    const bool sdReady = MsxMountSd();
+    if (!sdReady) snprintf(statusMessage, sizeof(statusMessage), "SD unavailable. Insert a FAT32 card and rescan in F12.");
+    bootProgress("Scanning BIOS profiles...", MsxBootProfiles);
     MsxScanProfiles();
+    bootProgress("Loading saved settings...", MsxBootSavedSettings);
     readSettings();
-    if (!MsxJoysticksStart())
+    bootProgress("Starting joystick ports...", MsxBootJoysticks);
+    const bool joysticksReady = MsxJoysticksStart();
+    if (!joysticksReady)
     {
         snprintf(statusMessage, sizeof(statusMessage), "Joystick USB host unavailable; see UART log.");
         Serial.println(statusMessage);
     }
-    frame("INITIALIZING");
-    text(8, 53, "USB keyboard: GPIO19/20");
-    text(8, 70, "Press F12 for ROM selection and settings.");
-    text(8, 87, MsxProfiles[selectedProfile].name);
-    if (!audioReady) messageLines("Audio unavailable. Check UART log.");
-    video.show();
+    const bool bootReady = MsxProfiles[selectedProfile].available;
+    if (!statusMessage[0] && !bootReady)
+        snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
+    const bool warnings = !audioReady || !sdReady || !joysticksReady || !bootReady || statusMessage[0];
+    bootProgress(warnings ? "Initialization finished - check messages." : "Initialization complete.",
+                 MsxBootStageCount);
     const uint32_t start = millis();
     bool interrupted = false;
     while (millis() - start < 2500)

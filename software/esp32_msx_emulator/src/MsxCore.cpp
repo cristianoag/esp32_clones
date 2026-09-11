@@ -140,7 +140,7 @@ extern "C" void Keyboard()
 #ifdef ESP_PLATFORM
   // F12 menus block inside the platform callback. Discard their wall time/debt.
   if (esp_timer_get_time() - pollStart >= 100000) {
-    framePacer.reset();
+    framePacer.reset(true);
     speedStart = 0;
     speedFrames = speedPresented = 0;
   }

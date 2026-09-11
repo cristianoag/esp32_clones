@@ -20,10 +20,69 @@ static void steadyRate(bool pal)
   assert(pacer.renderingPercent() == 100);
 }
 
+static void startupResponse(bool pal)
+{
+  FramePacer pacer;
+  const unsigned hz = pal ? 50 : 60;
+  int64_t now = 1000000;
+  pacer.frame(now, pal);
+  pacer.released(now);
+  unsigned credit = 100;
+  unsigned firstReduction = 0;
+  int64_t settledStart = 0;
+  for (unsigned i = 1; i <= hz * 2; ++i) {
+    const bool draw = credit >= 100;
+    if (draw) credit -= 100;
+    now += 9000 + (draw ? 15000 : 0);
+    now += pacer.frame(now, pal);
+    pacer.released(now);
+    credit += pacer.renderingPercent();
+    if (!firstReduction && pacer.renderingPercent() < 100) firstReduction = i;
+    if (i == hz) settledStart = now;
+  }
+  assert(firstReduction == hz / 10);
+  const double secondFps = hz * 1000000.0 / (now - settledStart);
+  assert(secondFps > hz * 0.97 && secondFps < hz * 1.03);
+  const unsigned learned = pacer.renderingPercent();
+  assert(learned < 100);
+  now += 30000000;
+  pacer.reset(true);
+  assert(pacer.frame(now, pal) == 0 && pacer.renderingPercent() == learned);
+  pacer.released(now);
+  now += 5000;
+  assert(pacer.frame(now, pal) > 0); // No menu-time catch-up debt.
+  pacer.reset();
+  assert(pacer.frame(now, pal) == 0 && pacer.renderingPercent() == 100);
+  printf("Synthetic %u Hz startup: first reduction at frame %u, second-second rate %.1f fps.\n",
+         hz, firstReduction, secondFps);
+}
+
 int main()
 {
   steadyRate(false);
   steadyRate(true);
+  startupResponse(false);
+  startupResponse(true);
+  {
+    FramePacer transition;
+    int64_t clock = 1000000;
+    transition.frame(clock, false);
+    transition.released(clock);
+    // A single startup spike mixed with cheap frames must not trigger a cut.
+    for (unsigned i = 0; i < 60; ++i) {
+      clock += i == 0 ? 40000 : 5000;
+      clock += transition.frame(clock, false);
+      transition.released(clock);
+    }
+    assert(transition.renderingPercent() == 100);
+    // A game becoming expensive after BASIC gets the same fast response.
+    for (unsigned i = 0; i < 6; ++i) {
+      clock += 30000;
+      clock += transition.frame(clock, false);
+      transition.released(clock);
+    }
+    assert(transition.renderingPercent() <= 50);
+  }
   FramePacer pacer;
   int64_t now = 1000000;
   pacer.frame(now, false);

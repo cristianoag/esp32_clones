@@ -21,6 +21,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <unistd.h>
@@ -2772,6 +2773,7 @@ byte ChangeDisk(byte N,const char *FileName)
   FILE *File;
   long Size;
   byte *P;
+  unsigned Drive;
   if(N>=MAXDRIVES) return(0);
   if(!FileName||!*FileName)
   {
@@ -2780,8 +2782,13 @@ byte ChangeDisk(byte N,const char *FileName)
     return(1);
   }
   if(!DiskROMAvailable()) { errno=ENODEV;return(0); }
-  File=fopen(FileName,"rb");
+  if(strlen(FileName)>=sizeof(Next.BackingPath)) { errno=ENAMETOOLONG;return(0); }
+  for(Drive=0;Drive<MAXDRIVES;++Drive)
+    if(Drive!=N&&FDD[Drive].BackingFile&&!strcasecmp(FileName,FDD[Drive].BackingPath))
+    { errno=EBUSY;return(0); }
+  File=fopen(FileName,"r+b");
   if(!File) return(0);
+  if(setvbuf(File,0,_IONBF,0)) { fclose(File);errno=EIO;return(0); }
   if(fseek(File,0,SEEK_END)||(Size=ftell(File))<0||
      (Size!=368640&&Size!=737280)||fseek(File,0,SEEK_SET))
   { fclose(File);errno=EINVAL;return(0); }
@@ -2790,9 +2797,10 @@ byte ChangeDisk(byte N,const char *FileName)
   if(!P) { fclose(File);errno=ENOMEM;return(0); }
   if(fread(P,1,Size,File)!=(size_t)Size||fgetc(File)!=EOF||ferror(File))
   { fclose(File);EjectFDI(&Next);errno=EIO;return(0); }
-  fclose(File);
   Next.Format=FMT_MSXDSK;
-  Next.Data[3]=1;
+  Next.BackingFile=File;
+  Next.BackingSize=Size;
+  strcpy(Next.BackingPath,FileName);
   Next.Verbose=Verbose&0x04;
   /* Commit only after a complete read; never load an unrelated saved state. */
   Reset1793(&FDC,FDD,WD1793_KEEP);

@@ -7,12 +7,17 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Added
 
-- Added read-only disk images for drives A and B and CAS tape attachment through F12, with ejection and tape rewind.
+- Added disk images for drives A and B and read-only CAS tape attachment through F12, with ejection and tape rewind.
 - Applied successful disk and tape changes to the running machine without a cold reset and included their paths in saved boot defaults while preserving older settings.
 - Added optional user-supplied disk BIOS import for all profiles, using a separate disk slot that preserved Omega and Panasonic startup and Kanji ROMs.
 
 ### Changed
 
+- Enabled saving directly to attached DSK files on microSD from Disk BASIC and supported controller writes, synchronizing each sector before reporting success.
+- Reported disk write failures to the emulated software and UART, required reattachment after a storage write fault, and rejected mounting the same writable image in both drives.
+- Grouped cartridge slots, disks and tape under F12's Media menu with separate ROMs, Disks and Tapes pages.
+- Added ROM-page options to reboot with or without saving the complete boot configuration, and prevented rebooting when validation or saving failed.
+- Allowed F12 to resume directly from Media pages without rebooting for disk and tape changes, while cartridge changes remained pending until a cold boot.
 - Made the MSX firmware independently buildable by including local copies of its board definition, VGA, graphics, BusIO and USB transport dependencies instead of reading files from the CP400 firmware.
 - Made the joystick timing and packet tests use the local USB transport headers so the tests also ran without the CP400 project.
 

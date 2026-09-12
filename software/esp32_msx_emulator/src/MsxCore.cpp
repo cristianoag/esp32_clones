@@ -235,8 +235,9 @@ static bool validateMedia(const char* path, bool tape, char* error, size_t size)
     return mediaResult("file is missing or is not a regular file", error, size);
   if (!tape && info.st_size != 368640 && info.st_size != 737280)
     return mediaResult("DSK must be raw 360 or 720 KiB (80 tracks, 9 sectors)", error, size);
-  FILE* file = fopen(path, "rb");
-  if (!file) return mediaResult("cannot open media read-only", error, size);
+  FILE* file = fopen(path, tape ? "rb" : "r+b");
+  if (!file) return mediaResult(tape ? "cannot open tape read-only" :
+                               "disk is not writable; check file/SD write protection", error, size);
   const unsigned char marker[] = {0x1F,0xA6,0xDE,0xBA,0xCC,0x13,0x7D,0x74};
   unsigned char header[8];
   const size_t count = fread(header, 1, sizeof(header), file);
@@ -269,7 +270,8 @@ bool MsxAttachDisk(unsigned drive, const char* path, char* error, size_t size)
     return mediaResult("add compatible DISK.ROM to this BIOS profile and cold boot", error, size);
   if (!ChangeDisk(drive, path))
     return mediaResult(errno == ENOMEM ? "not enough PSRAM for disk; previous disk retained" :
-                       "cannot fully read disk; previous disk retained", error, size);
+                       errno == EBUSY ? "disk already attached to another drive; eject it there first" :
+                       "cannot open/read writable disk; previous disk retained", error, size);
   return mediaResult(nullptr, error, size);
 }
 
@@ -376,10 +378,12 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
       msxReportError("Not enough PSRAM to load the MSX BIOS, RAM, cartridges or disks.");
     else if (bootError == ENODEV)
       msxReportError("Add compatible DISK.ROM to this BIOS profile and cold boot to attach disks.");
+    else if (bootError == EBUSY)
+      msxReportError("The same disk cannot be attached to A and B. Select separate writable images.");
     else if (bootError == ENOEXEC || bootError == EFBIG)
       msxReportError("Invalid cartridge ROM: check the AB header and size (maximum 2 MiB).");
     else
-      msxReportError("MSX boot failed: could not fully load BIOS or selected cartridge files.");
+      msxReportError("MSX boot failed: check BIOS, cartridges and writable disk images on SD.");
   }
   return result;
 }

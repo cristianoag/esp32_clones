@@ -35,6 +35,7 @@ test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-RomImport.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Profiles.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Settings.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-MediaMenu.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-FirmwareUpdate.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Joysticks.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-JoystickRuntime.ps1

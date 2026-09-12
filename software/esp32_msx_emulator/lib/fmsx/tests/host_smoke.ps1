@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 if ($BiosDirectory -and $ProfilesRoot) { throw 'Use either -BiosDirectory or -ProfilesRoot, not both.' }
 if ($DiskBios) {
   $DiskBios = (Resolve-Path -LiteralPath $DiskBios).Path
-  if ($Frames -lt 300) { throw 'Real disk/tape verification requires at least 300 frames.' }
+  if ($Frames -lt 900) { throw 'Real disk save/reload verification requires at least 900 frames.' }
 }
 $profiles = @()
 if ($BiosDirectory) {
@@ -30,7 +30,7 @@ $core = (Resolve-Path "$PSScriptRoot\..").Path
 $build = "$PSScriptRoot\.build"
 $previous = Get-Location
 New-Item -ItemType Directory -Force $build | Out-Null
-$flags = @('-O0', '-DLSB_FIRST', '-DBPP8', '-DBPS16', '-DNARROW', '-DFMSX',
+$flags = @('-O0', '-DLSB_FIRST', '-DBPP8', '-DBPS16', '-DNARROW', '-DFMSX', '-DFMSX_TEST_MEDIA_IO',
   "-I$core", "-I$core\fMSX", "-I$core\EMULib", "-I$core\Z80")
 $sources = @("$core\fMSX\MSX.c", "$core\fMSX\V9938.c", "$core\fMSX\Patch.c",
   "$core\fMSX\I8251.c", "$core\Z80\Z80.c")

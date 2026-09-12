@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 #include <sys/stat.h>
+#include <cerrno>
+#ifdef _WIN32
+#include <io.h>
+#endif
 
 extern "C" {
 extern AY8910 PSG;
@@ -45,6 +49,7 @@ static bool panasonicOnly;
 static bool mediaTest;
 static void checkMedia();
 static bool realMedia, realDiskASeen, realDiskBSeen, realTapeSeen;
+static bool realMediaReload, realSavedASeen, realSavedBSeen;
 static unsigned mediaCommands;
 static void injectMediaCommand();
 static std::vector<byte> expectedPanasonic;
@@ -183,6 +188,8 @@ static void captureBoot(const uint8_t* pixels, int width, int height,
       if (strstr(text, "DISKA")) realDiskASeen = true;
       if (strstr(text, "DISKB")) realDiskBSeen = true;
       if (strstr(text, "TAPEOK")) realTapeSeen = true;
+      if (strstr(text, "SAVEDAOK")) realSavedASeen = true;
+      if (strstr(text, "SAVEDBOK")) realSavedBSeen = true;
       printf("%s\n", text);
     }
   }
@@ -915,8 +922,8 @@ int main(int argc, char** argv)
     }
     const std::string diskBiosPath = std::string(argv[1]) + "/DISK.ROM";
     realMedia = access(diskBiosPath.c_str(),F_OK)==0;
-    if (realMedia && frameLimit < 300) {
-      fprintf(stderr,"Real media verification needs at least 300 frames.\n");
+    if (realMedia && frameLimit < 900) {
+      fprintf(stderr,"Real media save/reload verification needs at least 900 frames.\n");
       return 1;
     }
     char currentDirectory[1024];
@@ -940,6 +947,16 @@ int main(int argc, char** argv)
              logoPcSamples, logoFrame, logoPixels);
     if (realMedia) {
       printf("Real Disk BASIC FILES A/B and CAS BLOAD: %d/%d/%d\n",realDiskASeen,realDiskBSeen,realTapeSeen);
+      assert(realDiskASeen&&realDiskBSeen&&realTapeSeen);
+      assertSavedProgram("real-a.dsk");
+      assertSavedProgram("real-b.dsk");
+      realMediaReload=true;
+      mediaCommands=0;
+      resetCounters();
+      assert(MsxCoreRun(argv[1],atoi(argv[2]),atoi(argv[3]),nullptr,nullptr,
+                        diskAPath.c_str(),diskBPath.c_str(),tapePath.c_str()));
+      assert(realSavedASeen&&realSavedBSeen&&!errors);
+      printf("Disk BASIC SAVE A/B persisted across cold boot and LOAD/RUN: %d/%d\n",realSavedASeen,realSavedBSeen);
       for (const char* name : {"real-a.dsk","real-b.dsk","real.cas"}) assert(remove(name)==0);
     }
     return result && frames == frameLimit && basicPrompt &&

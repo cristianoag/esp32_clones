@@ -10,6 +10,35 @@ static std::string mediaDirectory;
 static std::vector<byte> diskImages[2], tapeImage;
 static bool mediaBiosPresent;
 static bool mediaCpuHooks;
+static int failDiskIo;
+
+extern "C" size_t fmsxTestDiskWrite(const void *data,size_t size,size_t count,FILE *file)
+{
+  if(failDiskIo==1) { const size_t result=fwrite(data,size,count/2,file);errno=ENOSPC;return result; }
+  return fwrite(data,size,count,file);
+}
+extern "C" int fmsxTestDiskFlush(FILE *file)
+{
+  if(failDiskIo==2) { errno=EIO;return EOF; }
+  return fflush(file);
+}
+extern "C" int fmsxTestDiskSync(int fd)
+{
+  if(failDiskIo==3) { errno=EIO;return -1; }
+#ifdef _WIN32
+  return _commit(fd);
+#else
+  return fsync(fd);
+#endif
+}
+
+static void assertDiskFile(unsigned drive)
+{
+  FILE* file=fopen((mediaDirectory+(drive?"/media-b.dsk":"/media-a.dsk")).c_str(),"rb");
+  std::vector<byte> data(diskImages[drive].size());
+  assert(file && fread(data.data(),1,data.size(),file)==data.size() && fgetc(file)==EOF);
+  assert(!fclose(file) && data==diskImages[drive]);
+}
 
 static void prepareRealMedia()
 {
@@ -45,9 +74,14 @@ static void prepareRealMedia()
 
 static void injectMediaCommand()
 {
-  const char* commands[]={"FILES \"A:\"\r","FILES \"B:\"\r","BLOAD \"CAS:\"\r",
-                         "IF PEEK(&HC700)=90 THEN ?\"TAPE\";\"OK\"\r"};
-  if (mediaCommands>=4||frames<frameLimit-240+mediaCommands*50) return;
+  const char* initial[]={"FILES \"A:\"\r","FILES \"B:\"\r","BLOAD \"CAS:\"\r",
+    "IF PEEK(&HC700)=90 THEN ?\"TAPE\";\"OK\"\r",
+    "10 PRINT \"SAVED\";\"AOK\"\r","SAVE \"A:SAVED.BAS\"\r",
+    "10 PRINT \"SAVED\";\"BOK\"\r","SAVE \"B:SAVED.BAS\"\r"};
+  const char* reload[]={"LOAD \"A:SAVED.BAS\"\r","RUN\r","NEW\r","LOAD \"B:SAVED.BAS\"\r","RUN\r"};
+  const char** commands=realMediaReload?reload:initial;
+  const unsigned count=realMediaReload?5:8;
+  if (mediaCommands>=count||frames<frameLimit-480+mediaCommands*50) return;
   const byte ps=PSLReg,ss=SSLReg[3];
   OutZ80(0xA8,0xFF);SSlot(0xAA);
   // Only queue a command when the BIOS keyboard ring is empty.
@@ -62,6 +96,31 @@ static void injectMediaCommand()
     WrZ80(0xF3F8,(0xFBF0+length)&255);WrZ80(0xF3F9,(0xFBF0+length)>>8);
   }
   SSlot(ss);OutZ80(0xA8,ps);
+}
+
+static void assertSavedProgram(const char* path)
+{
+  FILE* file=fopen(path,"rb");
+  assert(file);
+  assert(!fseek(file,0,SEEK_END));
+  const long size=ftell(file);
+  assert(size==368640||size==737280);
+  rewind(file);
+  std::vector<byte> data(size);
+  assert(fread(data.data(),1,data.size(),file)==data.size()&&!fclose(file));
+  const unsigned fat=data[22]|(data[23]<<8), root=(1+2*fat)*512;
+  bool found=false;
+  for(unsigned offset=root;offset<root+112*32;offset+=32)
+    if(!memcmp(data.data()+offset,"SAVED   BAS",11))
+    {
+      const unsigned cluster=data[offset+26]|(data[offset+27]<<8);
+      const unsigned length=data[offset+28]|(data[offset+29]<<8);
+      assert(cluster>=2 && length>10 && length<512);
+      const unsigned start=root+7*512+(cluster-2)*1024;
+      assert(start+length<=data.size() && data[start]==0xFF);
+      found=true;
+    }
+  assert(found);
 }
 
 static Z80 mediaTrap(word address, byte drive = 0, bool write = false,
@@ -107,7 +166,7 @@ static void checkMedia()
     assert(strstr(error,"DISK.ROM") && strstr(error,"cold boot"));
     assert(MsxAttachDisk(0,"",error,sizeof(error)));
   } else {
-    assert(FDD[0].Data && FDD[1].Data && FDD[0].Data[3] && FDD[1].Data[3]);
+    assert(FDD[0].Data && FDD[1].Data && !FDD[0].Data[3] && !FDD[1].Data[3]);
     assert(MemMap[3][3][2][0x10] == 0xED);
     for (unsigned drive = 0; drive < 2; ++drive) {
       Z80 r = mediaTrap(0x4010,drive);
@@ -118,8 +177,11 @@ static void checkMedia()
       assert(!(r.AF.B.l&C_FLAG) && !r.BC.B.h);
       for (unsigned i = 0; i < 512; ++i)
         assert(RdZ80(0xC800+i) == diskImages[drive][512+i]);
-      r = mediaTrap(0x4010,drive,true);
-      assert((r.AF.B.l&C_FLAG) && !r.AF.B.h && r.BC.B.h == 1);
+      for(unsigned i=0;i<1024;++i) WrZ80(0xC800+i,byte(i+drive));
+      r = mediaTrap(0x4010,drive,true,10,2);
+      assert(!(r.AF.B.l&C_FLAG) && !r.BC.B.h);
+      for(unsigned i=0;i<1024;++i) diskImages[drive][10*512+i]=byte(i+drive);
+      assertDiskFile(drive); // Read through a second handle before ejection.
       r = mediaTrap(0x4010,drive,false,1440);
       assert((r.AF.B.l&C_FLAG) && r.AF.B.h == 8);
       r = mediaTrap(0x4010,drive,false,0,1,0);
@@ -129,20 +191,35 @@ static void checkMedia()
       r = mediaTrap(0x4016,drive);
       assert(!(r.AF.B.l&C_FLAG));
       r = mediaTrap(0x401C,1,false,drive<<8);
-      assert((r.AF.B.l&C_FLAG) && !r.AF.B.h);
+      assert((r.AF.B.l&C_FLAG) && r.AF.B.h==12);
       byte buf[512] = {};
-      assert(!DiskWrite(drive,buf,1));
+      assert(DiskWrite(drive,buf,12));
+      memset(diskImages[drive].data()+12*512,0,512);
+      assert(!DiskWrite(drive,buf,-1));
+      assert(!DiskWrite(drive,buf,diskImages[drive].size()/512));
       assert(!SaveFDI(&FDD[drive], "media-forbidden.dsk", FMT_MSXDSK));
       Write1793(&FDC,WD1793_SYSTEM,drive|S_DENSITY|S_SIDE);
       Write1793(&FDC,WD1793_COMMAND,0xD0);
       Write1793(&FDC,WD1793_TRACK,0);
       Write1793(&FDC,WD1793_SECTOR,2);
-      for (byte command : {byte(0xA0),byte(0xB0),byte(0xF0)}) {
-        Write1793(&FDC,WD1793_COMMAND,command);
-        assert(FDC.R[0]&F_READONLY);
-        assert(!FDC.WRLength && !FDC.RDLength);
-        for (unsigned i = 0; i < 512; ++i) Write1793(&FDC,WD1793_DATA,0);
-      }
+      Write1793(&FDC,WD1793_COMMAND,0xA0);
+      for(unsigned i=0;i<100;++i) Write1793(&FDC,WD1793_DATA,0x77);
+      Write1793(&FDC,WD1793_COMMAND,0xD0); // Interrupted sectors never reach RAM or SD.
+      assertDiskFile(drive);
+      Write1793(&FDC,WD1793_SECTOR,8);
+      Write1793(&FDC,WD1793_COMMAND,0xB0);
+      for(unsigned i=0;i<1024;++i) Write1793(&FDC,WD1793_DATA,byte(i+7));
+      assert(!FDC.WRLength && !(FDC.R[0]&(F_BUSY|F_WRFAULT)));
+      for(unsigned i=0;i<1024;++i) diskImages[drive][7*512+i]=byte(i+7);
+      assertDiskFile(drive);
+      Write1793(&FDC,WD1793_COMMAND,0xF0);
+      assert(FDC.R[0]&F_WRFAULT);
+      FDD[drive].Data[3]=1;
+      r=mediaTrap(0x4010,drive,true);
+      assert((r.AF.B.l&C_FLAG) && !r.AF.B.h && r.BC.B.h==1);
+      Write1793(&FDC,WD1793_COMMAND,0xA0);
+      assert(FDC.R[0]&F_READONLY);
+      FDD[drive].Data[3]=0;
       assert(!memcmp(DataFDI(&FDD[drive]),diskImages[drive].data(),diskImages[drive].size()));
     }
     assert(access("media-forbidden.dsk",F_OK) != 0);
@@ -157,17 +234,44 @@ static void checkMedia()
     assert(!truncateMediaOnAllocation && FDD[0].Data==old);
     assert(remove("media-short.dsk")==0);
     failAllocation = allocation + 1;
-    assert(!MsxAttachDisk(0,b.c_str(),error,sizeof(error)) && FDD[0].Data == old);
+    assert(!MsxAttachDisk(0,a.c_str(),error,sizeof(error)) && FDD[0].Data == old);
     failAllocation = 0;
+    assert(!MsxAttachDisk(0,b.c_str(),error,sizeof(error)) && strstr(error,"another drive"));
+    assert(MsxAttachDisk(1,"",error,sizeof(error)));
     assert(MsxAttachDisk(0,b.c_str(),error,sizeof(error)) && !error[0]);
     assert(!memcmp(DataFDI(&FDD[0]),diskImages[1].data(),diskImages[1].size()));
-    assert(!memcmp(DataFDI(&FDD[1]),diskImages[1].data(),diskImages[1].size()));
     assert(MsxAttachDisk(0,"",error,sizeof(error)) && !FDD[0].Data);
     Z80 r = mediaTrap(0x4010);
     assert((r.AF.B.l&C_FLAG) && r.AF.B.h == 2);
     assert(MsxAttachDisk(0,a.c_str(),error,sizeof(error)));
     assert(MsxAttachDisk(1,nullptr,error,sizeof(error)) && !FDD[1].Data);
     assert(MsxAttachDisk(1,b.c_str(),error,sizeof(error)));
+    for(int fault=1;fault<=3;++fault)
+    {
+      byte before[512];
+      memcpy(before,LinearFDI(&FDD[0],20),512);
+      for(unsigned i=0;i<512;++i) WrZ80(0xC800+i,0xE7);
+      failDiskIo=fault;
+      r=mediaTrap(0x4010,0,true,20);
+      assert((r.AF.B.l&C_FLAG) && r.AF.B.h==10 && r.BC.B.h==1);
+      assert(FDD[0].WriteFault && !memcmp(before,LinearFDI(&FDD[0],20),512));
+      failDiskIo=0;
+      assert(!DiskWrite(0,before,20)); // Fault remains latched until reattachment.
+      assert(MsxAttachDisk(0,"",error,sizeof(error)));
+      writeImage("media-a.dsk",diskImages[0]);
+      assert(MsxAttachDisk(0,a.c_str(),error,sizeof(error)) && !FDD[0].WriteFault);
+    }
+    Write1793(&FDC,WD1793_SYSTEM,S_DENSITY|S_SIDE);
+    Write1793(&FDC,WD1793_TRACK,0);
+    Write1793(&FDC,WD1793_SECTOR,2);
+    Write1793(&FDC,WD1793_COMMAND,0xA0);
+    failDiskIo=3;
+    for(unsigned i=0;i<512;++i) Write1793(&FDC,WD1793_DATA,0xE8);
+    assert((FDC.R[0]&F_WRFAULT) && !FDC.WRLength && FDD[0].WriteFault);
+    failDiskIo=0;
+    assert(MsxAttachDisk(0,"",error,sizeof(error)));
+    writeImage("media-a.dsk",diskImages[0]);
+    assert(MsxAttachDisk(0,a.c_str(),error,sizeof(error)));
     // The same virtual address in an unrelated slot must not invoke disk I/O.
     OutZ80(0xA8,0xF4);
     r = mediaTrap(0x4010);
@@ -316,5 +420,5 @@ static void mediaRegression(const char* directory)
   assert(contents==tapeImage);
   for (const char* name : {"DISK.ROM","media-a.dsk","media-b.dsk","media.cas","media-bad.bin"})
     assert(remove(name)==0);
-  puts("PASS: read-only A/B disks and CAS, BIOS hooks, slot isolation, atomic swaps, allocation failure, eject, rewind, EOF and unchanged source bytes.");
+  puts("PASS: persistent A/B writes, BIOS/FDC sectors, partial/flush/sync failures, duplicate mounts, atomic swaps, eject/reopen, and read-only CAS.");
 }

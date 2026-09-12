@@ -66,9 +66,34 @@ The initial profiles are:
 | `msx\bios\fs-a1f` | Panasonic FS-A1F / MSX2 | 64 KiB | `PANASONIC.ROM` |
 | `msx\bios\fs-a1fx` | Panasonic FS-A1FX / MSX2+ | 64 KiB | `PANASONIC.ROM` |
 
+## Media menu
+
+Open **F12 > Media** to choose **ROMs**, **Disks** or **Tapes**.
+The ROMs page contains cartridge slots 1 and 2; the Disks page contains
+drives A and B; the Tapes page contains the tape selection and rewind.
+Press Enter to browse for an image or Delete to eject the selected slot,
+drive or tape. Esc goes back one menu level. From these menu pages, F12
+resumes a running machine directly.
+
+### Cartridge ROMs and rebooting
+
+In **Media > ROMs**, select either or both cartridge slots, then choose:
+
+- **Reboot and save configuration:** save the complete current boot
+  configuration (BIOS, RAM, sound, auto-boot, both cartridges, both disks
+  and tape), then cold-boot with those selections.
+- **Reboot without saving:** cold-boot with the selected configuration for
+  this session without overwriting the saved defaults.
+
+Both options discard the current emulated machine state. A validation or
+save failure leaves the menu open and does not reboot. Cartridge insertion
+and ejection take effect only on cold boot. Leaving F12 without choosing
+a reboot option resumes with the previously running cartridges; your new
+selections remain pending until a cold boot.
+
 ## Disk and tape images
 
-Open **F12 > Disks / tape - attach, eject, rewind** to select:
+Use **F12 > Media > Disks** or **F12 > Media > Tapes** to select:
 
 - **Drive A** and **Drive B:** raw `.dsk` floppy images.
 - **Tape:** an MSX `.cas` cassette image.
@@ -88,12 +113,32 @@ supported. CAS images must start with the standard MSX cassette marker
 Select a drive or tape row and press Enter to browse. Select **<Eject media>**
 or press Delete on the row to remove its image. When a machine is running,
 successful attachments take effect when you resume emulation; no reset is
-needed for disk swaps or loading a new tape. Failed attachments leave the
+needed for disk swaps or loading a new tape. Press F12 from either media
+page to return directly to the running machine. Failed attachments leave the
 previous media selected. When no machine is running, selections apply at
 the next cold boot.
 
-All images are **read-only**. Disk writes, formatting and cassette saves
-are not supported, and original files must not be modified. Attaching an
+Disk images are **read/write**: Disk BASIC commands such as
+`SAVE "A:PROGRAM.BAS"` or `SAVE "B:PROGRAM.BAS"`, and supported disk software,
+write directly to the attached `.dsk` file on microSD. Each completed sector
+is flushed and synchronized before success is reported. No extra F12 save
+or ejection is needed to persist disk contents. Saving boot defaults only
+remembers media paths; choosing "Reboot without saving" does not undo disk
+writes.
+
+**Back up your disk images before using them.** Files/SD cards that cannot be
+opened for writing are rejected rather than silently mounted read-only.
+Use separate images for A and B; mounting the same file in both drives is
+rejected to prevent conflicting cached copies. Keep the card inserted, and
+do not power off during a disk operation. A power failure or SD write error
+can leave a partial sector or filesystem update, as on a real disk.
+Write failures are reported to MSX software and on UART; further writes to
+that drive are blocked until you reattach its image. Check/recover the image
+on a PC if an operation failed.
+
+Disk formatting and creating new blank images are not implemented; attach
+an existing, correctly formatted 360/720 KiB image. CAS tapes remain
+**read-only**, and cassette recording is not supported. Attaching an
 image does not automatically issue `LOAD`, `RUN`, or a reset.
 For a cassette BASIC program use the appropriate command, for example
 `CLOAD` or `LOAD "CAS:"`, followed by `RUN`. Binary tapes typically use
@@ -110,7 +155,7 @@ than silently booting with different media.
 
 Leave the SD card inserted while media is attached. F12 BIOS rescanning
 does not remount the card while an emulator is running, so an open tape
-stream is not invalidated. Restart the board after physically replacing
+stream or writable disk handle is not invalidated. Restart the board after physically replacing
 the SD card.
 
 Disk BASIC additionally requires a compatible disk BIOS in the selected

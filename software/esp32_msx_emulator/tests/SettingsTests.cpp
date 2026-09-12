@@ -19,12 +19,13 @@ int main()
     assert(MsxBootPercent(1000) == 100);
     assert(MsxProgressWidth(0) == 0 && MsxProgressWidth(50) == 150);
     assert(MsxProgressWidth(100) == 300 && MsxProgressWidth(255) == 300);
-    static_assert(MsxMenuCount == 13, "All F12 options must be reachable.");
+    static_assert(MsxMenuCount == 11, "Media replaces the separate cartridge and disk/tape entries.");
     for (unsigned i = 1; i < MsxMenuCount; ++i)
         assert(MsxMenuRowY(i) - MsxMenuRowY(i - 1) == 8);
     assert(MsxMenuRowHeight == 8);
-    assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuMedia);
-    assert(MsxMoveSelection(MsxMenuMedia, 1, MsxMenuCount) == MsxMenuResume);
+    assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuJoysticks);
+    assert(MsxMoveSelection(MsxMenuJoysticks, 1, MsxMenuCount) == MsxMenuResume);
+    assert(MsxMoveSelection(MsxMenuBios, 1, MsxMenuCount) == MsxMenuMedia);
     assert(MsxMoveSelection(15, 1, 33) == 16);
     assert(MsxMoveSelection(32, 1, 33) == 0);
     assert(MsxMoveSelection(0, -1, 0) == 0);

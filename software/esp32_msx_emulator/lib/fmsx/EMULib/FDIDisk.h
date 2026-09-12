@@ -41,6 +41,8 @@ extern "C" {
 
 #define SEEK_DELETED (0x40000000)
 
+#include <stdio.h>
+
 #define DataFDI(D) ((D)->Data+(D)->Data[10]+((int)((D)->Data[11])<<8))
 
 #ifndef BYTE_TYPE_DEFINED
@@ -65,6 +67,10 @@ typedef struct
 
   byte Header[6];  /* Current header, result of SeekFDI() */
   byte Verbose;    /* 1: Print debugging messages */
+  FILE *BackingFile; /* Raw image, kept open for write-through sectors */
+  long BackingSize;
+  char BackingPath[256];
+  byte WriteFault;  /* Require reattachment after an uncertain host write */
 } FDIDisk;
 
 /** InitFDI() ************************************************/
@@ -109,6 +115,9 @@ int LoadFDI(FDIDisk *D,const char *FileName,int Format);
 /** FDI_SAVE_FAILED (0) if failed.                          **/
 /*************************************************************/
 int SaveFDI(FDIDisk *D,const char *FileName,int Format);
+
+/** Write one sector; update memory only after backing-file sync succeeds. */
+int WriteFDI(FDIDisk *D,byte *Sector,const byte *Buf);
 
 /** SeekFDI() ************************************************/
 /** Seek to given side/track/sector. Returns sector address **/

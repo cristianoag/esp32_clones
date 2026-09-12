@@ -17,7 +17,30 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <errno.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <io.h>
+#define fsync _commit
+#endif
 #include "../Esp32Port.h"
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
+
+#ifdef FMSX_TEST_MEDIA_IO
+extern size_t fmsxTestDiskWrite(const void *,size_t,size_t,FILE *);
+extern int fmsxTestDiskFlush(FILE *);
+extern int fmsxTestDiskSync(int);
+#define DISK_WRITE fmsxTestDiskWrite
+#define DISK_FLUSH fmsxTestDiskFlush
+#define DISK_SYNC fmsxTestDiskSync
+#else
+#define DISK_WRITE fwrite
+#define DISK_FLUSH fflush
+#define DISK_SYNC fsync
+#endif
 
 #ifdef ZLIB
 #include <zlib.h>
@@ -88,6 +111,10 @@ void InitFDI(FDIDisk *D)
   D->Tracks   = 0;
   D->Sectors  = 0;
   D->SecSize  = 0;
+  D->BackingFile = 0;
+  D->BackingSize = 0;
+  D->BackingPath[0] = 0;
+  D->WriteFault = 0;
 }
 
 /** EjectFDI() ***********************************************/
@@ -95,8 +122,48 @@ void InitFDI(FDIDisk *D)
 /*************************************************************/
 void EjectFDI(FDIDisk *D)
 {
+  if(D->BackingFile&&fclose(D->BackingFile))
+    printf("MSX disk: close failed for %s (errno %d)\n",D->BackingPath,errno);
   if(D->Data) free(D->Data);
   InitFDI(D);
+}
+
+int WriteFDI(FDIDisk *D,byte *Sector,const byte *Buf)
+{
+  long Offset;
+  struct stat Info;
+  if(!D||!D->Data||!Sector||!Buf) { errno=EINVAL;return(0); }
+  if(D->Data[3]) { errno=EROFS;return(0); }
+  if(D->WriteFault) { errno=EIO;return(0); }
+  if(D->BackingFile)
+  {
+    Offset=Sector-DataFDI(D);
+    if(D->SecSize!=512||Offset<0||Offset%512||Offset+512>D->BackingSize)
+    { errno=EINVAL;return(0); }
+    /* Detect removal/truncation before touching the file; never grow an image. */
+    if(fstat(fileno(D->BackingFile),&Info)||Info.st_size!=D->BackingSize||
+       fseek(D->BackingFile,Offset,SEEK_SET)||
+       DISK_WRITE(Buf,1,512,D->BackingFile)!=512||
+       DISK_FLUSH(D->BackingFile)||DISK_SYNC(fileno(D->BackingFile)))
+    {
+      printf("MSX disk: write failed for %s at sector %ld; reattach disk (errno %d)\n",
+             D->BackingPath,Offset/512,errno);
+      D->WriteFault=1;
+      errno=EIO;
+      return(0);
+    }
+#ifdef ESP_PLATFORM
+    /* Long BIOS multi-sector writes must still service the idle watchdog. */
+    {
+      static TickType_t LastYield;
+      TickType_t Now=xTaskGetTickCount();
+      if(Now-LastYield>=pdMS_TO_TICKS(20))
+      { vTaskDelay(1);LastYield=xTaskGetTickCount(); }
+    }
+#endif
+  }
+  memcpy(Sector,Buf,D->SecSize);
+  return(1);
 }
 
 /** NewFDI() *************************************************/
@@ -694,7 +761,7 @@ int SaveFDI(FDIDisk *D,const char *FileName,int Format)
   byte *P,*T;
 
   /* Must have a disk to save */
-  if(!D->Data||D->Data[3]) return(0);
+  if(!D->Data||D->Data[3]||D->BackingFile) return(0);
 
   /* Use original format if requested */
   if(!Format) Format=D->Format;

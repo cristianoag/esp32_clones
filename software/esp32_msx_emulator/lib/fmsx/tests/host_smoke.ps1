@@ -7,10 +7,23 @@ param(
   [ValidateRange(1,36000)][int]$Frames = 900,
   [switch]$PanasonicOnly,
   [switch]$MediaOnly,
-  [string]$DiskBios = ''
+  [string]$DiskBios = '',
+  [string]$CartridgeRom = '',
+  [string]$FmBios = '',
+  [ValidateRange(-1,7)][int]$Mapper = -1,
+  [ValidateRange(-1,7)][int]$ExpectedMapper = -1
 )
 $ErrorActionPreference = 'Stop'
 if ($BiosDirectory -and $ProfilesRoot) { throw 'Use either -BiosDirectory or -ProfilesRoot, not both.' }
+if ($CartridgeRom) {
+  if (-not ($BiosDirectory -or $ProfilesRoot)) { throw 'Cartridge diagnostics require -BiosDirectory or -ProfilesRoot.' }
+  if ($DiskBios) { throw 'Cartridge and disk diagnostics must run separately.' }
+  $CartridgeRom = (Resolve-Path -LiteralPath $CartridgeRom).Path
+} elseif ($Mapper -ne -1 -or $ExpectedMapper -ne -1) { throw '-Mapper / -ExpectedMapper require -CartridgeRom.' }
+if ($FmBios) {
+  if (-not $CartridgeRom) { throw '-FmBios is for cartridge diagnostics.' }
+  $FmBios = (Resolve-Path -LiteralPath $FmBios).Path
+}
 if ($DiskBios) {
   $DiskBios = (Resolve-Path -LiteralPath $DiskBios).Path
   if ($Frames -lt 900) { throw 'Real disk save/reload verification requires at least 900 frames.' }
@@ -48,10 +61,12 @@ try {
     "$PSScriptRoot\host_smoke.cpp" @(Get-ChildItem '*.o' | ForEach-Object FullName) `
     -o host_smoke.exe
   if ($LASTEXITCODE -ne 0) { throw 'Core host linking failed.' }
-  if ($MediaOnly) { & '.\host_smoke.exe' --media }
-  elseif ($PanasonicOnly) { & '.\host_smoke.exe' --panasonic }
-  else { & '.\host_smoke.exe' }
-  if ($LASTEXITCODE -ne 0) { throw 'Core host regression failed.' }
+  if (-not $CartridgeRom) {
+    if ($MediaOnly) { & '.\host_smoke.exe' --media }
+    elseif ($PanasonicOnly) { & '.\host_smoke.exe' --panasonic }
+    else { & '.\host_smoke.exe' }
+    if ($LASTEXITCODE -ne 0) { throw 'Core host regression failed.' }
+  }
   foreach ($profile in $profiles) {
     # Prefer combined system images; never write CMOS or test images into originals.
     $bios = "$build\bios"
@@ -78,10 +93,20 @@ try {
       }
       foreach ($name in $names) { Copy-Item -LiteralPath (Join-Path $profile.Directory $name) -Destination $bios }
       if ($DiskBios) { Copy-Item -LiteralPath $DiskBios -Destination (Join-Path $bios 'DISK.ROM') }
+      if ($CartridgeRom) {
+        Copy-Item -LiteralPath $CartridgeRom -Destination (Join-Path $bios 'diagnostic.rom')
+        if ($Mapper -ge 0) {
+          $hash = (Get-FileHash -LiteralPath $CartridgeRom -Algorithm SHA1).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $bios 'CARTS.SHA'), "$hash $Mapper`n", [System.Text.Encoding]::ASCII)
+        }
+        if ($FmBios) { Copy-Item -LiteralPath $FmBios -Destination (Join-Path $bios 'FMPAC.ROM') }
+      }
       $posix = $bios.Replace('\', '/')
       if ($posix[1] -eq ':') { $posix = $posix.Substring(2) }
       Write-Output "Booting $($profile.Name)..."
-      & '.\host_smoke.exe' $posix $profile.Model $profile.Ram $Frames
+      $arguments = @($posix, $profile.Model, $profile.Ram, $Frames)
+      if ($CartridgeRom) { $arguments += @("$posix/diagnostic.rom", $ExpectedMapper) }
+      & '.\host_smoke.exe' @arguments
       if ($LASTEXITCODE -ne 0) { throw 'Real BIOS boot/logo verification failed; inspect the PPM captures and transcript.' }
       Copy-Item -LiteralPath "$build\boot.ppm" -Destination "$build\boot-$($profile.Name).ppm"
       Copy-Item -LiteralPath "$build\boot-early.ppm" -Destination "$build\boot-early-$($profile.Name).ppm"
@@ -89,7 +114,7 @@ try {
         Copy-Item -LiteralPath "$build\boot-logo.ppm" -Destination "$build\boot-logo-$($profile.Name).ppm"
       }
     } finally {
-      foreach ($name in @($names) + @('CMOS.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM', 'PANASONIC.ROM', 'DISK.ROM')) {
+      foreach ($name in @($names) + @('CMOS.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM', 'PANASONIC.ROM', 'DISK.ROM', 'diagnostic.rom', 'CARTS.SHA', 'FMPAC.ROM', 'FMPAC.sav')) {
         $copy = Join-Path $bios $name
         if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy }
       }

@@ -280,7 +280,12 @@ and flat 48/64 KiB images are supported; flat images use their AB header at file
 offset `0x4000`, as expected by upstream. MegaROMs use original fMSX mapper
 autodetection: Generic 8/16 KiB, Konami4, Konami5/SCC, ASCII8, ASCII16,
 GameMaster2 and FMPAC. Optional profile-local `CARTS.CRC` and `CARTS.SHA`
-databases take precedence over instruction-pattern heuristics. Heuristics are
+databases take precedence over the embedded PicoVerse SHA-1 database, which
+in turn takes precedence over instruction-pattern heuristics. The embedded
+3115-entry table is local constant flash data, not a runtime cross-project
+dependency; [provenance and mapper translation](MapperDatabase/README.md)
+are documented separately. Known unsupported PicoVerse mapper types abort
+the cartridge boot with an explicit error. Heuristics are
 not a guarantee for every game, especially Generic16/GameMaster2/FMPAC, and
 unsupported mapper hardware is not added by this frontend.
 
@@ -318,11 +323,31 @@ boot-time allocation of both SRAM and its filename is mandatory.
 - `Floppy.c`: include POSIX directory declarations without selecting a desktop
   backend.
 - `Esp32Port.h`, `library.json`, and `src/MsxCore.*`: new integration code.
+- `EMULib/MapperDatabase.*`, `MapperDatabase/`: embedded PicoVerse mapper
+  metadata, a binary lookup adapter using the existing fMSX SHA-1, and
+  unsupported-hardware signature checks.
 
 All other vendored core files, including the Z80 interpreter and emulated sound
 chips, remain original upstream sources.
 
 ## Host regression
+
+`powershell -File tools\Test-MapperDatabase.ps1` verifies every database
+record, sort order, mapper-ID translation, unsupported entries and signatures.
+The optional `-TinyMagicRom C:\private\TinyMagic-1_1.rom` checks the complete
+user-supplied ROM hash without embedding or modifying it.
+
+To diagnose a cartridge with real, privately supplied BIOS files:
+
+```powershell
+powershell -File lib\fmsx\tests\host_smoke.ps1 -BiosDirectory .\sdcard\msx\bios\fs-a1fx -Model 2 -RamPages 8 -Frames 1800 -CartridgeRom C:\private\TinyMagic-1_1.rom -ExpectedMapper 2 -FmBios C:\private\fs-a1wsx_fmbasic.rom
+```
+
+`-ExpectedMapper` asserts fMSX's selected ID. `-Mapper` optionally forces an
+ID through a temporary profile-local SHA-1 override for comparison; omit it
+to test automatic detection. This diagnostic captures `boot.ppm` and prints
+mapper/PC/bank state; completing a frame count alone is not proof of gameplay.
+It uses disposable cartridge/BIOS copies and never alters the originals.
 
 `powershell -File lib\fmsx\tests\media.ps1` selects the synthetic media suite.
 It executes original Z80 CALLs through patched BIOS entries and also checks

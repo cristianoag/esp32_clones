@@ -62,9 +62,7 @@ byte DiskWrite(byte ID,const byte *Buf,int N)
     /* Get data pointer to requested sector */
     P = LinearFDI(&FDD[ID],N);
     /* If seek operation succeeded, write sector */
-    if(P) memcpy(P,Buf,FDD[ID].SecSize);
-    /* Done */
-    return(!!P);
+    return(P&&WriteFDI(&FDD[ID],P,Buf));
   }
 
   return(0);
@@ -138,8 +136,8 @@ case 0x4010:
 
   if(!DiskPresent(R->AF.B.h))
   { R->AF.W=0x0201;return; }  /* No disk      -> "Not ready"        */
-  if(R->AF.B.l&C_FLAG)
-  { R->AF.W=0x0001;return; }  /* Read-only attachment */
+  if((R->AF.B.l&C_FLAG)&&FDD[R->AF.B.h].Data[3])
+  { R->AF.W=0x0001;return; }
   if(R->BC.B.l<0xF8||(int)(R->DE.W)+Count>
      FDD[R->AF.B.h].Sides*FDD[R->AF.B.h].Tracks*FDD[R->AF.B.h].Sectors)
   { R->AF.W=0x0801;return; }  /* Wrong sector -> "Record not found" */
@@ -155,7 +153,21 @@ case 0x4010:
   OutZ80(0xA8,0xFF);
   SSlot(0xAA);
 
-  for(Sector=R->DE.W;Count--;Sector++) /* READ */
+  for(Sector=R->DE.W;Count--;Sector++)
+  {
+    if(R->AF.B.l&C_FLAG)
+    {
+      for(J=0;J<512;J++) Buf[J]=RdZ80(Addr++);
+      if(DiskWrite(R->AF.B.h,Buf,Sector)) R->BC.B.h--;
+      else
+      {
+        R->AF.W=0x0A01;
+        SSlot(SS);
+        OutZ80(0xA8,PS);
+        return;
+      }
+    }
+    else
     {
       if(DiskRead(R->AF.B.h,Buf,Sector)) R->BC.B.h--;
       else
@@ -168,6 +180,7 @@ case 0x4010:
 
       for(J=0;J<512;J++) WrZ80(Addr++,Buf[J]);
     }
+  }
 
   /* Restore slot states */
   SSlot(SS);
@@ -317,7 +330,7 @@ case 0x401C:
   if(!R->AF.B.h||(R->AF.B.h>2)) { R->AF.W=0x0C01;return; }
   /* If no disk, return "Not ready": */
   if(!DiskPresent(R->DE.B.h)) { R->AF.W=0x0201;return; }
-  R->AF.W=0x0001;return;
+  R->AF.W=0x0C01;return; /* Formatting is not implemented. */
 }
 
 case 0x401F:

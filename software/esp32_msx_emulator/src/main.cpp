@@ -123,13 +123,13 @@ static bool validateMedia()
     return true;
 }
 
-static void saveSettings()
+static bool saveSettings()
 {
     if (!preferencesReady)
     {
         snprintf(statusMessage, sizeof(statusMessage), "NVS unavailable; settings were not saved.");
         Serial.println(statusMessage);
-        return;
+        return false;
     }
     MsxBootSettings settings = {};
     settings.machine.version = 3;
@@ -144,7 +144,7 @@ static void saveSettings()
     {
         snprintf(statusMessage, sizeof(statusMessage), "Cannot pause joystick host to save settings.");
         Serial.println(statusMessage);
-        return;
+        return false;
     }
     const bool written = preferences.putBytes("boot", &settings, sizeof(settings)) == sizeof(settings);
     MsxJoystickHostResume();
@@ -152,9 +152,29 @@ static void saveSettings()
     {
         snprintf(statusMessage, sizeof(statusMessage), "NVS write failed; settings were not saved.");
         Serial.println(statusMessage);
-        return;
+        return false;
     }
     snprintf(statusMessage, sizeof(statusMessage), "Boot profile, slots, disk/tape paths and settings saved.");
+    return true;
+}
+
+static bool validateBootSelection()
+{
+    if (!MsxValidateProfile(MsxProfiles[selectedProfile]))
+    {
+        snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
+        return false;
+    }
+    return validateCartridges() && validateMedia();
+}
+
+static bool requestBoot(bool save)
+{
+    if (!validateBootSelection() || (save && !saveSettings())) return false;
+    bootRequested = true;
+    exitRequested = running;
+    statusMessage[0] = '\0';
+    return true;
 }
 
 static void readSettings()
@@ -217,14 +237,6 @@ static void drawMenu(unsigned row)
         {
         case MsxMenuResume: snprintf(label, sizeof(label), running ? "Resume emulation" : "No machine running"); break;
         case MsxMenuBios: snprintf(label, sizeof(label), "BIOS: %s", profile.name); break;
-        case MsxMenuSlot1:
-        case MsxMenuSlot2:
-        {
-            const unsigned slot = i - MsxMenuSlot1;
-            snprintf(label, sizeof(label), "Slot %u: %.40s", slot + 1,
-                     selectedCartridges[slot][0] ? baseName(selectedCartridges[slot]) : "<empty>");
-            break;
-        }
         case MsxMenuRam: snprintf(label, sizeof(label), "RAM on next boot: %d KiB", selectedRamPages * 16); break;
         case MsxMenuSound: snprintf(label, sizeof(label), "Sound: %s", soundEnabled ? "On" : "Off"); break;
         case MsxMenuAutoBoot: snprintf(label, sizeof(label), "Auto boot saved settings: %s", autoBoot ? "On" : "Off"); break;
@@ -233,16 +245,13 @@ static void drawMenu(unsigned row)
         case MsxMenuRescan: snprintf(label, sizeof(label), "Rescan SD card / other BIOS profiles"); break;
         case MsxMenuUpdate: snprintf(label, sizeof(label), "Firmware update from SD"); break;
         case MsxMenuJoysticks: snprintf(label, sizeof(label), "USB joysticks - calibrate / test"); break;
-        case MsxMenuMedia: snprintf(label, sizeof(label), "Disks / tape - attach, eject, rewind"); break;
+        case MsxMenuMedia: snprintf(label, sizeof(label), "Media - ROMs, Disks, Tapes"); break;
         }
         text(10, y, label);
     }
     text(8, 156, "BIOS / slot / RAM changes apply on cold boot.", 0xdf);
     text(8, 188, "Arrows: choose  Enter: apply  Esc/F12: resume");
-    const char *hint = profile.error;
-    if (row == MsxMenuSlot1 || row == MsxMenuSlot2)
-        hint = selectedCartridges[row - MsxMenuSlot1];
-    messageLines(statusMessage[0] ? statusMessage : hint);
+    messageLines(statusMessage[0] ? statusMessage : profile.error);
     video.show();
 }
 
@@ -387,7 +396,7 @@ static bool chooseSdFile(const char *title, const char *extension, bool allowEje
 static void selectCartridge(unsigned slot, const char *path)
 {
     snprintf(selectedCartridges[slot], sizeof(selectedCartridges[slot]), "%s", path);
-    snprintf(statusMessage, sizeof(statusMessage), "Slot %u %s. Choose cold reset to apply; save for auto boot.",
+    snprintf(statusMessage, sizeof(statusMessage), "Slot %u %s. Choose a reboot option below to apply.",
              slot + 1, *path ? "selected" : "ejected");
 }
 
@@ -411,12 +420,12 @@ static bool selectMedia(unsigned item, const char *candidate)
     snprintf(selection, MsxSdPathCapacity, "%s", candidate);
     snprintf(statusMessage, sizeof(statusMessage), "%s %s%s. Save defaults to retain the assignment.",
              item == 0 ? "Drive A" : item == 1 ? "Drive B" : "Tape",
-             *candidate ? "attached read-only" : "ejected",
+             *candidate ? (item < 2 ? "attached read/write" : "attached read-only") : "ejected",
              running ? "" : " on next boot");
     return true;
 }
 
-static void mediaMenu()
+static bool diskTapeMenu(bool tape)
 {
     unsigned row = 0;
     bool redraw = true;
@@ -425,48 +434,48 @@ static void mediaMenu()
     {
         if (redraw)
         {
-            frame("Disks / tape - read-only");
+            frame(tape ? "Media > Tapes - read-only" : "Media > Disks - read/write");
             char label[80];
-            for (unsigned item = 0; item < 4; ++item)
+            for (unsigned item = 0; item < 2; ++item)
             {
                 if (item == row) display.fillRect(6, MsxMenuRowY(item), 308, MsxMenuRowHeight, 0x48);
-                if (item < 2)
+                if (!tape)
                     snprintf(label, sizeof(label), "Drive %c: %.40s", 'A' + item,
                              selectedDisks[item][0] ? baseName(selectedDisks[item]) : "<empty>");
-                else if (item == 2)
+                else if (item == 0)
                     snprintf(label, sizeof(label), "Tape: %.43s", selectedTape[0] ? baseName(selectedTape) : "<empty>");
                 else snprintf(label, sizeof(label), "Rewind tape");
                 text(8, MsxMenuRowY(item), label);
             }
             text(8, 96, running ? "Changes are ready when emulation resumes." : "Selections will be attached on cold boot.", 0xdf);
-            text(8, 112, "Original images are never modified.");
-            text(8, 128, running && !MsxDiskAvailable() ?
-                 "Disk BIOS unavailable in current machine." : "DSK drives A/B and CAS tape supported.");
+            text(8, 112, tape ? "Original tape images are never modified." : "Disk writes update the .DSK file on SD.");
+            if (!tape && running && !MsxDiskAvailable())
+                text(8, 128, "Disk BIOS unavailable in current machine.");
             text(8, 180, "Enter: select  Delete: eject  Arrows: move");
-            text(8, 188, "Esc/F12: back. No automatic LOAD or RUN.");
-            const char *path = row < 2 ? selectedDisks[row] : selectedTape;
+            text(8, 188, running ? "Esc: back  F12: resume without reboot" : "Esc/F12: back");
+            const char *path = tape ? selectedTape : selectedDisks[row];
             messageLines(statusMessage[0] ? statusMessage : path);
             video.show();
             redraw = false;
         }
         const uint8_t key = MsxKeyboardMenuKey();
         if (!key) { delay(10); continue; }
-        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return; }
+        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return key == 69 && running; }
         if (key == 81 || key == 82)
         {
-            row = MsxMoveSelection(row, key == 82 ? -1 : 1, 4);
+            row = MsxMoveSelection(row, key == 82 ? -1 : 1, 2);
             statusMessage[0] = '\0';
         }
-        else if (key == 76 && row < 3) selectMedia(row, "");
-        else if (key == 40 && row < 3)
+        else if (key == 76 && (!tape || row == 0)) selectMedia(tape ? 2 : row, "");
+        else if (key == 40 && (!tape || row == 0))
         {
             char candidate[MsxSdPathCapacity];
-            snprintf(candidate, sizeof(candidate), "%s", row < 2 ? selectedDisks[row] : selectedTape);
-            if (chooseSdFile(row < 2 ? "Select disk image - .DSK" : "Select tape image - .CAS",
-                             row < 2 ? ".dsk" : ".cas", true, candidate, true))
-                selectMedia(row, candidate);
+            snprintf(candidate, sizeof(candidate), "%s", tape ? selectedTape : selectedDisks[row]);
+            if (chooseSdFile(tape ? "Select tape image - .CAS" : "Select disk image - .DSK",
+                             tape ? ".cas" : ".dsk", true, candidate, true))
+                selectMedia(tape ? 2 : row, candidate);
         }
-        else if (key == 40 && row == 3)
+        else if (key == 40 && tape && row == 1)
         {
             if (!running)
                 snprintf(statusMessage, sizeof(statusMessage), "Tape starts at the beginning on cold boot.");
@@ -496,6 +505,91 @@ static void chooseCartridge(unsigned slot)
     }
     selectCartridge(slot, candidate);
     MsxKeyboardClearEvents();
+}
+
+static bool romMenu()
+{
+    unsigned row = 0;
+    bool redraw = true;
+    MsxKeyboardClearEvents();
+    for (;;)
+    {
+        if (redraw)
+        {
+            frame("Media > ROMs - cartridge slots");
+            for (unsigned item = 0; item < 4; ++item)
+            {
+                char label[80];
+                if (item == row) display.fillRect(6, MsxMenuRowY(item), 308, MsxMenuRowHeight, 0x48);
+                if (item < 2)
+                    snprintf(label, sizeof(label), "Slot %u: %.40s", item + 1,
+                             selectedCartridges[item][0] ? baseName(selectedCartridges[item]) : "<empty>");
+                else snprintf(label, sizeof(label), "%s", item == 2 ?
+                              "Reboot and save configuration" : "Reboot without saving");
+                text(8, MsxMenuRowY(item), label);
+            }
+            text(8, 96, "Cartridge changes require a cold reboot.", 0xdf);
+            text(8, 112, "Reboot discards the current machine state.");
+            text(8, 128, "Save includes BIOS, RAM, sound and all media.");
+            text(8, 180, "Enter: select  Delete: eject  Arrows: move");
+            text(8, 188, running ? "Esc: back  F12: resume (slots unchanged)" : "Esc/F12: back");
+            messageLines(statusMessage[0] ? statusMessage : row < 2 ? selectedCartridges[row] : "");
+            video.show();
+            redraw = false;
+        }
+        const uint8_t key = MsxKeyboardMenuKey();
+        if (!key) { delay(10); continue; }
+        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return key == 69 && running; }
+        if (key == 81 || key == 82)
+        {
+            row = MsxMoveSelection(row, key == 82 ? -1 : 1, 4);
+            statusMessage[0] = '\0';
+        }
+        else if (key == 76 && row < 2) selectCartridge(row, "");
+        else if (key == 40)
+        {
+            if (row < 2) chooseCartridge(row);
+            else if (requestBoot(row == 2)) return true;
+        }
+        redraw = true;
+    }
+}
+
+static bool mediaMenu()
+{
+    unsigned row = 0;
+    bool redraw = true;
+    MsxKeyboardClearEvents();
+    for (;;)
+    {
+        if (redraw)
+        {
+            frame("Media");
+            const char *labels[] = {"ROMs - cartridge slots 1 / 2", "Disks - drives A / B", "Tapes - attach / eject / rewind"};
+            for (unsigned item = 0; item < 3; ++item)
+            {
+                if (item == row) display.fillRect(6, MsxMenuRowY(item), 308, MsxMenuRowHeight, 0x48);
+                text(8, MsxMenuRowY(item), labels[item]);
+            }
+            text(8, 96, "ROM changes: choose reboot in the ROMs menu.", 0xdf);
+            text(8, 112, "Disks / tapes: resume without reboot.");
+            text(8, 188, running ? "Enter: open  Esc: back  F12: resume" : "Enter: open  Esc/F12: back");
+            messageLines(statusMessage);
+            video.show();
+            redraw = false;
+        }
+        const uint8_t key = MsxKeyboardMenuKey();
+        if (!key) { delay(10); continue; }
+        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return key == 69 && running; }
+        if (key == 81 || key == 82) row = MsxMoveSelection(row, key == 82 ? -1 : 1, 3);
+        else if (key == 40)
+        {
+            const bool leave = row == 0 ? romMenu() : diskTapeMenu(row == 2);
+            if (leave) return true;
+            MsxKeyboardClearEvents();
+        }
+        redraw = true;
+    }
 }
 
 static void drawProgressGauge(unsigned percent)
@@ -762,8 +856,6 @@ static void menu()
         redraw = true;
         if (key == 82) row = MsxMoveSelection(row, -1, MsxMenuCount);
         else if (key == 81) row = MsxMoveSelection(row, 1, MsxMenuCount);
-        else if (key == 76 && (row == MsxMenuSlot1 || row == MsxMenuSlot2))
-            selectCartridge(row - MsxMenuSlot1, "");
         else if ((key == 41 || key == 69) && running) leave = true;
         else if (key == 40 || key == 79 || key == 80)
         {
@@ -778,10 +870,6 @@ static void menu()
                 selectedRamPages = MsxProfiles[selectedProfile].ramPages;
                 statusMessage[0] = '\0';
                 break;
-            case MsxMenuSlot1:
-            case MsxMenuSlot2:
-                if (key == 40) chooseCartridge(row - MsxMenuSlot1);
-                break;
             case MsxMenuRam:
                 if (direction > 0) selectedRamPages = selectedRamPages == 32 ? 4 : selectedRamPages * 2;
                 else selectedRamPages = selectedRamPages == 4 ? 32 : selectedRamPages / 2;
@@ -795,25 +883,13 @@ static void menu()
             case MsxMenuSave:
                 if (key == 40)
                 {
-                    if (MsxValidateProfile(MsxProfiles[selectedProfile]))
-                    {
-                        if (validateCartridges() && validateMedia()) saveSettings();
-                    }
-                    else snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
+                    if (validateBootSelection()) saveSettings();
                 }
                 break;
             case MsxMenuBoot:
                 if (key == 40)
                 {
-                    if (MsxValidateProfile(MsxProfiles[selectedProfile]))
-                    {
-                        if (!validateCartridges() || !validateMedia()) break;
-                        bootRequested = true;
-                        exitRequested = running;
-                        leave = true;
-                        statusMessage[0] = '\0';
-                    }
-                    else snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
+                    leave = requestBoot(false);
                 }
                 break;
             case MsxMenuRescan:
@@ -839,7 +915,7 @@ static void menu()
                 if (key == 40) joystickMenu();
                 break;
             case MsxMenuMedia:
-                if (key == 40) mediaMenu();
+                if (key == 40) leave = mediaMenu();
                 break;
             }
         }

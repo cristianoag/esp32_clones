@@ -175,7 +175,7 @@ a run releases it. Other models ignore this file.
 Upstream optional files, including `DISK.ROM`, `CMOS.ROM`, `KANJI.ROM`, and
 system cartridges, are resolved inside the selected profile directory.
 CMOS writes stay in that same directory. Printer files and MIDI logging are
-disabled by this frontend. Disk/tape image contents are always read-only.
+disabled by this frontend. Raw disk images are write-through; tape remains read-only.
 Both joystick ports are configured as digital
 MSX joysticks and receive the platform's active-high U/D/L/R/A/B masks through
 `msxPollJoysticks` (bits 0-5 and 8-13). The core converts these to active-low
@@ -208,12 +208,13 @@ and receives a bounded NUL-terminated explanation on failure. Boot validates
 again and the loader still requires a complete read, since a file can change
 after preflight.
 
-### Read-only disks and cassette
+### Writable disks and read-only cassette
 
 The last three boot arguments select drive A, drive B and one cassette. They
 are required attachments when nonempty: a failed open/read/allocation aborts
-before executing the Z80. `MsxValidateDisk` and `MsxValidateTape` are read-only
-preflights with the same error-buffer convention as cartridge validation.
+before executing the Z80. `MsxValidateDisk` checks read/write access without
+changing contents; `MsxValidateTape` checks read-only access. Both use the same
+error-buffer convention as cartridge validation.
 Live `MsxAttachDisk(unsigned drive, const char* path, char* error, size_t size)`,
 `MsxAttachTape(path, error, size)` and `MsxRewindTape(error, size)` must run on
 the CPU task while paused (the F12 callback). They return errors without
@@ -246,19 +247,31 @@ be added to that profile followed by a cold boot.
 Disk accesses use original Disk BASIC executing fMSX BIOS traps, **not
 TC8566 emulation or a claim of raw controller accuracy**. Traps are accepted
 only from the mapped system ROM, not the same address in a cartridge.
-Disk BIOS writes/format return write-protected; low-level disk writes and
-WD1793 sector/track writes also reject mounted media, and protected FDI
-images cannot be saved. No disk saved-state auto-loading or empty-image
-creation occurs.
+Disk BIOS PHYDIO writes and WD1793 sector writes share `WriteFDI`: validate
+the sector/file size, write the raw 512-byte sector, flush and `fsync`, then
+update the PSRAM cache. Files stay open in `r+b` mode until ejected.
+Unwritable files and duplicate A/B paths (case-insensitive) are rejected.
+The WD1793 buffers an entire sector before committing it, so aborted or
+incomplete controller transfers never reach the cache or backing file.
+Long ESP32 writes periodically yield to the idle watchdog.
+
+Host write/flush/sync errors become Disk BASIC write-fault code 10 or WD1793
+`F_WRFAULT`, with a UART diagnostic; subsequent writes fail until reattachment.
+Failed host writes may already have changed part or all of a physical sector,
+so an error is not an atomic rollback guarantee. Save defaults and ejection
+are not needed to persist successful writes. `SaveFDI` cannot export/truncate
+an actively backed image. Disk formatting/WD1793 write-track operations,
+saved-state auto-loading and empty-image creation remain unsupported.
 
 CAS images must begin with `1F A6 DE BA CC 13 7D 74`; subsequent markers may
 be byte-aligned anywhere. Tape reads use the original BIOS entry points.
 The stream stays open read-only across F12 pauses; TAPION searches forward,
 EOF returns carry/error and remains at EOF until explicit rewind or reattach.
 TAPOON/TAPOUT/TAPOOF reject save attempts without changing the stream or source.
-WAV and tape recording are unsupported. Disk contents are cached in memory,
-whereas tape remains an SD stream: after physical SD removal/reinsertion,
-restart rather than trusting an old open tape handle.
+WAV and tape recording are unsupported. Disk contents are cached in memory
+with an open write-through SD handle, whereas tape remains a read-only SD
+stream: after physical SD removal/reinsertion, restart rather than trusting
+old open handles.
 
 Images must contain complete 8 KiB banks and be at most **2 MiB per cartridge**
 (`MSX_MAX_CART_BYTES`). This is the original core's 256-bank, byte-sized mapper
@@ -292,12 +305,12 @@ boot-time allocation of both SRAM and its filename is mandatory.
   flash bank; load Panasonic BASIC/sub-ROM/Kanji BASIC/font combined images;
   implement WSX shared-latch, interlocked JIS level-2 font reads; implement the
   F4 reset-status latch and raster collision polling; independently map and
-  patch Disk BASIC in slot 3-3; atomically load read-only raw disks/CAS.
-- `Patch.c`: enforce mapped-ROM traps and read-only disk/tape operations,
+  patch Disk BASIC in slot 3-3; transactionally attach writable raw disks and read-only CAS.
+- `Patch.c`: enforce mapped-ROM traps, write-through disks and read-only tape operations,
   bound disk sectors to mounted geometry, validate/fallback malformed BPBs,
   and support unaligned CAS markers with explicit EOF/rewind semantics.
-- `FDIDisk.c`, `WD1793.c`: allocate new disk buffers through PSRAM and enforce
-  mounted-media write protection in save/controller paths.
+- `FDIDisk.c`, `WD1793.c`: allocate new disk buffers through PSRAM, synchronize
+  backed sector writes, buffer controller sectors and propagate host storage faults.
 - `V9938.c`: add command-engine reset for safe profile switching.
 - `Common.h`: apply SCREEN 6 coarse/fine horizontal scroll, two-page wrapping,
   left-edge masking and correct sprite palette-pair sampling.
@@ -315,20 +328,24 @@ chips, remain original upstream sources.
 It executes original Z80 CALLs through patched BIOS entries and also checks
 disk/tape register/error semantics, two drives, invalid/missing images,
 allocation-failure rollback, eject/reattach, CAS rewind/EOF, controller/BIOS
-write protection, slot isolation and unchanged complete source contents.
+write-through persistence, interrupted sector transfers, short-write/flush/sync
+faults, duplicate mounts, slot isolation and unchanged CAS contents.
 With local BIOS profiles, additionally run:
 
 ```powershell
-powershell -File lib\fmsx\tests\media.ps1 -ProfilesRoot .\sdcard\msx\bios -DiskBios C:\private\nms8250_disk.rom
+powershell -File lib\fmsx\tests\media.ps1 -ProfilesRoot .\sdcard\msx\bios -DiskBios C:\private\nms8250_disk.rom -Frames 1200
 ```
 
 Only disposable copies under `tests\.build` are used. This boots all six
 profiles with original BIOS code, lists synthetic files using `FILES "A:"`
 and `FILES "B:"`, executes `BLOAD "CAS:"`, and verifies the loaded byte in BASIC.
+It also saves distinct BASIC programs to A and B, verifies their directory
+entries in the backing files, cold-boots again, and loads/runs both saved
+programs to prove persistence beyond the original emulator's RAM cache.
 All six profiles passed this test with the identified Philips ROM. No BIOS
 or game bytes are embedded in tests, and originals/prepared profiles are not
-modified. The optional real-media verification requires at least 300 frames
-(900 by default).
+modified. The optional real-media verification requires at least 900 frames
+per boot; the command above uses 1200.
 
 With native GCC/G++ on PATH and the existing PlatformIO Arduino ESP32 SDK
 installed, run `powershell -File lib\fmsx\tests\host_smoke.ps1` from the firmware

@@ -3,9 +3,9 @@
 
 enum MsxMenuItem : unsigned
 {
-    MsxMenuResume, MsxMenuBios, MsxMenuSlot1, MsxMenuSlot2, MsxMenuRam,
+    MsxMenuResume, MsxMenuBios,  MsxMenuRam, MsxMenuMedia,
     MsxMenuSound, MsxMenuAutoBoot, MsxMenuSave, MsxMenuBoot, MsxMenuRescan,
-    MsxMenuUpdate, MsxMenuJoysticks, MsxMenuMedia, MsxMenuCount
+    MsxMenuUpdate, MsxMenuJoysticks, MsxMenuCount
 };
 
 constexpr int MsxMenuTop = 48;

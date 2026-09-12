@@ -103,6 +103,8 @@ typedef struct
 
   byte *Ptr;        /* Pointer to data */
   FDIDisk *Disk[4]; /* Disk images */
+  byte WriteBuffer[4096];
+  int WriteOffset;
 } WD1793;
 #pragma pack()
 

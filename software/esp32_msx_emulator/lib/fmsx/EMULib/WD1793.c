@@ -38,6 +38,7 @@ void Reset1793(register WD1793 *D,FDIDisk *Disks,register byte Eject)
   D->Wait     = 0;
   D->Cmd      = 0xD0;
   D->Rsrvd2   = 0;
+  D->WriteOffset = 0;
 
   /* For all drives... */
   for(J=0;J<4;++J)
@@ -267,6 +268,7 @@ byte Write1793(register WD1793 *D,register byte A,register byte V)
 
         case 0xA0:
         case 0xB0: /* WRITE-SECTORS */
+          D->WriteOffset=0;
           if(D->Verbose) printf("WD1793: WRITE-SECTOR%s %c:%d:%d:%d (%02Xh)\n",V&0x10? "S":"",'A'+D->Drive,D->Side,D->R[1],D->R[2],V);
           /* Seek to the requested sector */
           D->Ptr=SeekFDI(
@@ -274,7 +276,7 @@ byte Write1793(register WD1793 *D,register byte A,register byte V)
             V&C_SIDECOMP? !!(V&C_SIDE):D->Side,D->R[1],D->R[2]
           );
           /* If seek successful, set up writing operation */
-          if(!D->Ptr)
+          if(!D->Ptr||D->Disk[D->Drive]->SecSize>(int)sizeof(D->WriteBuffer))
           {
             if(D->Verbose) printf("WD1793: WRITE ERROR\n");
             D->R[0]     = (D->R[0]&~F_ERRCODE)|F_NOTFOUND;
@@ -327,6 +329,8 @@ byte Write1793(register WD1793 *D,register byte A,register byte V)
 
         case 0xF0: /* WRITE-TRACK */
           if(D->Verbose) printf("WD1793: WRITE-TRACK %d (%02Xh) UNSUPPORTED!\n",D->R[1],V);
+          D->R[0]=F_WRFAULT;
+          D->IRQ=WD1793_IRQ;
           break;
 
         default: /* UNKNOWN */
@@ -341,6 +345,12 @@ byte Write1793(register WD1793 *D,register byte A,register byte V)
       break;
 
     case WD1793_SYSTEM:
+      if(D->WRLength&&((V^D->R[4])&(S_DRIVE|S_SIDE)))
+      {
+        D->WRLength=0;
+        D->R[0]=F_WRFAULT;
+        D->IRQ=WD1793_IRQ;
+      }
 // @@@ Too verbose
 //      if(D->Verbose) printf("WD1793: Drive %c, %cD side %d\n",'A'+(V&S_DRIVE),V&S_DENSITY? 'D':'S',V&S_SIDE? 0:1);
       /* Reset controller if S_RESET goes up */
@@ -359,7 +369,19 @@ byte Write1793(register WD1793 *D,register byte A,register byte V)
       else
       {
         /* Write data */
-        *D->Ptr++=V;
+        D->WriteBuffer[D->WriteOffset++]=V;
+        if(D->WriteOffset==D->Disk[D->Drive]->SecSize)
+        {
+          if(!WriteFDI(D->Disk[D->Drive],D->Ptr,D->WriteBuffer))
+          {
+            D->WRLength=0;
+            D->R[0]=F_WRFAULT;
+            D->IRQ=WD1793_IRQ;
+            break;
+          }
+          D->Ptr+=D->WriteOffset;
+          D->WriteOffset=0;
+        }
         /* Decrement length */
         if(--D->WRLength)
         {

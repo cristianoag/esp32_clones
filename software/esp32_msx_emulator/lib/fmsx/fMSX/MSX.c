@@ -17,6 +17,7 @@
 #include "Sound.h"
 #include "Floppy.h"
 #include "SHA1.h"
+#include "MapperDatabase.h"
 #include "MCF.h"
 
 #include <stdio.h>
@@ -3184,6 +3185,15 @@ int GuessROM(const byte *Buf,int Size)
   /* If found ROM by CRC or SHA1, we are done */
   if((Result>=0)&&(Result<MAXMAPPERS)) return(Result);
 
+  /* PicoVerse-style exact identification takes precedence over heuristics. */
+  Result=FmsxKnownMapper(Buf,Size);
+  if(Result>=0)
+  {
+    printf("MSX mapper: embedded SHA-1 database -> %s\n",ROMNames[Result]);
+    return(Result);
+  }
+  if(Result!=-1) return(Result);
+
   /* Clear all counters */
   for(J=0;J<MAXMAPPERS;++J) ROMCount[J]=1;
   /* Generic 8kB mapper is default */
@@ -3611,12 +3621,20 @@ int LoadCart(const char *FileName,int Slot,int Type)
   if((Type>=MAP_GUESS)&&(ROMMask[Slot]+1>4))
   {
     Type=GuessROM(P,Len<<13);
+    if(Type<0)
+    {
+      printf("MSX cartridge %c: unsupported %s\n",'A'+Slot,FmsxUnsupportedMapperName(Type));
+      errno=ENOTSUP;
+      goto CartFailed;
+    }
     if(Verbose) printf("guessed %s..",ROMNames[Type]);
     if(Slot<MAXCARTS) SETROMTYPE(Slot,Type);
   }
 
   /* Save MegaROM type */
   ROMType[Slot]=Type;
+  if(Slot<MAXCARTS&&ROMMask[Slot])
+    printf("MSX cartridge %c: %s, %d KiB\n",'A'+Slot,ROMNames[Type],Len*8);
 
   /* For Generic/16kB carts, set ROM pages as 0:1:N-2:N-1 */
   if((Type==MAP_GEN16)&&(ROMMask[Slot]+1>4))

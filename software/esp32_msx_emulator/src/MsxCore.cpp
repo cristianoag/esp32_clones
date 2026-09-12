@@ -380,6 +380,8 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
       msxReportError("Add compatible DISK.ROM to this BIOS profile and cold boot to attach disks.");
     else if (bootError == EBUSY)
       msxReportError("The same disk cannot be attached to A and B. Select separate writable images.");
+    else if (bootError == ENOTSUP)
+      msxReportError("Cartridge mapper is not emulated. See UART for the detected mapper.");
     else if (bootError == ENOEXEC || bootError == EFBIG)
       msxReportError("Invalid cartridge ROM: check the AB header and size (maximum 2 MiB).");
     else

@@ -29,6 +29,8 @@ static unsigned frames, audioSamples, nonzeroSamples, coloredFrames, errors, all
 static unsigned failAllocation;
 static unsigned frameLimit = 3;
 static bool realBios;
+static bool realCartridge;
+static int expectedRealMapper = -1;
 static bool basicPrompt;
 static bool cartridgeTest;
 static std::vector<byte> expectedCarts[2];
@@ -278,6 +280,12 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
   for (int i = 0; i < width * height; ++i)
     if (pixels[i]) { ++coloredFrames; break; }
   ++frames;
+  if(realCartridge&&frames==1&&expectedRealMapper>=0)
+    assert(ROMType[0]==expectedRealMapper);
+  if(realCartridge&&(frames==1||frames==frameLimit))
+    printf("Cartridge diagnostic: frame=%u mapper=%u banks=%u PC=%04X mapped=%u/%u/%u/%u\n",
+           frames,ROMType[0],ROMMask[0]+1,CPU.PC.W,
+           ROMMapper[0][0],ROMMapper[0][1],ROMMapper[0][2],ROMMapper[0][3]);
   if (mediaTest && frames == 1) checkMedia();
   if (!realBios && frames == 1) checkStartupHardware();
   if (panasonicTest && frames == 1) checkPanasonic();
@@ -541,6 +549,18 @@ static void cartridgeRegression(const char* directory)
     runCartridges(directory, paths[0].c_str(), paths[1].c_str());
   }
   cartridgeTest = false;
+  for(const char* signature : {"ROM_NEO8","ROM_NE16","ASCII16X"})
+  {
+    auto unsupported=makeCartridge(131072,0x40,MAP_KONAMI5);
+    memcpy(unsupported.data()+16,signature,8);
+    writeImage(paths[1].c_str(),unsupported);
+    for(int slot=0;slot<2;++slot)
+    {
+      resetCounters();
+      assert(!MsxCoreRun(directory,0,4,slot?nullptr:paths[1].c_str(),slot?paths[1].c_str():nullptr));
+      assert(!frames&&errors==1&&strstr(lastError,"mapper")&&!NChunks&&!ROMData[0]&&!ROMData[1]);
+    }
+  }
   const std::vector<std::vector<byte>> badImages = {
     {}, std::vector<byte>(1), std::vector<byte>(8192),
     makeCartridge(8193, 0x40), makeCartridge(MSX_MAX_CART_BYTES + 8192, 0x40)
@@ -890,7 +910,9 @@ int main(int argc, char** argv)
   const bool mediaOnly = argc == 2 && strcmp(argv[1], "--media") == 0;
   panasonicOnly = argc == 2 && strcmp(argv[1], "--panasonic") == 0;
   if (argc > 1 && !panasonicOnly && !mediaOnly) {
-    assert(argc == 5);
+    assert(argc == 5 || argc == 6 || argc == 7);
+    realCartridge = argc >= 6;
+    if(argc == 7) expectedRealMapper = atoi(argv[6]);
     realBios = true;
     frameLimit = static_cast<unsigned>(atoi(argv[4]));
     assert(frameLimit > 0);
@@ -921,7 +943,7 @@ int main(int argc, char** argv)
       }
     }
     const std::string diskBiosPath = std::string(argv[1]) + "/DISK.ROM";
-    realMedia = access(diskBiosPath.c_str(),F_OK)==0;
+    realMedia = !realCartridge && access(diskBiosPath.c_str(),F_OK)==0;
     if (realMedia && frameLimit < 900) {
       fprintf(stderr,"Real media save/reload verification needs at least 900 frames.\n");
       return 1;
@@ -934,7 +956,7 @@ int main(int argc, char** argv)
     const std::string diskBPath=std::string(mediaRoot)+"/real-b.dsk";
     const std::string tapePath=std::string(mediaRoot)+"/real.cas";
     if (realMedia) prepareRealMedia();
-    const bool result = MsxCoreRun(argv[1], atoi(argv[2]), atoi(argv[3]),nullptr,nullptr,
+    const bool result = MsxCoreRun(argv[1], atoi(argv[2]), atoi(argv[3]),realCartridge?argv[5]:nullptr,nullptr,
                                    realMedia?diskAPath.c_str():nullptr,
                                    realMedia?diskBPath.c_str():nullptr,
                                    realMedia?tapePath.c_str():nullptr);
@@ -959,10 +981,10 @@ int main(int argc, char** argv)
       printf("Disk BASIC SAVE A/B persisted across cold boot and LOAD/RUN: %d/%d\n",realSavedASeen,realSavedBSeen);
       for (const char* name : {"real-a.dsk","real-b.dsk","real.cas"}) assert(remove(name)==0);
     }
-    return result && frames == frameLimit && basicPrompt &&
+    return result && frames == frameLimit && (realCartridge || basicPrompt) &&
            (!realMedia||(realDiskASeen&&realDiskBSeen&&realTapeSeen)) &&
-           (!expectRealLogo || (logoPcSamples && logoFrame)) &&
-           (!expectKanjiLogo || logoFrame) ? 0 : 1;
+           (realCartridge || !expectRealLogo || (logoPcSamples && logoFrame)) &&
+           (realCartridge || !expectKanjiLogo || logoFrame) ? 0 : 1;
   }
   char directory[1024];
   assert(getcwd(directory, sizeof(directory)));

@@ -91,6 +91,33 @@ and ejection take effect only on cold boot. Leaving F12 without choosing
 a reboot option resumes with the previously running cartridges; your new
 selections remain pending until a cold boot.
 
+### Automatic cartridge mapper detection
+
+Banked cartridges now use the same **full-ROM SHA-1 database-first approach**
+as PicoVerse. The 3115-entry database is embedded in the firmware and shared
+by all BIOS profiles; no external database or PicoVerse directory is needed.
+PicoVerse mapper IDs are translated to fMSX's Konami SCC, Konami, ASCII8 and
+ASCII16 IDs. The selected banked mapper is reported on UART.
+
+Existing profile-local `CARTS.CRC` / `CARTS.SHA` overrides still take priority.
+Unknown cartridges retain the existing fMSX heuristic and plain/planar ROM
+handling. Identification does not add hardware emulation: recognized
+ASCII16-X, Manbow2, NEO8 and NEO16 cartridges report an unsupported mapper
+instead of silently pretending to be a supported type.
+See [database provenance](lib/fmsx/MapperDatabase/README.md).
+
+**Tiny Magic 1.1:** the verified 512 KiB ROM with SHA-1
+`b9664e6094d8488e8e0b8103b1be5443d8da0cd0` now selects Konami SCC automatically,
+instead of plain Konami. Host tests also found two independent setup
+requirements: at least **128 KiB RAM** and an **MSX-MUSIC/FM BIOS**.
+Panasonic profiles default to 64 KiB, so select the profile first, then
+change RAM to 128 KiB or more and cold-boot. Omega's 512 KiB is sufficient.
+For the existing optional FM support, a compatible user-supplied ROM can
+be placed as `FMPAC.ROM` in the selected BIOS profile. The original 16 KiB
+`fs-a1wsx_fmbasic.rom` was tested unchanged this way; it is not included in
+the firmware. Correct mapper detection alone cannot resolve missing RAM
+or the game's "No FM PAC nor MSX MUSIC detected" message.
+
 ## Disk and tape images
 
 Use **F12 > Media > Disks** or **F12 > Media > Tapes** to select:

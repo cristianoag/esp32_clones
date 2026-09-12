@@ -7,6 +7,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Added
 
+- Embedded PicoVerse's 3115-entry SHA-1 mapper database, translated its supported mapper IDs for fMSX, and reported the selected banked mapper on UART.
 - Added disk images for drives A and B and read-only CAS tape attachment through F12, with ejection and tape rewind.
 - Applied successful disk and tape changes to the running machine without a cold reset and included their paths in saved boot defaults while preserving older settings.
 - Added optional user-supplied disk BIOS import for all profiles, using a separate disk slot that preserved Omega and Panasonic startup and Kanji ROMs.
@@ -20,6 +21,11 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 - Allowed F12 to resume directly from Media pages without rebooting for disk and tape changes, while cartridge changes remained pending until a cold boot.
 - Made the MSX firmware independently buildable by including local copies of its board definition, VGA, graphics, BusIO and USB transport dependencies instead of reading files from the CP400 firmware.
 - Made the joystick timing and packet tests use the local USB transport headers so the tests also ran without the CP400 project.
+
+### Fixed
+
+- Corrected Tiny Magic 1.1's automatic mapper selection from plain Konami to Konami SCC using its exact ROM fingerprint, while preserving explicit overrides and the fallback for unknown images.
+- Reported known unsupported mapper hardware instead of guessing an incompatible mapper.
 
 ## 1.00 - 2026-09-10
 

@@ -3,6 +3,13 @@
 This log tracks user-visible changes to the ESP32 MSX / fMSX firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.01 - Unreleased
+
+### Changed
+
+- Made the MSX firmware independently buildable by including local copies of its board definition, VGA, graphics, BusIO and USB transport dependencies instead of reading files from the CP400 firmware.
+- Made the joystick timing and packet tests use the local USB transport headers so the tests also ran without the CP400 project.
+
 ## 1.00 - 2026-09-10
 
 ### Added

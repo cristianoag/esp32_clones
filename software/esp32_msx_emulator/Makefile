@@ -6,7 +6,7 @@ else
 PIO ?= pio
 endif
 
-FW_VERSION := 1.00
+FW_VERSION := 1.01
 PIO_ENV := esp32-s3-devkitc-1-n16r8
 ifneq ($(wildcard $(PLATFORMIO_VENV)/python.exe),)
 PYTHON ?= $(PLATFORMIO_VENV)/python.exe

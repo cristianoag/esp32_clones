@@ -3,6 +3,8 @@
 #include <string.h>
 
 static_assert(sizeof(MsxBootSettingsV1) == 40, "Keep compatibility with existing NVS settings.");
+static_assert(sizeof(MsxBootSettingsV2) == 520, "Keep compatibility with cartridge-only settings.");
+static_assert(offsetof(MsxBootSettings, disks) == sizeof(MsxBootSettingsV2), "Old settings must remain a prefix.");
 
 bool MsxHasExtension(const char *name, const char *extension)
 {
@@ -60,13 +62,15 @@ void MsxParentSdPath(char *path)
 bool MsxDecodeSettings(const void *data, size_t size, MsxBootSettings &settings)
 {
     settings = {};
-    if (!data || (size != sizeof(MsxBootSettingsV1) && size != sizeof(MsxBootSettings)))
+    if (!data || (size != sizeof(MsxBootSettingsV1) && size != sizeof(MsxBootSettingsV2) &&
+                  size != sizeof(MsxBootSettings)))
         return false;
     MsxBootSettings candidate = {};
     memcpy(&candidate, data, size);
     const MsxBootSettingsV1 &machine = candidate.machine;
     if ((size == sizeof(MsxBootSettingsV1) && machine.version != 1) ||
-        (size == sizeof(MsxBootSettings) && machine.version != 2) ||
+        (size == sizeof(MsxBootSettingsV2) && machine.version != 2) ||
+        (size == sizeof(MsxBootSettings) && machine.version != 3) ||
         !memchr(machine.profile, '\0', sizeof(machine.profile)) || !machine.profile[0] ||
         (machine.ramPages != 4 && machine.ramPages != 8 && machine.ramPages != 16 && machine.ramPages != 32) ||
         machine.sound > 1 || machine.autoBoot > 1)
@@ -78,7 +82,12 @@ bool MsxDecodeSettings(const void *data, size_t size, MsxBootSettings &settings)
     for (const auto &cartridge : candidate.cartridges)
         if (!MsxValidSdPath(cartridge, true) || (*cartridge && !MsxHasExtension(cartridge, ".rom")))
             return false;
-    candidate.machine.version = 2;
+    for (const auto &disk : candidate.disks)
+        if (!MsxValidSdPath(disk, true) || (*disk && !MsxHasExtension(disk, ".dsk")))
+            return false;
+    if (!MsxValidSdPath(candidate.tape, true) || (*candidate.tape && !MsxHasExtension(candidate.tape, ".cas")))
+        return false;
+    candidate.machine.version = 3;
     settings = candidate;
     return true;
 }

@@ -549,7 +549,7 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   { KanjiSize=0x20000;if(Verbose) printf("KANJI.ROM.."); }
 
   /* Try loading RS232 support ROM to slot */
-  if((P=LoadROM("RS232.ROM",0x4000,0)))
+  if(!DiskROMAvailable()&&(P=LoadROM("RS232.ROM",0x4000,0)))
   {
     if(Verbose) printf("RS232.ROM..");
     MemMap[3][3][2]=P;
@@ -563,7 +563,7 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
 
   /* If MSX2 or better and DiskROM present...  */
   /* ...try loading MSXDOS2 cartridge into 3:0 */
-  if(!MODEL(MSX_MSX1)&&OPTION(MSX_MSXDOS2)&&(MemMap[3][1][2]!=EmptyRAM)&&!ROMData[2])
+  if(!MODEL(MSX_MSX1)&&OPTION(MSX_MSXDOS2)&&DiskROMAvailable()&&!ROMData[2])
     if(LoadCart("MSXDOS2.ROM",2,MAP_GEN16))
       SetMegaROM(2,0,1,ROMMask[J]-1,ROMMask[J]);
 
@@ -610,8 +610,7 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   }
 
   /* Open casette image */
-  if(CasName&&ChangeTape(CasName))
-    if(Verbose) printf("Using %s as a tape\n",CasName);
+  if(CasName&&!ChangeTape(CasName)) return(0);
 
   /* Initialize floppy disk controller */
   Reset1793(&FDC,FDD,WD1793_INIT);
@@ -621,8 +620,7 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   for(J=0;J<MAXDRIVES;++J)
   {
     FDD[J].Verbose=Verbose&0x04;
-    if(ChangeDisk(J,DSKName[J]))
-      if(Verbose) printf("Inserting %s into drive %c\n",DSKName[J],J+'A');  
+    if(!ChangeDisk(J,DSKName[J])) return(0);
   }
 
   /* Initialize sound logging */
@@ -1020,7 +1018,7 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   }
 
   /* If toggling BDOS patches... */
-  if(!OmegaBankLoaded&&!PanasonicBankLoaded&&((Mode^NewMode)&MSX_PATCHBDOS))
+  if((Mode^NewMode)&MSX_PATCHBDOS)
   {
     /* Change to the program directory */
     if(ProgDir && chdir(ProgDir))
@@ -1028,7 +1026,17 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
 
     /* Try loading DiskROM */
     if(Verbose) printf("  Opening DISK.ROM...");
-    P1=LoadROM("DISK.ROM",0x4000,0);
+    {
+      FILE *DiskFile=fopen("DISK.ROM","rb");
+      byte Header[32];
+      int Valid=DiskFile&&fread(Header,1,sizeof(Header),DiskFile)==sizeof(Header)&&
+                !fseek(DiskFile,0,SEEK_END)&&ftell(DiskFile)==0x4000;
+      if(DiskFile) fclose(DiskFile);
+      Valid=Valid&&Header[0]=='A'&&Header[1]=='B';
+      for(J=0;Valid&&DiskPatches[J];++J)
+        Valid=Header[DiskPatches[J]-0x4000]==0xC3;
+      P1=Valid? LoadROM("DISK.ROM",0x4000,0):0;
+    }
     PRINTRESULT(P1);
 
     /* Change to the working directory */
@@ -1036,13 +1044,13 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
     { if(Verbose) printf("  Failed changing to '%s' directory!\n",WorkDir); }
 
     /* If failed loading DiskROM, ignore the new PATCHBDOS bit */
-    if(!P1) NewMode=(NewMode&~MSX_PATCHBDOS)|(Mode&MSX_PATCHBDOS);
+    if(!P1) NewMode&=~MSX_PATCHBDOS;
     else
     {
       /* Assign new DiskROM */
-      FreeMemory(MemMap[3][1][2]);
-      MemMap[3][1][2]=P1;
-      MemMap[3][1][3]=P1+0x2000;
+      FreeMemory(MemMap[3][3][2]);
+      MemMap[3][3][2]=P1;
+      MemMap[3][3][3]=P1+0x2000;
 
       /* If BDOS patching requested... */
       if(NewMode&MSX_PATCHBDOS)
@@ -1236,7 +1244,7 @@ byte RdZ80(word A)
   /* BFF8h..BFFFh MSX-DOS BDOS      */
   /* 7F80h..7F87h Arabic DiskROM    */
   /* 7FB8h..7FBFh SV738/TechnoAhead */
-  if((PSL[A>>14]==3)&&(SSL[A>>14]==1))
+  if(DiskROMAvailable()&&(PSL[A>>14]==3)&&(SSL[A>>14]==3))
     switch(A)
     {
       /* Standard      MSX-DOS       Arabic        SV738            */
@@ -1267,7 +1275,7 @@ void WrZ80(word A,byte V)
   /* BFF8h..BFFFh MSX-DOS BDOS      */
   /* 7F80h..7F87h Arabic DiskROM    */
   /* 7FB8h..7FBFh SV738/TechnoAhead */
-  if(((A&0x3F88)==0x3F88)&&(PSL[A>>14]==3)&&(SSL[A>>14]==1))
+  if(((A&0x3F88)==0x3F88)&&DiskROMAvailable()&&(PSL[A>>14]==3)&&(SSL[A>>14]==3))
     switch(A)
     {
       /* Standard      MSX-DOS       Arabic        SV738             */
@@ -2716,19 +2724,24 @@ char *MakeFileName(const char *Name,const char *Ext)
 /*************************************************************/
 byte ChangeTape(const char *FileName)
 {
-  /* Close previous tape image, if open */
-  if(CasStream) { fclose(CasStream);CasStream=0; }
-
-  /* If opening a new tape image... */
-  if(FileName)
+  static const byte Header[8]={0x1F,0xA6,0xDE,0xBA,0xCC,0x13,0x7D,0x74};
+  FILE *Next=0;
+  byte Buf[8];
+  if(FileName&&*FileName)
   {
-    /* Try read+append first, then read-only */
-    CasStream = fopen(FileName,"r+b");
-    CasStream = CasStream? CasStream:fopen(FileName,"rb");
+    Next=fopen(FileName,"rb");
+    if(!Next) return(0);
+    if(fread(Buf,1,8,Next)!=8||memcmp(Buf,Header,8)||fseek(Next,0,SEEK_SET))
+    { fclose(Next);errno=EINVAL;return(0); }
   }
+  if(CasStream) fclose(CasStream);
+  CasStream=Next;
+  return(1);
+}
 
-  /* Done */
-  return(!FileName||CasStream);
+byte DiskROMAvailable(void)
+{
+  return(EmptyRAM&&(Mode&MSX_PATCHBDOS)&&MemMap[3][3][2]!=EmptyRAM);
 }
 
 /** RewindTape() *********************************************/
@@ -2750,44 +2763,42 @@ void ChangePrinter(const char *FileName)
 
 /** ChangeDisk() *********************************************/
 /** Change disk image in a given drive. Closes current disk **/
-/** image if Name=0 was given. Creates a new disk image if  **/
-/** Name="" was given. Returns 1 on success or 0 on failure.**/
+/** image if Name=0 or Name="" was given. Reads raw 360/720 **/
+/** KiB images only; failure preserves the previous disk.  **/
 /*************************************************************/
 byte ChangeDisk(byte N,const char *FileName)
 {
-  int NeedState;
+  FDIDisk Next;
+  FILE *File;
+  long Size;
   byte *P;
-
-  /* We only have MAXDRIVES drives */
   if(N>=MAXDRIVES) return(0);
-
-  /* Load state when inserting first disk into drive A: */
-  NeedState = FileName && *FileName && !N && !FDD[N].Data;
-
-  /* Reset FDC, in case it was running a command */
-  Reset1793(&FDC,FDD,WD1793_KEEP);
-
-  /* Eject disk if requested */
-  if(!FileName) { EjectFDI(&FDD[N]);return(1); }
-
-  /* If FileName not empty, try loading disk image */
-  if(*FileName&&LoadFDI(&FDD[N],FileName,FMT_AUTO))
+  if(!FileName||!*FileName)
   {
-    /* If first disk, also try loading state */
-    if(NeedState) FindState(FileName);
-    /* Done */
+    Reset1793(&FDC,FDD,WD1793_KEEP);
+    EjectFDI(&FDD[N]);
     return(1);
   }
-
-  /* If failed opening existing image, create a new 720kB disk image */
-  P = FormatFDI(&FDD[N],FMT_MSXDSK);
-
-  /* If FileName not empty, treat it as directory, otherwise new disk */
-  if(P&&!(*FileName? DSKLoad(FileName,P,"MSX-DISK"):DSKCreate(P,"MSX-DISK")))
-  { EjectFDI(&FDD[N]);return(0); }
-
-  /* Done */
-  return(!!P);
+  if(!DiskROMAvailable()) { errno=ENODEV;return(0); }
+  File=fopen(FileName,"rb");
+  if(!File) return(0);
+  if(fseek(File,0,SEEK_END)||(Size=ftell(File))<0||
+     (Size!=368640&&Size!=737280)||fseek(File,0,SEEK_SET))
+  { fclose(File);errno=EINVAL;return(0); }
+  InitFDI(&Next);
+  P=NewFDI(&Next,Size==737280? 2:1,80,9,512);
+  if(!P) { fclose(File);errno=ENOMEM;return(0); }
+  if(fread(P,1,Size,File)!=(size_t)Size||fgetc(File)!=EOF||ferror(File))
+  { fclose(File);EjectFDI(&Next);errno=EIO;return(0); }
+  fclose(File);
+  Next.Format=FMT_MSXDSK;
+  Next.Data[3]=1;
+  Next.Verbose=Verbose&0x04;
+  /* Commit only after a complete read; never load an unrelated saved state. */
+  Reset1793(&FDC,FDD,WD1793_KEEP);
+  EjectFDI(&FDD[N]);
+  FDD[N]=Next;
+  return(1);
 }
 
 /** LoadFile() ***********************************************/

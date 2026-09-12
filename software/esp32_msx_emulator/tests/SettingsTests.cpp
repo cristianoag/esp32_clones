@@ -19,12 +19,12 @@ int main()
     assert(MsxBootPercent(1000) == 100);
     assert(MsxProgressWidth(0) == 0 && MsxProgressWidth(50) == 150);
     assert(MsxProgressWidth(100) == 300 && MsxProgressWidth(255) == 300);
-    static_assert(MsxMenuCount == 12, "All F12 options must be reachable.");
+    static_assert(MsxMenuCount == 13, "All F12 options must be reachable.");
     for (unsigned i = 1; i < MsxMenuCount; ++i)
         assert(MsxMenuRowY(i) - MsxMenuRowY(i - 1) == 8);
     assert(MsxMenuRowHeight == 8);
-    assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuJoysticks);
-    assert(MsxMoveSelection(MsxMenuJoysticks, 1, MsxMenuCount) == MsxMenuResume);
+    assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuMedia);
+    assert(MsxMoveSelection(MsxMenuMedia, 1, MsxMenuCount) == MsxMenuResume);
     assert(MsxMoveSelection(15, 1, 33) == 16);
     assert(MsxMoveSelection(32, 1, 33) == 0);
     assert(MsxMoveSelection(0, -1, 0) == 0);
@@ -32,11 +32,22 @@ int main()
     MsxBootSettingsV1 previous = {1, "omega", 32, 1, 1};
     MsxBootSettings decoded;
     assert(MsxDecodeSettings(&previous, sizeof(previous), decoded));
-    assert(decoded.machine.version == 2 && decoded.machine.ramPages == 32);
+    assert(decoded.machine.version == 3 && decoded.machine.ramPages == 32);
     assert(!strcmp(decoded.machine.profile, "omega"));
     assert(!decoded.cartridges[0][0] && !decoded.cartridges[1][0]);
+    assert(!decoded.disks[0][0] && !decoded.disks[1][0] && !decoded.tape[0]);
+    MsxBootSettingsV2 old = {};
+    old.machine = previous;
+    old.machine.version = 2;
+    strcpy(old.cartridges[0], "/games/cart.rom");
+    assert(MsxDecodeSettings(&old, sizeof(old), decoded));
+    assert(decoded.machine.version == 3 && !strcmp(decoded.cartridges[0], old.cartridges[0]));
+    assert(!decoded.disks[0][0] && !decoded.disks[1][0] && !decoded.tape[0]);
     strcpy(decoded.cartridges[0], "/msx/roms/game one.ROM");
     strcpy(decoded.cartridges[1], "/Games/subfolder/utility.rom");
+    strcpy(decoded.disks[0], "/disks/game disk 1.DSK");
+    strcpy(decoded.disks[1], "/disks/game disk 2.dsk");
+    strcpy(decoded.tape, "/tapes/basic.CAS");
     MsxBootSettings saved = decoded;
     assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
     assert(!memcmp(&saved, &decoded, sizeof(saved)));
@@ -46,9 +57,9 @@ int main()
     saved.cartridges[1][0] = '\0';
     assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
     assert(!decoded.cartridges[0][0] && !decoded.cartridges[1][0]);
-    saved.machine.version = 3;
+    saved.machine.version = 4;
     assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
-    saved.machine.version = 2;
+    saved.machine.version = 3;
     saved.machine.ramPages = 5;
     assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
     saved.machine.ramPages = 4;
@@ -68,6 +79,23 @@ int main()
     previous.version = 2;
     assert(!MsxDecodeSettings(&previous, sizeof(previous), decoded));
     assert(!MsxDecodeSettings(nullptr, sizeof(saved), decoded));
+    saved = {};
+    saved.machine = old.machine;
+    saved.machine.version = 3;
+    strcpy(saved.disks[0], "/bad.zip");
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    strcpy(saved.disks[0], "/../bad.dsk");
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    saved.disks[0][0] = '\0';
+    memset(saved.disks[1], 'x', sizeof(saved.disks[1]));
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    saved.disks[1][0] = '\0';
+    strcpy(saved.tape, "/unsupported.wav");
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    saved.tape[0] = '\0';
+    assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    assert(!decoded.disks[0][0] && !decoded.disks[1][0] && !decoded.tape[0]);
+    assert(!MsxDecodeSettings(&saved, sizeof(old), decoded)); // Version/size must agree.
 
     assert(MsxValidSdPath("", true));
     assert(!MsxValidSdPath(""));
@@ -98,5 +126,5 @@ int main()
     assert(MsxHasExtension("ESP32_MSX-1.00.flh", ".FLH"));
     assert(!MsxHasExtension("rom", ".rom"));
     assert(!MsxHasExtension("game.rom.zip", ".rom"));
-    puts("PASS: compact 8px menu, navigation, saved-slot round trips, v1 migration, invalid settings, SD paths.");
+    puts("PASS: compact menu, media/slot round trips, v1/v2 migration, invalid settings, SD paths.");
 }

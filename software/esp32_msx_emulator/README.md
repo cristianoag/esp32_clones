@@ -66,6 +66,73 @@ The initial profiles are:
 | `msx\bios\fs-a1f` | Panasonic FS-A1F / MSX2 | 64 KiB | `PANASONIC.ROM` |
 | `msx\bios\fs-a1fx` | Panasonic FS-A1FX / MSX2+ | 64 KiB | `PANASONIC.ROM` |
 
+## Disk and tape images
+
+Open **F12 > Disks / tape - attach, eject, rewind** to select:
+
+- **Drive A** and **Drive B:** raw `.dsk` floppy images.
+- **Tape:** an MSX `.cas` cassette image.
+- **Rewind tape:** return the current tape to its beginning.
+
+Put your legally obtained images anywhere on the FAT32 card, for example
+`msx\disks` and `msx\tapes`. The browser traverses folders and matches file
+extensions without regard to case. WAV audio recordings and compressed
+archives are not supported.
+
+Supported disks use 80 tracks, nine 512-byte sectors per track, and either
+one side (360 KiB / 368640 bytes) or two sides (720 KiB / 737280 bytes).
+Forty-track double-sided 360 KiB images and other geometries are not
+supported. CAS images must start with the standard MSX cassette marker
+`1F A6 DE BA CC 13 7D 74`; raw binary files renamed to `.cas` are rejected.
+
+Select a drive or tape row and press Enter to browse. Select **<Eject media>**
+or press Delete on the row to remove its image. When a machine is running,
+successful attachments take effect when you resume emulation; no reset is
+needed for disk swaps or loading a new tape. Failed attachments leave the
+previous media selected. When no machine is running, selections apply at
+the next cold boot.
+
+All images are **read-only**. Disk writes, formatting and cassette saves
+are not supported, and original files must not be modified. Attaching an
+image does not automatically issue `LOAD`, `RUN`, or a reset.
+For a cassette BASIC program use the appropriate command, for example
+`CLOAD` or `LOAD "CAS:"`, followed by `RUN`. Binary tapes typically use
+`BLOAD "CAS:",R`; follow the software's original loading instructions.
+Rewind before reloading the same tape after reaching its end.
+
+Use **Save BIOS + slots + media as boot default** to retain image paths
+across restarts. Only paths are saved, not tape position or disk contents;
+tapes start at the beginning on a new boot. Older saved configurations
+are preserved with the new media assignments initially empty.
+Use **Boot BIOS + slots + media (cold reset)** to boot disk software that
+requires a reset. Missing saved images produce a recovery error rather
+than silently booting with different media.
+
+Leave the SD card inserted while media is attached. F12 BIOS rescanning
+does not remount the card while an emulator is running, so an open tape
+stream is not invalidated. Restart the board after physically replacing
+the SD card.
+
+Disk BASIC additionally requires a compatible disk BIOS in the selected
+profile; a `.dsk` image is not itself that BIOS. If the current machine has
+no disk BIOS, F12 reports it instead of claiming a working drive. A BIOS
+file added to SD requires a cold boot before disk attachments can be used.
+
+The tested disk BIOS is the user-supplied **Philips NMS8250** 16 KiB dump
+`nms8250_disk.rom` (SHA-1 `c3efedda7ab947a06d9345f7b8261076fa7ceeef`).
+Copy it unchanged as `DISK.ROM` inside each desired `msx\bios\<profile>`
+directory, or add `-DiskBios 'C:\path\to\nms8250_disk.rom'` to the ROM
+import command. The importer installs it in every profile imported by that
+command; use `-Force` only when intentionally replacing existing imports.
+The importer checks size, not compatibility of arbitrary disk BIOS files.
+
+This adds a compatible BIOS-backed disk interface to all six profiles,
+including the Panasonic profiles, without replacing their startup/BASIC
+ROMs. It does **not** emulate Panasonic's TC8566AF controller or its
+built-in applications; the original Panasonic disk ROMs are not supported
+replacements. From Disk BASIC, use `FILES "A:"` / `FILES "B:"` to list the
+images, and normal disk loading commands such as `LOAD "A:PROGRAM.BAS"`.
+
 ## Notes
 
 Once VGA is ready, the startup page shows a progress gauge for menu buffers,

@@ -78,6 +78,16 @@ try {
     $invalidBatch = Join-Path $root 'invalid-batch'
     Assert-Rejected { & $importer -Destination $invalidBatch -OmegaRom $omegaPath -ExpertRom $subPath } 'Validate entire batch before writing'
     Assert-True (-not (Test-Path -LiteralPath $invalidBatch)) 'Rejected batch left no output'
+    Assert-Rejected { & $importer -Destination $invalidBatch -ExpertRom $biosPath -DiskBios $biosPath } 'Reject wrong disk BIOS size before writing'
+    Assert-True (-not (Test-Path -LiteralPath $invalidBatch)) 'Invalid disk BIOS left no profile output'
+    $diskCard = Join-Path $root 'disk-card'
+    & $importer -Destination $diskCard -OmegaRom $omegaPath -ExpertRom $biosPath -HotbitRom $biosPath -DiskBios $subPath | Out-Null
+    $diskHash = (Get-FileHash -LiteralPath $subPath).Hash
+    foreach ($id in @('omega', 'expert', 'hotbit')) {
+        $folder = Join-Path $diskCard "msx\bios\$id"
+        Assert-True ((Get-FileHash -LiteralPath (Join-Path $folder 'DISK.ROM')).Hash -eq $diskHash) "$id optional disk BIOS preserved byte-for-byte"
+        Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $folder 'SHA256SUMS.txt')).Contains("$diskHash  DISK.ROM")) "$id disk BIOS checksum"
+    }
     $panasonic = Join-Path $root 'panasonic'
     [System.IO.Directory]::CreateDirectory($panasonic) | Out-Null
     foreach ($modelName in @('fs-a1wsx', 'fs-a1f', 'fs-a1fx')) {
@@ -92,9 +102,10 @@ try {
         }
     }
     $panCard = Join-Path $root 'panasonic-card'
-    & $importer -Destination $panCard -PanasonicDirectory $panasonic | Out-Null
+    & $importer -Destination $panCard -PanasonicDirectory $panasonic -DiskBios $subPath | Out-Null
     foreach ($modelName in @('fs-a1wsx', 'fs-a1f', 'fs-a1fx')) {
         $profile = Join-Path $panCard "msx\bios\$modelName"
+        Assert-True ((Get-FileHash -LiteralPath (Join-Path $profile 'DISK.ROM')).Hash -eq $diskHash) "$modelName optional disk BIOS"
         $image = [System.IO.File]::ReadAllBytes((Join-Path $profile 'PANASONIC.ROM'))
         $expected = if ($modelName -eq 'fs-a1wsx') { 344064 } else { 212992 }
         Assert-True ($image.Length -eq $expected) "$modelName combined size"
@@ -106,7 +117,7 @@ try {
             }
             Assert-True $equal "$modelName region $($part[0]) is byte-identical"
         }
-        Assert-True ((Get-ChildItem -LiteralPath $profile -Filter '*.ROM').Count -eq 1) "$modelName uses one ROM"
+        Assert-True ((Get-ChildItem -LiteralPath $profile -Filter '*.ROM').Count -eq 2) "$modelName uses one system ROM plus the optional disk BIOS"
         $expectedModel = if ($modelName -eq 'fs-a1f') { 'MSX2' } else { 'MSX2+' }
         Assert-True ((Get-Content -Raw -LiteralPath (Join-Path $profile 'profile.ini')) -eq
             "name=Panasonic $($modelName.ToUpperInvariant())`nmodel=$expectedModel`nram=64`n") "$modelName hardware defaults"

@@ -5,6 +5,12 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ## 1.01 - Unreleased
 
+### Added
+
+- Added read-only disk images for drives A and B and CAS tape attachment through F12, with ejection and tape rewind.
+- Applied successful disk and tape changes to the running machine without a cold reset and included their paths in saved boot defaults while preserving older settings.
+- Added optional user-supplied disk BIOS import for all profiles, using a separate disk slot that preserved Omega and Panasonic startup and Kanji ROMs.
+
 ### Changed
 
 - Made the MSX firmware independently buildable by including local copies of its board definition, VGA, graphics, BusIO and USB transport dependencies instead of reading files from the CP400 firmware.

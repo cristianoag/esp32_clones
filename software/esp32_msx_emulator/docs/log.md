@@ -7,6 +7,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Added
 
+- Added per-slot detected mapper/source displays and manual mapper overrides in Media, with Auto reset and saved-configuration migration.
+- Added a machine-wide audio profile under Media, including FM-PAC/MSX-MUSIC and combined SCC/FM operation, with a shared user-supplied audio BIOS on microSD.
 - Embedded PicoVerse's 3115-entry SHA-1 mapper database, translated its supported mapper IDs for fMSX, and reported the selected banked mapper on UART.
 - Added disk images for drives A and B and read-only CAS tape attachment through F12, with ejection and tape rewind.
 - Applied successful disk and tape changes to the running machine without a cold reset and included their paths in saved boot defaults while preserving older settings.

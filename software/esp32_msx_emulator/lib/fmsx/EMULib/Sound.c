@@ -119,7 +119,7 @@ static int SndRate    = 0;        /* Sound rate (0=Off)               */
 static int NoiseGen   = 0x10000;  /* Noise generator seed             */
 static int NoiseOut   = 16;       /* NoiseGen bit used for output     */
 static int NoiseXor   = 14;       /* NoiseGen bit used for XORing     */
-int MasterSwitch      = 0xFFFF;   /* Switches to turn channels on/off */
+int MasterSwitch      = (1<<SND_CHANNELS)-1; /* Enabled mixer channels */
 int MasterVolume      = 192;      /* Master volume                    */
 
 /** MIDI Logging Variables ********************************************/

@@ -7,11 +7,13 @@ param(
   [ValidateRange(1,36000)][int]$Frames = 900,
   [switch]$PanasonicOnly,
   [switch]$MediaOnly,
+  [switch]$MapperOnly,
   [string]$DiskBios = '',
   [string]$CartridgeRom = '',
   [string]$FmBios = '',
   [ValidateRange(-1,7)][int]$Mapper = -1,
-  [ValidateRange(-1,7)][int]$ExpectedMapper = -1
+  [ValidateRange(-1,7)][int]$ExpectedMapper = -1,
+  [ValidateRange(0,4)][int]$AudioProfile = 0
 )
 $ErrorActionPreference = 'Stop'
 if ($BiosDirectory -and $ProfilesRoot) { throw 'Use either -BiosDirectory or -ProfilesRoot, not both.' }
@@ -57,12 +59,13 @@ try {
   & gcc @flags -std=gnu99 -c @sources
   if ($LASTEXITCODE -ne 0) { throw 'Core C compilation failed.' }
   & g++ @flags -std=gnu++11 "-I$Sdk\include\heap\include" "-I$Sdk\qio_opi\include" `
-    "-I$Sdk\include\esp_common\include" "$core\..\..\src\MsxCore.cpp" `
+    "-I$Sdk\include\esp_common\include" "$core\..\..\src\MsxCore.cpp" "$core\..\..\src\MsxAudioProfiles.cpp" `
     "$PSScriptRoot\host_smoke.cpp" @(Get-ChildItem '*.o' | ForEach-Object FullName) `
     -o host_smoke.exe
   if ($LASTEXITCODE -ne 0) { throw 'Core host linking failed.' }
   if (-not $CartridgeRom) {
     if ($MediaOnly) { & '.\host_smoke.exe' --media }
+    elseif ($MapperOnly) { & '.\host_smoke.exe' --mappers }
     elseif ($PanasonicOnly) { & '.\host_smoke.exe' --panasonic }
     else { & '.\host_smoke.exe' }
     if ($LASTEXITCODE -ne 0) { throw 'Core host regression failed.' }
@@ -105,7 +108,7 @@ try {
       if ($posix[1] -eq ':') { $posix = $posix.Substring(2) }
       Write-Output "Booting $($profile.Name)..."
       $arguments = @($posix, $profile.Model, $profile.Ram, $Frames)
-      if ($CartridgeRom) { $arguments += @("$posix/diagnostic.rom", $ExpectedMapper) }
+      if ($CartridgeRom) { $arguments += @("$posix/diagnostic.rom", $ExpectedMapper, $AudioProfile) }
       & '.\host_smoke.exe' @arguments
       if ($LASTEXITCODE -ne 0) { throw 'Real BIOS boot/logo verification failed; inspect the PPM captures and transcript.' }
       Copy-Item -LiteralPath "$build\boot.ppm" -Destination "$build\boot-$($profile.Name).ppm"
@@ -127,9 +130,14 @@ try {
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }
   }
   foreach ($name in @('media-a.dsk','media-b.dsk','media.cas','media-bad.bin','media-short.dsk',
-                      'media-forbidden.dsk','real-a.dsk','real-b.dsk','real.cas')) {
+                      'media-forbidden.dsk','real-a.dsk','real-b.dsk','real.cas',
+                      'mapper-a.rom','mapper-b.rom','inspection.rom')) {
     $generated = Join-Path $build $name
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }
   }
+  $overrideDatabase = Join-Path $build 'mapper-profile\CARTS.CRC'
+  if (Test-Path -LiteralPath $overrideDatabase) { Remove-Item -LiteralPath $overrideDatabase }
+  $overrideDirectory = Join-Path $build 'mapper-profile'
+  if (Test-Path -LiteralPath $overrideDirectory) { Remove-Item -LiteralPath $overrideDirectory }
   Set-Location $previous
 }

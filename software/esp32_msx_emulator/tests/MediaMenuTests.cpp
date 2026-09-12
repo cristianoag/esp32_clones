@@ -10,16 +10,24 @@
 
 static bool running, bootRequested, exitRequested, preferencesReady;
 static bool soundEnabled, autoBoot;
+static uint8_t selectedAudioProfile;
+static bool audioAvailable;
+static unsigned resolvedAudio;
 static unsigned selectedProfile;
 static int selectedRamPages;
 static char selectedCartridges[2][MsxSdPathCapacity], selectedDisks[2][MsxSdPathCapacity];
+static uint8_t selectedMappers[2];
+static MsxCartridgeInfo cartridgeInfo[2];
+static bool cartridgeInfoValid[2];
 static char selectedTape[MsxSdPathCapacity], statusMessage[160];
 struct Profile { const char *id; const char *error; };
-static Profile MsxProfiles[] = {{"omega", "Invalid BIOS"}};
+static Profile MsxProfiles[] = {{"omega", "Invalid BIOS"}, {"fs-a1fx", "Invalid BIOS"}};
 static bool validProfile, validCartridges, validMedia, validCandidate, attachOk, pauseOk, writeOk;
 static unsigned saves, pauses, resumes, diskAttaches, tapeAttaches, rewinds, diskValidations, tapeValidations;
 static unsigned lastDrive;
 static std::string lastPath;
+static std::string inspectedProfile;
+static int detectedMapper = MsxKonamiScc;
 static MsxBootSettings saved;
 static std::deque<uint8_t> keys;
 static std::deque<std::string> files;
@@ -74,7 +82,27 @@ static bool result(bool ok, char *error, size_t size)
     snprintf(error, size, "%s", ok ? "" : "Test failure");
     return ok;
 }
-static bool MsxValidateCartridge(const char *, char *error, size_t size) { return result(validCandidate, error, size); }
+#define MsxResolveAudioProfile mockResolveAudioProfile
+#define MsxAudioProfileName mockAudioProfileName
+static bool mockResolveAudioProfile(unsigned profile, const char *, char *path, size_t,
+                                    char *error, size_t size)
+{
+    resolvedAudio = profile;
+    path[0] = 0;
+    return result(audioAvailable || (profile != MsxAudioPsgFm && profile != MsxAudioPsgSccFm), error, size);
+}
+static const char *mockAudioProfileName(unsigned profile)
+{
+    const char *names[] = {"Auto", "PSG only", "PSG + SCC", "PSG + FM-PAC", "PSG + SCC + FM-PAC"};
+    assert(profile < MsxAudioProfileCount);
+    return names[profile];
+}
+static bool MsxInspectCartridge(const char *, const char *profile, MsxCartridgeInfo &info, char *error, size_t size)
+{
+    inspectedProfile = profile;
+    if (validCandidate) info = {detectedMapper, "Embedded SHA-1 database"};
+    return result(validCandidate, error, size);
+}
 static bool MsxValidateDisk(const char *, char *error, size_t size)
 {
     ++diskValidations;
@@ -117,9 +145,20 @@ static void reset(bool active = true)
 {
     running = active; bootRequested = exitRequested = false;
     preferencesReady = soundEnabled = autoBoot = true;
+    selectedAudioProfile = MsxAudioAuto;
+    audioAvailable = true;
+    resolvedAudio = MsxAudioAuto;
     validProfile = validCartridges = validMedia = validCandidate = attachOk = pauseOk = writeOk = true;
     selectedProfile = 0; selectedRamPages = 32;
     memset(selectedCartridges, 0, sizeof(selectedCartridges));
+    for (unsigned slot = 0; slot < 2; ++slot)
+    {
+        selectedMappers[slot] = MsxMapperAuto;
+        cartridgeInfo[slot] = {-1, "not scanned"};
+        cartridgeInfoValid[slot] = false;
+    }
+    detectedMapper = MsxKonamiScc;
+    inspectedProfile.clear();
     memset(selectedDisks, 0, sizeof(selectedDisks));
     memset(selectedTape, 0, sizeof(selectedTape));
     memset(&saved, 0, sizeof(saved));
@@ -134,14 +173,16 @@ int main()
     const uint8_t enter = 40, esc = 41, f12 = 69, del = 76, down = 81, up = 82;
     reset();
     files = {"/games/one.rom", "/games/two.ROM"};
-    keys = {enter, enter, down, enter, down, enter};
+    keys = {enter, enter, down, down, enter, down, down, down, enter};
     strcpy(selectedDisks[0], "/disks/a.dsk");
     strcpy(selectedDisks[1], "/disks/b.dsk");
     strcpy(selectedTape, "/tapes/game.cas");
     assert(mediaMenu() && bootRequested && exitRequested);
     assert(keys.empty() && files.empty());
     assert(saves == 1 && pauses == 1 && resumes == 1);
-    assert(saved.machine.version == 3 && saved.machine.ramPages == 32 && saved.machine.autoBoot);
+    assert(saved.machine.version == 4 && saved.machine.ramPages == 32 && saved.machine.autoBoot);
+    assert(saved.mappers[0] == MsxMapperAuto && saved.mappers[1] == MsxMapperAuto);
+    assert(saved.audioProfile == MsxAudioAuto);
     assert(!strcmp(saved.machine.profile, "omega") && saved.machine.sound);
     assert(!strcmp(saved.cartridges[0], "/games/one.rom") && !strcmp(saved.cartridges[1], "/games/two.ROM"));
     assert(!strcmp(saved.disks[0], selectedDisks[0]) && !strcmp(saved.disks[1], selectedDisks[1]));
@@ -169,7 +210,7 @@ int main()
     }
     reset();
     writeOk = false;
-    keys = {enter, down, down, enter, f12};
+    keys = {enter, down, down, down, down, down, enter, f12};
     assert(mediaMenu() && !bootRequested && !exitRequested);
     assert(saves == 1 && resumes == 1); // Save failure keeps menus usable.
 
@@ -184,7 +225,7 @@ int main()
 
     reset();
     files = {"/game.CAS"};
-    keys = {up, enter, enter, down, enter, up, del, f12};
+    keys = {up, up, enter, enter, down, enter, up, del, f12};
     assert(mediaMenu() && !bootRequested && !exitRequested && !saves);
     assert(tapeAttaches == 2 && rewinds == 1 && lastPath.empty() && !selectedTape[0]);
     assert(filters == std::vector<std::string>({".cas"}));
@@ -201,7 +242,7 @@ int main()
     strcpy(selectedTape, "/old.cas");
     attachOk = false;
     files = {"/bad.cas"};
-    keys = {up, enter, enter, f12};
+    keys = {up, up, enter, enter, f12};
     assert(mediaMenu() && !strcmp(selectedTape, "/old.cas"));
 
     reset();
@@ -221,6 +262,74 @@ int main()
     keys = {enter, enter, f12};
     assert(mediaMenu() && !bootRequested && !exitRequested && !saves);
     assert(!strcmp(selectedCartridges[0], "/pending.rom"));
+    assert(cartridgeInfoValid[0] && cartridgeInfo[0].detectedMapper == MsxKonamiScc);
+
+    reset();
+    const uint8_t left = 80, right = 79;
+    files = {"/one.rom", "/two.rom"};
+    keys = {enter, enter, down, right, right, right, down, enter, down,
+            left, left, left, down, down, enter};
+    assert(mediaMenu() && bootRequested && saves == 1);
+    assert(selectedMappers[0] == MsxKonamiScc && selectedMappers[1] == MsxAscii16);
+    assert(saved.mappers[0] == MsxKonamiScc && saved.mappers[1] == MsxAscii16);
+    assert(inspectedProfile == "/sdcard/msx/bios/omega");
+    bool shown = false;
+    for (const auto &label : labels) if (label == "  Mapper: Auto - Konami SCC") shown = true;
+    assert(shown);
+
+    reset();
+    strcpy(selectedCartridges[0], "/one.rom");
+    selectedMappers[0] = MsxAscii8;
+    files = {"/one.rom", "/new.rom"};
+    keys = {enter, enter, f12};
+    assert(mediaMenu() && selectedMappers[0] == MsxAscii8);
+    keys = {enter, enter, f12};
+    assert(mediaMenu() && selectedMappers[0] == MsxMapperAuto);
+    selectedMappers[0] = MsxAscii16;
+    validCandidate = false;
+    files = {"/bad.rom"};
+    keys = {enter, enter, f12};
+    assert(mediaMenu() && selectedMappers[0] == MsxAscii16 && !strcmp(selectedCartridges[0], "/new.rom"));
+
+    reset();
+    strcpy(selectedCartridges[0], "/one.rom");
+    selectedMappers[0] = MsxKonami;
+    keys = {enter, down, del, f12};
+    assert(mediaMenu() && selectedMappers[0] == MsxMapperAuto && !bootRequested);
+    selectedMappers[0] = MsxKonami;
+    keys = {enter, del, f12};
+    assert(mediaMenu() && !selectedCartridges[0][0] && selectedMappers[0] == MsxMapperAuto);
+    keys = {enter, down, right, f12};
+    assert(mediaMenu() && selectedMappers[0] == MsxMapperAuto && statusMessage[0]);
+
+    reset();
+    selectedProfile = 1;
+    detectedMapper = -12;
+    files = {"/unsupported.rom"};
+    keys = {enter, enter, down, right, f12};
+    assert(mediaMenu() && cartridgeInfo[0].detectedMapper == -12 && selectedMappers[0] == MsxGeneric8);
+    assert(inspectedProfile == "/sdcard/msx/bios/fs-a1fx");
+
+    reset();
+    keys = {up, enter, down, down, down, enter, down, down, enter};
+    assert(mediaMenu() && bootRequested && exitRequested && saves == 1);
+    assert(selectedAudioProfile == MsxAudioPsgFm && saved.audioProfile == MsxAudioPsgFm);
+    assert(resolvedAudio == MsxAudioPsgFm);
+    reset();
+    audioAvailable = false;
+    keys = {up, enter, down, down, down, enter, f12};
+    assert(mediaMenu() && selectedAudioProfile == MsxAudioAuto && !bootRequested && !saves && statusMessage[0]);
+    selectedAudioProfile = MsxAudioPsgFm;
+    assert(!requestBoot(true) && !bootRequested && !saves);
+    reset();
+    keys = {enter, down, down, down, down, enter, down, down, down, enter, esc, f12};
+    assert(mediaMenu() && selectedAudioProfile == MsxAudioPsgFm && !bootRequested && !saves);
+    reset();
+    keys = {down, enter, down, down, enter, down, enter, esc, f12};
+    assert(mediaMenu() && selectedAudioProfile == MsxAudioPsg && !bootRequested);
+    reset();
+    keys = {down, down, enter, down, down, enter, down, down, enter, esc, f12};
+    assert(mediaMenu() && selectedAudioProfile == MsxAudioPsgScc && !bootRequested);
 
     reset();
     keys = {enter, esc, down, enter, esc, down, enter, esc, esc};

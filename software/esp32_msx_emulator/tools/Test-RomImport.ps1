@@ -135,6 +135,29 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $badPanCard)) 'Validate entire Panasonic batch before writing'
     Remove-Item -LiteralPath (Join-Path $panasonic 'fs-a1f_msx2sub.rom')
     Assert-Rejected { & $importer -Destination $badPanCard -PanasonicDirectory $panasonic -PanasonicModels 'FS-A1F' } 'Reject missing Panasonic component'
+    $audioImporter = Join-Path $PSScriptRoot 'Import-AudioBios.ps1'
+    $audioRom = Join-Path $root 'fm.bin'
+    $audioCard = Join-Path $root 'audio-card'
+    $audioTarget = Join-Path $audioCard 'msx\audio\FMPAC.ROM'
+    foreach ($part in @(@(16384, 'APRLOPLL'), @(65536, 'PAC2OPLL'))) {
+        $audio = [byte[]]::new($part[0])
+        $audio[0] = 65; $audio[1] = 66
+        [Array]::Copy([Text.Encoding]::ASCII.GetBytes($part[1]), 0, $audio, 0x18, 8)
+        [System.IO.File]::WriteAllBytes($audioRom, $audio)
+        & $audioImporter -Rom $audioRom -Destination $audioCard -Force | Out-Null
+        Assert-True ((Get-FileHash -LiteralPath $audioRom).Hash -eq (Get-FileHash -LiteralPath $audioTarget).Hash) "$($part[1]) imported unchanged"
+        Assert-Rejected { & $audioImporter -Rom $audioRom -Destination $audioCard } 'Audio BIOS overwrite requires Force'
+    }
+    $audioHash = (Get-FileHash -LiteralPath $audioTarget).Hash
+    $audio[0] = 0
+    [System.IO.File]::WriteAllBytes($audioRom, $audio)
+    Assert-Rejected { & $audioImporter -Rom $audioRom -Destination $audioCard -Force } 'Reject missing audio AB header'
+    $audio[0] = 65; $audio[0x18] = 112
+    [System.IO.File]::WriteAllBytes($audioRom, $audio)
+    Assert-Rejected { & $audioImporter -Rom $audioRom -Destination $audioCard -Force } 'Audio signature is case-sensitive'
+    [System.IO.File]::WriteAllBytes($audioRom, [byte[]]::new(32768))
+    Assert-Rejected { & $audioImporter -Rom $audioRom -Destination $audioCard -Force } 'Reject wrong audio BIOS size'
+    Assert-True ((Get-FileHash -LiteralPath $audioTarget).Hash -eq $audioHash) 'Failed audio import preserves installed BIOS'
     Write-Output "All $checks ROM import checks passed."
 }
 finally {

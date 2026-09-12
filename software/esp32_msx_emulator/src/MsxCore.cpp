@@ -4,6 +4,8 @@
 #include "FramePacer.h"
 #include "MSX.h"
 #include "Sound.h"
+#include "MapperDatabase.h"
+#include "AudioProfiles.h"
 #include <esp_heap_caps.h>
 #include <stdio.h>
 #include <string.h>
@@ -225,6 +227,64 @@ static bool mediaResult(const char* problem, char* error, size_t size)
   return !problem;
 }
 
+bool MsxInspectCartridge(const char* path, const char* profileDirectory,
+                         MsxCartridgeInfo& info, char* error, size_t errorSize)
+{
+  if (!path || !*path || !profileDirectory || profileDirectory[0] != '/' ||
+      strlen(profileDirectory) >= sizeof(biosDirectory))
+    return mediaResult("inspection requires cartridge and absolute BIOS directory", error, errorSize);
+  if (!MsxValidateCartridge(path, error, errorSize)) return false;
+  struct stat fileInfo;
+  if (stat(path, &fileInfo) || fileInfo.st_size < 8192 ||
+      fileInfo.st_size > MSX_MAX_CART_BYTES || fileInfo.st_size % 8192)
+    return mediaResult("cartridge size changed during inspection", error, errorSize);
+  FILE* file = fopen(path, "rb");
+  if (!file) return mediaResult("cannot open cartridge for inspection", error, errorSize);
+  const size_t size = static_cast<size_t>(fileInfo.st_size);
+  auto* data = static_cast<unsigned char*>(heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!data) {
+    fclose(file);
+    return mediaResult("not enough PSRAM to inspect cartridge; previous selection retained", error, errorSize);
+  }
+  const char* problem = nullptr;
+  for (size_t offset = 0; offset < size;) {
+    const size_t count = size - offset < 16384 ? size - offset : 16384;
+    if (fread(data + offset, 1, count, file) != count) { problem = "cannot fully read cartridge"; break; }
+    offset += count;
+#ifdef ESP_PLATFORM
+    vTaskDelay(1);
+#endif
+  }
+  if (!problem && (fgetc(file) != EOF || ferror(file))) problem = "cartridge changed during inspection";
+  fclose(file);
+  FILE* databases[2] = {};
+  MsxCartridgeInfo detected = {-1, "ROM layout"};
+  if (!problem) {
+    const bool ab0 = data[0] == 'A' && data[1] == 'B';
+    const bool ab4000 = size > 0x4001 && data[0x4000] == 'A' && data[0x4001] == 'B';
+    const bool abLast = size >= 16384 && data[size - 16384] == 'A' && data[size - 16383] == 'B';
+    if (!ab0 && !ab4000 && !abLast) problem = "cartridge header changed during inspection";
+    else if (size > 32768 && !(!ab0 && ab4000)) {
+      const char* names[] = {"CARTS.CRC", "CARTS.SHA"};
+      for (unsigned i = 0; i < 2; ++i) {
+        char databasePath[512];
+        snprintf(databasePath, sizeof(databasePath), "%s/%s", profileDirectory, names[i]);
+        errno = 0;
+        databases[i] = fopen(databasePath, "rb");
+        if (!databases[i] && errno != ENOENT) { problem = "cannot read mapper override database"; break; }
+      }
+      if (!problem) {
+        detected.detectedMapper = GuessROMWithFiles(data, size, databases[0], databases[1], &detected.source);
+        if (detected.detectedMapper <= -100) problem = FmsxUnsupportedMapperName(detected.detectedMapper);
+      }
+    }
+  }
+  for (FILE* database : databases) if (database) fclose(database);
+  heap_caps_free(data);
+  if (!problem) info = detected;
+  return mediaResult(problem, error, errorSize);
+}
+
 static bool validateMedia(const char* path, bool tape, char* error, size_t size)
 {
   if (!path || !*path) return mediaResult(nullptr, error, size);
@@ -295,8 +355,21 @@ bool MsxRewindTape(char* error, size_t size)
 
 bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
                 const char* slot1, const char* slot2,
-                const char* diskA, const char* diskB, const char* tape)
+                const char* diskA, const char* diskB, const char* tape,
+                unsigned mapper1, unsigned mapper2, unsigned audioProfile)
 {
+  static_assert(MsxGeneric8 == MAP_GEN8 && MsxGeneric16 == MAP_GEN16 &&
+                MsxKonamiScc == MAP_KONAMI5 && MsxKonami == MAP_KONAMI4 &&
+                MsxAscii8 == MAP_ASCII8 && MsxAscii16 == MAP_ASCII16 &&
+                MsxGameMaster2 == MAP_GMASTER2 && MsxFmPac == MAP_FMPAC, "Mapper IDs must match fMSX.");
+  if (!MsxValidMapper(mapper1) || !MsxValidMapper(mapper2)) {
+    msxReportError("Invalid cartridge mapper override.");
+    return false;
+  }
+  if (!MsxAudioProfileValid(audioProfile)) {
+    msxReportError("Invalid audio profile.");
+    return false;
+  }
   if (running || !romDirectory || romDirectory[0] != '/' ||
       strlen(romDirectory) >= sizeof(biosDirectory) || model < 0 || model > 2 ||
       (ramPages != 4 && ramPages != 8 && ramPages != 16 && ramPages != 32)) {
@@ -311,6 +384,16 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
     msxReportError(mediaError);
     return false;
   }
+  char fmRomPath[512];
+  if (!MsxResolveAudioProfile(audioProfile, romDirectory, fmRomPath, sizeof(fmRomPath),
+                             mediaError, sizeof(mediaError))) {
+    msxReportError(mediaError);
+    return false;
+  }
+  if (!FmsxSetAudioProfile(audioProfile, fmRomPath[0] ? fmRomPath : nullptr)) {
+    msxReportError("Cannot configure MSX audio profile.");
+    return false;
+  }
   running = true;
   allocationFailed = false;
   strcpy(biosDirectory, romDirectory);
@@ -322,6 +405,7 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
     XBuf = nullptr;
     output = nullptr;
     running = false;
+    FmsxSetAudioProfile(MsxAudioAuto, nullptr);
     msxReportError("Not enough PSRAM for MSX video.");
     return false;
   }
@@ -357,13 +441,18 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   CasName = tape && *tape ? tape : nullptr;
   CPU.Trap = 0xFFFF;
   CPU.Trace = 0;
+  printf("MSX audio: %s%s%s\n", MsxAudioProfileName(audioProfile),
+         fmRomPath[0] ? "; BIOS: " : "", fmRomPath);
   errno = 0;
-  const bool result = StartMSX(model | MSX_NTSC | MSX_GUESSA | MSX_GUESSB | MSX_PATCHBDOS |
+  const int mapperMode = (mapper1 == MsxMapperAuto ? MSX_GUESSA : mapper1 << 8) |
+                        (mapper2 == MsxMapperAuto ? MSX_GUESSB : mapper2 << 12);
+  const bool result = StartMSX(model | MSX_NTSC | mapperMode | MSX_PATCHBDOS |
                                (JOY_STICK << 4) | (JOY_STICK << 6),
                                ramPages, model ? 8 : 2) != 0;
   const int bootError = errno;
   ResetVDP();
   TrashMSX();
+  FmsxSetAudioProfile(MsxAudioAuto, nullptr);
   for (int i = 0; i < MAXCARTS; ++i) ROMName[i] = nullptr;
   for (int i = 0; i < MAXDRIVES; ++i) DSKName[i] = nullptr;
   CasName = nullptr;

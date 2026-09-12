@@ -68,9 +68,10 @@ The initial profiles are:
 
 ## Media menu
 
-Open **F12 > Media** to choose **ROMs**, **Disks** or **Tapes**.
+Open **F12 > Media** to choose **ROMs**, **Disks**, **Tapes** or **Audio profile**.
 The ROMs page contains cartridge slots 1 and 2; the Disks page contains
 drives A and B; the Tapes page contains the tape selection and rewind.
+Audio can also be opened from each of those pages and applies to the whole machine.
 Press Enter to browse for an image or Delete to eject the selected slot,
 drive or tape. Esc goes back one menu level. From these menu pages, F12
 resumes a running machine directly.
@@ -81,7 +82,7 @@ In **Media > ROMs**, select either or both cartridge slots, then choose:
 
 - **Reboot and save configuration:** save the complete current boot
   configuration (BIOS, RAM, sound, auto-boot, both cartridges, both disks
-  and tape), then cold-boot with those selections.
+  and tape, cartridge mapper overrides and the audio profile), then cold-boot with those selections.
 - **Reboot without saving:** cold-boot with the selected configuration for
   this session without overwriting the saved defaults.
 
@@ -93,13 +94,28 @@ selections remain pending until a cold boot.
 
 ### Automatic cartridge mapper detection
 
+After selecting a cartridge, the ROMs page shows its detected mapper and
+the detection source. Select the **Mapper** row below either slot and use
+Left/Right (or Enter) to cycle between **Auto** and the supported manual
+mappers. Delete on a mapper row restores Auto; Delete on a slot row ejects
+the cartridge. Replacing or ejecting a ROM resets that slot's override to
+Auto; choosing the same file preserves its override.
+
+The detected mapper remains visible even when you choose a manual override.
+Inspection uses the selected BIOS profile's overrides without changing a
+running machine. Overrides take effect only on cold boot and are saved with
+the complete boot configuration. Older saved configurations migrate with
+both slots set to Auto. Failed file reads or inspection leave the previous
+cartridge and override selected.
+
 Banked cartridges now use the same **full-ROM SHA-1 database-first approach**
 as PicoVerse. The 3115-entry database is embedded in the firmware and shared
 by all BIOS profiles; no external database or PicoVerse directory is needed.
 PicoVerse mapper IDs are translated to fMSX's Konami SCC, Konami, ASCII8 and
 ASCII16 IDs. The selected banked mapper is reported on UART.
 
-Existing profile-local `CARTS.CRC` / `CARTS.SHA` overrides still take priority.
+Manual F12 mapper choices take priority. In Auto mode, existing profile-local
+`CARTS.CRC` / `CARTS.SHA` overrides still take priority over the embedded database.
 Unknown cartridges retain the existing fMSX heuristic and plain/planar ROM
 handling. Identification does not add hardware emulation: recognized
 ASCII16-X, Manbow2, NEO8 and NEO16 cartridges report an unsupported mapper
@@ -112,11 +128,50 @@ instead of plain Konami. Host tests also found two independent setup
 requirements: at least **128 KiB RAM** and an **MSX-MUSIC/FM BIOS**.
 Panasonic profiles default to 64 KiB, so select the profile first, then
 change RAM to 128 KiB or more and cold-boot. Omega's 512 KiB is sufficient.
-For the existing optional FM support, a compatible user-supplied ROM can
-be placed as `FMPAC.ROM` in the selected BIOS profile. The original 16 KiB
-`fs-a1wsx_fmbasic.rom` was tested unchanged this way; it is not included in
-the firmware. Correct mapper detection alone cannot resolve missing RAM
-or the game's "No FM PAC nor MSX MUSIC detected" message.
+Use the FM-PAC/MSX-MUSIC audio profile described below. The original 16 KiB
+`fs-a1wsx_fmbasic.rom` also works as an MSX-MUSIC BIOS. Correct mapper
+detection alone cannot resolve missing RAM or the game's
+"No FM PAC nor MSX MUSIC detected" message.
+
+### Audio profiles and FM-PAC / MSX-MUSIC
+
+The **Audio profile** setting controls the emulated sound hardware:
+
+- **Auto:** preserves the normal PSG/SCC setup and enables FM when a compatible BIOS is available.
+- **PSG only**
+- **PSG + SCC**
+- **PSG + FM-PAC/MSX-MUSIC**
+- **PSG + SCC + FM-PAC/MSX-MUSIC**
+
+This is one machine-wide setting for cartridges, disks and tapes, not a
+separate setting for every file. Changing it requires a **cold reboot**.
+The Audio page offers reboot with or without saving the complete boot
+configuration. Merely resuming F12 leaves the currently running audio
+hardware unchanged. The main menu's Sound toggle remains the mute control.
+
+FM profiles need a legally obtained FM BIOS on microSD; no BIOS bytes are
+embedded in the firmware. Import a 64 KiB FM-PAC BIOS, such as your
+`FMPCCMFC.BIN`, or a compatible 16 KiB MSX-MUSIC BIOS:
+
+```powershell
+.\tools\Import-AudioBios.ps1 -Rom 'C:\path\to\FMPCCMFC.BIN' -Destination .\sdcard
+```
+
+Copy the generated `msx\audio\FMPAC.ROM` to the same path on the card.
+This shared BIOS is available to every machine profile; a profile-local
+`msx\bios\<profile>\FMPAC.ROM` takes precedence. The importer verifies size,
+identification header and the copied bytes. Use `-Force` only to replace an
+existing imported audio BIOS intentionally.
+
+Missing or incompatible FM BIOS files are reported before selecting or
+booting a required FM profile. The real BIOS is mapped in a system slot,
+leaving both user cartridge slots available. FM and SCC have separate mixer
+channels when enabled together.
+
+For **Tiny Magic**, keep the cartridge mapper on **Auto / Konami SCC**, choose
+**PSG + FM-PAC/MSX-MUSIC** (or the combined profile), select at least **128 KiB
+RAM**, then reboot. **Do not change its cartridge mapper to FM-PAC**: the ROM
+banking hardware and the sound hardware are separate choices.
 
 ## Disk and tape images
 

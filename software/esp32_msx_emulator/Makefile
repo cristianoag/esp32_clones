@@ -43,6 +43,8 @@ test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-JoystickTiming.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Audio.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File lib\fmsx\tests\media.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File lib\fmsx\tests\host_smoke.ps1 -MapperOnly
+	powershell -NoProfile -ExecutionPolicy Bypass -File lib\fmsx\tests\audio_core.ps1
 help:
 	@echo make firmware - Build, package and verify the FLH file
 	@echo make build    - Build the raw firmware only

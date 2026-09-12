@@ -5,6 +5,8 @@
 static_assert(sizeof(MsxBootSettingsV1) == 40, "Keep compatibility with existing NVS settings.");
 static_assert(sizeof(MsxBootSettingsV2) == 520, "Keep compatibility with cartridge-only settings.");
 static_assert(offsetof(MsxBootSettings, disks) == sizeof(MsxBootSettingsV2), "Old settings must remain a prefix.");
+static_assert(sizeof(MsxBootSettingsV3) == 1240 && sizeof(MsxBootSettings) == 1244, "Keep the saved media layout stable.");
+static_assert(offsetof(MsxBootSettings, mappers) == sizeof(MsxBootSettingsV3), "v3 must remain a prefix.");
 
 bool MsxHasExtension(const char *name, const char *extension)
 {
@@ -63,17 +65,21 @@ bool MsxDecodeSettings(const void *data, size_t size, MsxBootSettings &settings)
 {
     settings = {};
     if (!data || (size != sizeof(MsxBootSettingsV1) && size != sizeof(MsxBootSettingsV2) &&
-                  size != sizeof(MsxBootSettings)))
+                  size != sizeof(MsxBootSettingsV3) && size != sizeof(MsxBootSettings)))
         return false;
     MsxBootSettings candidate = {};
+    candidate.mappers[0] = candidate.mappers[1] = MsxMapperAuto;
     memcpy(&candidate, data, size);
     const MsxBootSettingsV1 &machine = candidate.machine;
     if ((size == sizeof(MsxBootSettingsV1) && machine.version != 1) ||
         (size == sizeof(MsxBootSettingsV2) && machine.version != 2) ||
-        (size == sizeof(MsxBootSettings) && machine.version != 3) ||
+        (size == sizeof(MsxBootSettingsV3) && machine.version != 3) ||
+        (size == sizeof(MsxBootSettings) && machine.version != 4) ||
         !memchr(machine.profile, '\0', sizeof(machine.profile)) || !machine.profile[0] ||
         (machine.ramPages != 4 && machine.ramPages != 8 && machine.ramPages != 16 && machine.ramPages != 32) ||
-        machine.sound > 1 || machine.autoBoot > 1)
+        machine.sound > 1 || machine.autoBoot > 1 ||
+        !MsxValidMapper(candidate.mappers[0]) || !MsxValidMapper(candidate.mappers[1]) ||
+        candidate.audioProfile >= MsxAudioProfileCount || candidate.reserved)
         return false;
     for (const char *id = machine.profile; *id; ++id)
         if (!((*id >= 'a' && *id <= 'z') || (*id >= 'A' && *id <= 'Z') ||
@@ -87,7 +93,7 @@ bool MsxDecodeSettings(const void *data, size_t size, MsxBootSettings &settings)
             return false;
     if (!MsxValidSdPath(candidate.tape, true) || (*candidate.tape && !MsxHasExtension(candidate.tape, ".cas")))
         return false;
-    candidate.machine.version = 3;
+    candidate.machine.version = 4;
     settings = candidate;
     return true;
 }

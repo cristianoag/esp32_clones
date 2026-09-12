@@ -30,6 +30,8 @@ static unsigned failAllocation;
 static unsigned frameLimit = 3;
 static bool realBios;
 static bool realCartridge;
+static bool mapperOverrideTest, truncateInspectionOnAllocation;
+static void checkMapperOverrides();
 static int expectedRealMapper = -1;
 static bool basicPrompt;
 static bool cartridgeTest;
@@ -200,6 +202,11 @@ static void captureBoot(const uint8_t* pixels, int width, int height,
 extern "C" void* heap_caps_malloc(size_t size, unsigned)
 {
   if (++allocation == failAllocation) return nullptr;
+  if (truncateInspectionOnAllocation) {
+    truncateInspectionOnAllocation=false;
+    FILE* f=fopen("inspection.rom","wb");
+    assert(f&&!fclose(f));
+  }
   if (truncateMediaOnAllocation && size > 300000) {
     truncateMediaOnAllocation = false;
     FILE* f = fopen("media-short.dsk","wb");
@@ -327,6 +334,7 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
   }
   if (!realBios && joystickPolls) checkJoystickPorts();
   if (cartridgeTest && frames == 1) checkCartridges();
+  if (mapperOverrideTest && frames == 1) checkMapperOverrides();
   if (realBios && frames == frameLimit) captureBoot(pixels, width, height, palette);
   if (realBios && frames == (frameLimit < 30 ? frameLimit : 30))
     captureImage("boot-early.ppm", pixels, width, height, palette);
@@ -904,15 +912,18 @@ static void panasonicRegression(const char* directory)
 }
 
 #include "media_regression.h"
+#include "mapper_override_regression.h"
 
 int main(int argc, char** argv)
 {
   const bool mediaOnly = argc == 2 && strcmp(argv[1], "--media") == 0;
+  const bool mapperOnly = argc == 2 && strcmp(argv[1], "--mappers") == 0;
   panasonicOnly = argc == 2 && strcmp(argv[1], "--panasonic") == 0;
-  if (argc > 1 && !panasonicOnly && !mediaOnly) {
-    assert(argc == 5 || argc == 6 || argc == 7);
+  if (argc > 1 && !panasonicOnly && !mediaOnly && !mapperOnly) {
+    assert(argc >= 5 && argc <= 8);
     realCartridge = argc >= 6;
-    if(argc == 7) expectedRealMapper = atoi(argv[6]);
+    if(argc >= 7) expectedRealMapper = atoi(argv[6]);
+    const unsigned audioProfile=argc==8?static_cast<unsigned>(atoi(argv[7])):static_cast<unsigned>(MsxAudioAuto);
     realBios = true;
     frameLimit = static_cast<unsigned>(atoi(argv[4]));
     assert(frameLimit > 0);
@@ -956,10 +967,17 @@ int main(int argc, char** argv)
     const std::string diskBPath=std::string(mediaRoot)+"/real-b.dsk";
     const std::string tapePath=std::string(mediaRoot)+"/real.cas";
     if (realMedia) prepareRealMedia();
+    if(realCartridge)
+    {
+      MsxCartridgeInfo inspected;
+      char error[160];
+      assert(MsxInspectCartridge(argv[5],argv[1],inspected,error,sizeof(error)));
+      printf("Menu inspection: %s (%s)\n",MsxMapperName(inspected.detectedMapper),inspected.source);
+    }
     const bool result = MsxCoreRun(argv[1], atoi(argv[2]), atoi(argv[3]),realCartridge?argv[5]:nullptr,nullptr,
                                    realMedia?diskAPath.c_str():nullptr,
                                    realMedia?diskBPath.c_str():nullptr,
-                                   realMedia?tapePath.c_str():nullptr);
+                                   realMedia?tapePath.c_str():nullptr,MsxMapperAuto,MsxMapperAuto,audioProfile);
     printf("BIOS boot: result=%d, frames=%u, samples=%u, BASIC prompt=%s\n",
            result, frames, audioSamples, basicPrompt ? "yes" : "not detected");
     if (expectKanjiLogo)
@@ -1026,6 +1044,12 @@ int main(int argc, char** argv)
     for (const char* name : names) assert(remove(name) == 0);
     return 0;
   }
+  if (mapperOnly) {
+    cartridgeRegression(path);
+    mapperOverrideRegression(path);
+    for (const char* name : names) assert(remove(name) == 0);
+    return 0;
+  }
   for (int pass = 0; pass < 2; ++pass)
     for (int model = 0; model < 3; ++model)
       for (int pages = 4; pages <= 32; pages *= 2) {
@@ -1046,6 +1070,7 @@ int main(int argc, char** argv)
     assert(MsxCoreRun(path, 0, 4));
   }
   cartridgeRegression(path);
+  mapperOverrideRegression(path);
   logoRegression(path);
   omegaRegression(path);
   panasonicRegression(path);

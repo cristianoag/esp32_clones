@@ -1,5 +1,5 @@
-#include "../../esp32_cp400_emulator/lib/SoftUSB/msx_timing.h"
-#include "../../esp32_cp400_emulator/lib/SoftUSB/msx_receive.h"
+#include "../lib/MsxSoftUsb/upstream/msx_timing.h"
+#include "../lib/MsxSoftUsb/upstream/msx_receive.h"
 #include <assert.h>
 #include <stdio.h>
 

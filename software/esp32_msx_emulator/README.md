@@ -21,7 +21,26 @@ The hardware layout matches the shared board used by the CP400 project and is do
 
 SD uses a one-bit SD/MMC interface rather than SPI. Connect a USB HID keyboard directly to the keyboard port, and use the board's UART port for upload and diagnostics. The native USB controller is reserved for the keyboard.
 
-The firmware reuses the existing board definition, VGA, Adafruit GFX, and BusIO libraries from the CP400 project. Keep both firmware folders in the repository when building.
+The firmware is self-contained: its board definition lives in `boards`, and
+its VGA, Adafruit GFX, BusIO and USB transport sources live in `lib`.
+The entire `esp32_msx_emulator` folder can be copied and built on its own;
+the CP400 firmware folder is not required. PlatformIO and the pinned ESP32
+platform/toolchain are still required.
+
+The local dependency copies preserve their original versions, copyright
+notices and licenses. See [dependency provenance](lib/README.md).
+
+## Build
+
+From this firmware directory, run `pio run` to build or `make firmware` to
+build, package and verify `dist\ESP32_MSX-1.01.FLH`. The same commands work
+when this folder is outside the clone-series repository. `make test` runs
+the host regression tests using PowerShell and native G++.
+
+If updating an older checkout that used cross-project symlinks, PlatformIO
+normally removes obsolete dependencies during the next build. If local
+cache metadata still points to the old project, delete this firmware's
+generated `.pio` directory and rebuild; no CP400 files need to be changed.
 
 ## Prepare the SD card
 

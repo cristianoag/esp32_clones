@@ -99,6 +99,9 @@ make firmware
 ```
 
 The build produces FLH packages for each target; the project directories keep their own firmware images and configuration.
+Each firmware directory includes its own board definitions and required
+library sources and can be copied and compiled independently of the other.
+Both still require PlatformIO and the configured ESP32 toolchain.
 
 ## ROMs and original software
 
@@ -123,5 +126,4 @@ The CP400 was part of the wider Brazilian TRS-Color ecosystem, and the MSX line 
 ![Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International](https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png)
 
 All hardware and firmware binaries in this repository are released under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International license. Personal builds and community tinkering are encouraged, but commercial use or resale requires explicit authorization from the author.
-
 

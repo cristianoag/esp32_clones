@@ -1,4 +1,4 @@
-#include "../../esp32_cp400_emulator/lib/SoftUSB/msx_decode.h"
+#include "../lib/MsxSoftUsb/upstream/msx_decode.h"
 #include <assert.h>
 #include <stdio.h>
 #include <vector>

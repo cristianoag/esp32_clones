@@ -13,7 +13,6 @@
 /*************************************************************/
 
 #include "MSX.h"
-#include "Boot.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -58,7 +57,7 @@ byte DiskWrite(byte ID,const byte *Buf,int N)
 {
   byte *P;
 
-  if(ID<MAXDRIVES)
+  if(ID<MAXDRIVES&&FDD[ID].Data&&!FDD[ID].Data[3])
   {
     /* Get data pointer to requested sector */
     P = LinearFDI(&FDD[ID],N);
@@ -93,9 +92,17 @@ void PatchZ80(Z80 *R)
     {  640,2,112,8,1,2 }
   };
 
-  byte Buf[512],Count,PS,SS,N,*P;
+  byte Buf[512],Count,PS,SS,N;
   int J,I,Sector;
   word Addr;
+  extern byte *RAM[8],*MemMap[4][4][8];
+
+  /* ED FE in a cartridge or another subslot is not a system BIOS call. */
+  if(R->PC.W-2>=0x4000)
+  {
+    if(!DiskROMAvailable()||RAM[2]!=MemMap[3][3][2]) return;
+  }
+  else if(RAM[0]!=MemMap[0][0][0]) return;
 
   switch(R->PC.W-2)
   {
@@ -131,7 +138,10 @@ case 0x4010:
 
   if(!DiskPresent(R->AF.B.h))
   { R->AF.W=0x0201;return; }  /* No disk      -> "Not ready"        */
-  if((int)(R->DE.W)+Count>Info[R->BC.B.l-0xF8].Sectors)
+  if(R->AF.B.l&C_FLAG)
+  { R->AF.W=0x0001;return; }  /* Read-only attachment */
+  if(R->BC.B.l<0xF8||(int)(R->DE.W)+Count>
+     FDD[R->AF.B.h].Sides*FDD[R->AF.B.h].Tracks*FDD[R->AF.B.h].Sectors)
   { R->AF.W=0x0801;return; }  /* Wrong sector -> "Record not found" */
 
   /* If data does not fit into 64kB address space, trim it */
@@ -145,22 +155,7 @@ case 0x4010:
   OutZ80(0xA8,0xFF);
   SSlot(0xAA);
 
-  if(R->AF.B.l&C_FLAG)
-    for(Sector=R->DE.W;Count--;Sector++) /* WRITE */
-    {
-      for(J=0;J<512;J++) Buf[J]=RdZ80(Addr++);
-
-      if(DiskWrite(R->AF.B.h,Buf,Sector)) R->BC.B.h--;
-      else
-      {
-        R->AF.W=0x0A01;
-        SSlot(SS);
-        OutZ80(0xA8,PS);
-        return;
-      }
-    }
-  else
-    for(Sector=R->DE.W;Count--;Sector++) /* READ */
+  for(Sector=R->DE.W;Count--;Sector++) /* READ */
     {
       if(DiskRead(R->AF.B.h,Buf,Sector)) R->BC.B.h--;
       else
@@ -247,6 +242,21 @@ case 0x4016:
   SectorsPerDisk  = (int)Buf[0x14]*256+Buf[0x13];
   SectorsPerFAT   = (int)Buf[0x17]*256+Buf[0x16];
   ReservedSectors = (int)Buf[0x0F]*256+Buf[0x0E];
+  /* Raw game disks need not have a DOS boot sector. Use the mounted geometry
+     if the BPB is absent/invalid, never divide by untrusted zero values. */
+  if(BytesPerSector!=512||!Buf[0x0D]||(Buf[0x0D]&(Buf[0x0D]-1))||
+     !ReservedSectors||!Buf[0x10]||!SectorsPerFAT||
+     SectorsPerDisk!=FDD[R->AF.B.h].Sides*720||
+     ReservedSectors+Buf[0x10]*SectorsPerFAT+7>=SectorsPerDisk)
+  {
+    N=FDD[R->AF.B.h].Sides-1;
+    memset(Buf,0,sizeof(Buf));
+    Buf[0x0C]=2;Buf[0x0D]=2;Buf[0x0E]=1;Buf[0x10]=2;Buf[0x11]=112;
+    Buf[0x13]=Info[N].Sectors&255;Buf[0x14]=Info[N].Sectors>>8;
+    Buf[0x15]=0xF8+N;Buf[0x16]=Info[N].PerFAT;
+    BytesPerSector=512;SectorsPerDisk=Info[N].Sectors;
+    SectorsPerFAT=Info[N].PerFAT;ReservedSectors=1;
+  }
  
   Addr=R->HL.W+1;
   WrZ80(Addr++,Buf[0x15]);             /* Format ID [F8h-FFh] */
@@ -268,7 +278,7 @@ case 0x4016:
   J+=32*Buf[0x11]/BytesPerSector;
   WrZ80(Addr++,J&0xFF);                /* Sector # of data    */
   WrZ80(Addr++,(J>>8)&0xFF);
-  J=(SectorsPerDisk-J)/Buf[0x0D];
+  J=(SectorsPerDisk-J)/Buf[0x0D]+1;
   WrZ80(Addr++,J&0xFF);                /* Number of clusters  */
   WrZ80(Addr++,(J>>8)&0xFF);
   WrZ80(Addr++,Buf[0x16]);             /* Sectors per FAT     */
@@ -307,49 +317,7 @@ case 0x401C:
   if(!R->AF.B.h||(R->AF.B.h>2)) { R->AF.W=0x0C01;return; }
   /* If no disk, return "Not ready": */
   if(!DiskPresent(R->DE.B.h)) { R->AF.W=0x0201;return; }
-
-  /* Fill bootblock with data: */
-  P=BootBlock+3;
-  N=2-R->AF.B.h;
-  memcpy(P,"fMSXdisk",8);P+=10;    /* Manufacturer's ID   */
-  *P=Info[N].PerCluster;P+=4;      /* Sectors per cluster */
-  *P++=Info[N].Names;*P++=0x00;    /* Number of names     */
-  *P++=Info[N].Sectors&0xFF;       /* Number of sectors   */
-  *P++=(Info[N].Sectors>>8)&0xFF;
-  *P++=N+0xF8;                     /* Format ID [F8h-FFh] */
-  *P++=Info[N].PerFAT;*P++=0x00;   /* Sectors per FAT     */
-  *P++=Info[N].PerTrack;*P++=0x00; /* Sectors per track   */
-  *P++=Info[N].Heads;*P=0x00;      /* Number of heads     */
-
-  /* If can't write bootblock, return "Write protected": */
-  if(!DiskWrite(R->DE.B.h,BootBlock,0)) { R->AF.W=0x0001;return; };
-
-  /* Writing FATs: */
-  for(Sector=1,J=0;J<2;J++)
-  {
-    Buf[0]=N+0xF8;
-    Buf[1]=Buf[2]=0xFF;
-    memset(Buf+3,0x00,509);
-
-    if(!DiskWrite(R->DE.B.h,Buf,Sector++)) { R->AF.W=0x0A01;return; }
-
-    memset(Buf,0x00,512);
-
-    for(I=Info[N].PerFAT;I>1;I--)
-      if(!DiskWrite(R->DE.B.h,Buf,Sector++)) { R->AF.W=0x0A01;return; }
-  }
-
-  J=Info[N].Names/16;                     /* Directory size */
-  I=Info[N].Sectors-2*Info[N].PerFAT-J-1; /* Data size */
-
-  for(memset(Buf,0x00,512);J;J--)
-    if(!DiskWrite(R->DE.B.h,Buf,Sector++)) { R->AF.W=0x0A01;return; }
-  for(memset(Buf,0xFF,512);I;I--)
-    if(!DiskWrite(R->DE.B.h,Buf,Sector++)) { R->AF.W=0x0A01;return; }
-
-  /* Return success      */
-  R->AF.B.l&=~C_FLAG;
-  return;
+  R->AF.W=0x0001;return;
 }
 
 case 0x401F:
@@ -363,29 +331,20 @@ case 0x00E1:
 /** TAPION: Open for read and read header ***********************
 ****************************************************************/
 {
-  long Pos;
-
   if(Verbose&0x04) printf("TAPE: Looking for header...");
 
   R->AF.B.l|=C_FLAG;
   if(CasStream)
   {
-    Pos=ftell(CasStream);
-    if(Pos&7)
-      if(fseek(CasStream,8-(Pos&7),SEEK_CUR))
-      {
-        if(Verbose&0x04) puts("FAILED");
-        rewind(CasStream);return;
-      }
-
-    while(fread(Buf,1,8,CasStream)==8)
-      if(!memcmp(Buf,TapeHeader,8))
+    for(I=0;(J=fgetc(CasStream))!=EOF;)
+    {
+      I=J==TapeHeader[I]? I+1:(J==TapeHeader[0]? 1:0);
+      if(I==8)
       {
         if(Verbose&0x04) puts("OK");
         R->AF.B.l&=~C_FLAG;return;
       }
-
-    rewind(CasStream);
+    }
   }
 
   if(Verbose&0x04) puts("FAILED");
@@ -401,8 +360,7 @@ case 0x00E4:
   if(CasStream)
   {
     J=fgetc(CasStream);
-    if(J<0) rewind(CasStream);
-    else { R->AF.B.h=J;R->AF.B.l&=~C_FLAG; }
+    if(J!=EOF) { R->AF.B.h=J;R->AF.B.l&=~C_FLAG; }
   }
 
   return;
@@ -417,42 +375,20 @@ case 0x00E7:
 case 0x00EA:
 /** TAPOON: *****************************************************
 ****************************************************************/
-{
-  long Pos;
-
   R->AF.B.l|=C_FLAG;
-
-  if(CasStream)
-  {
-    Pos=ftell(CasStream);
-    if(Pos&7)
-      if(fseek(CasStream,8-(Pos&7),SEEK_CUR))
-      { R->AF.B.l|=C_FLAG;return; }
-
-    fwrite(TapeHeader,1,8,CasStream);
-    R->AF.B.l&=~C_FLAG;
-  }   
-
   return;
-}
 
 case 0x00ED:
 /** TAPOUT: Write tape ******************************************
 ****************************************************************/
   R->AF.B.l|=C_FLAG;
 
-  if(CasStream)
-  {
-    fputc(R->AF.B.h,CasStream);
-    R->AF.B.l&=~C_FLAG;
-  }
-
   return;
 
 case 0x00F0:
 /** TAPOOF: *****************************************************
 ****************************************************************/
-  R->AF.B.l&=~C_FLAG;
+  R->AF.B.l|=C_FLAG;
   return;
 
 case 0x00F3:

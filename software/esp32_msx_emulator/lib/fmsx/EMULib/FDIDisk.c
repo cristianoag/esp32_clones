@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include "../Esp32Port.h"
 
 #ifdef ZLIB
 #include <zlib.h>
@@ -115,7 +116,7 @@ byte *NewFDI(FDIDisk *D,int Sides,int Tracks,int Sectors,int SecSize)
   /* Allocate memory */
   K = Sides*Tracks*Sectors*SecSize+sizeof(FDIDiskLabel);
   I = Sides*Tracks*(Sectors+1)*7+14;
-  if(!(P=(byte *)malloc(I+K))) return(0);
+  if(!(P=(byte *)fmsxAllocate(I+K))) return(0);
   memset(P,0x00,I+K);
 
   /* Eject previous disk image */
@@ -693,7 +694,7 @@ int SaveFDI(FDIDisk *D,const char *FileName,int Format)
   byte *P,*T;
 
   /* Must have a disk to save */
-  if(!D->Data) return(0);
+  if(!D->Data||D->Data[3]) return(0);
 
   /* Use original format if requested */
   if(!Format) Format=D->Format;
@@ -941,4 +942,3 @@ byte *FormatFDI(FDIDisk *D,int Format)
     Formats[Format].SecSize
   ));
 }
-

@@ -58,5 +58,15 @@ int main()
     assert(count == 2 && total == 2 && !*error);
     assert(page[0].kind == MsxFileKind::Directory && !strcmp(page[0].name, "System Volume Information backup"));
     assert(page[1].kind == MsxFileKind::File && !strcmp(page[1].name, "System Volume Information.rom"));
+    SD_MMC.add("/", "game disk.DsK", false);
+    SD_MMC.add("/", "basic.CaS", false);
+    SD_MMC.add("/", "audio.wav", false);
+    assert(MsxReadDirectoryPage("/", ".dsk", true, 0, page, count, total, error, sizeof(error)));
+    assert(count == 3 && total == 3);
+    assert(page[0].kind == MsxFileKind::Eject);
+    assert(!strcmp(page[2].name, "game disk.DsK"));
+    assert(MsxReadDirectoryPage("/", ".cas", true, 0, page, count, total, error, sizeof(error)));
+    assert(count == 3 && total == 3);
+    assert(!strcmp(page[2].name, "basic.CaS"));
     puts("PASS: browser pagination, ROM/FLH filtering, hidden Windows metadata folder, ordinary names and empty SD.");
 }

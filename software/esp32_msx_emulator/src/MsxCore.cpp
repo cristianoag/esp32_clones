@@ -219,8 +219,81 @@ static bool validateCartridge(const char* path, int slot)
   return false;
 }
 
+static bool mediaResult(const char* problem, char* error, size_t size)
+{
+  if (error && size) snprintf(error, size, "%s", problem ? problem : "");
+  return !problem;
+}
+
+static bool validateMedia(const char* path, bool tape, char* error, size_t size)
+{
+  if (!path || !*path) return mediaResult(nullptr, error, size);
+  struct stat info;
+  if (path[0] != '/')
+    return mediaResult("requires an absolute path", error, size);
+  if (stat(path, &info) || !S_ISREG(info.st_mode))
+    return mediaResult("file is missing or is not a regular file", error, size);
+  if (!tape && info.st_size != 368640 && info.st_size != 737280)
+    return mediaResult("DSK must be raw 360 or 720 KiB (80 tracks, 9 sectors)", error, size);
+  FILE* file = fopen(path, "rb");
+  if (!file) return mediaResult("cannot open media read-only", error, size);
+  const unsigned char marker[] = {0x1F,0xA6,0xDE,0xBA,0xCC,0x13,0x7D,0x74};
+  unsigned char header[8];
+  const size_t count = fread(header, 1, sizeof(header), file);
+  fclose(file);
+  if (count != sizeof(header))
+    return mediaResult("cannot read media header", error, size);
+  if (tape && memcmp(header, marker, sizeof(marker)))
+    return mediaResult("invalid CAS marker (WAV is not supported)", error, size);
+  return mediaResult(nullptr, error, size);
+}
+
+bool MsxValidateDisk(const char* path, char* error, size_t size)
+{
+  return validateMedia(path, false, error, size);
+}
+
+bool MsxValidateTape(const char* path, char* error, size_t size)
+{
+  return validateMedia(path, true, error, size);
+}
+
+bool MsxDiskAvailable() { return running && DiskROMAvailable(); }
+
+bool MsxAttachDisk(unsigned drive, const char* path, char* error, size_t size)
+{
+  if (drive >= 2) return mediaResult("only disk drives A and B are available", error, size);
+  if (!running) return mediaResult("MSX is not running", error, size);
+  if (!MsxValidateDisk(path, error, size)) return false;
+  if (path && *path && !MsxDiskAvailable())
+    return mediaResult("add compatible DISK.ROM to this BIOS profile and cold boot", error, size);
+  if (!ChangeDisk(drive, path))
+    return mediaResult(errno == ENOMEM ? "not enough PSRAM for disk; previous disk retained" :
+                       "cannot fully read disk; previous disk retained", error, size);
+  return mediaResult(nullptr, error, size);
+}
+
+bool MsxAttachTape(const char* path, char* error, size_t size)
+{
+  if (!running) return mediaResult("MSX is not running", error, size);
+  if (!MsxValidateTape(path, error, size)) return false;
+  if (!ChangeTape(path))
+    return mediaResult("cannot read CAS; previous tape retained", error, size);
+  return mediaResult(nullptr, error, size);
+}
+
+bool MsxRewindTape(char* error, size_t size)
+{
+  if (!running || !CasStream) return mediaResult("no tape attached", error, size);
+  clearerr(CasStream);
+  if (fseek(CasStream, 0, SEEK_SET))
+    return mediaResult("cannot rewind tape; check SD card", error, size);
+  return mediaResult(nullptr, error, size);
+}
+
 bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
-                const char* slot1, const char* slot2)
+                const char* slot1, const char* slot2,
+                const char* diskA, const char* diskB, const char* tape)
 {
   if (running || !romDirectory || romDirectory[0] != '/' ||
       strlen(romDirectory) >= sizeof(biosDirectory) || model < 0 || model > 2 ||
@@ -229,6 +302,13 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
     return false;
   }
   if (!validateCartridge(slot1, 1) || !validateCartridge(slot2, 2)) return false;
+  char mediaError[160];
+  if (!MsxValidateDisk(diskA, mediaError, sizeof(mediaError)) ||
+      !MsxValidateDisk(diskB, mediaError, sizeof(mediaError)) ||
+      !MsxValidateTape(tape, mediaError, sizeof(mediaError))) {
+    msxReportError(mediaError);
+    return false;
+  }
   running = true;
   allocationFailed = false;
   strcpy(biosDirectory, romDirectory);
@@ -269,17 +349,22 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   ROMName[0] = slot1 && *slot1 ? slot1 : nullptr;
   ROMName[1] = slot2 && *slot2 ? slot2 : nullptr;
   for (int i = 0; i < MAXDRIVES; ++i) DSKName[i] = nullptr;
+  DSKName[0] = diskA && *diskA ? diskA : nullptr;
+  DSKName[1] = diskB && *diskB ? diskB : nullptr;
   SndName = PrnName = CasName = ComName = STAName = FNTName = nullptr;
+  CasName = tape && *tape ? tape : nullptr;
   CPU.Trap = 0xFFFF;
   CPU.Trace = 0;
   errno = 0;
-  const bool result = StartMSX(model | MSX_NTSC | MSX_GUESSA | MSX_GUESSB |
+  const bool result = StartMSX(model | MSX_NTSC | MSX_GUESSA | MSX_GUESSB | MSX_PATCHBDOS |
                                (JOY_STICK << 4) | (JOY_STICK << 6),
                                ramPages, model ? 8 : 2) != 0;
   const int bootError = errno;
   ResetVDP();
   TrashMSX();
   for (int i = 0; i < MAXCARTS; ++i) ROMName[i] = nullptr;
+  for (int i = 0; i < MAXDRIVES; ++i) DSKName[i] = nullptr;
+  CasName = nullptr;
   TrashSound();
   heap_caps_free(XBuf);
   heap_caps_free(output);
@@ -287,10 +372,12 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   output = nullptr;
   running = false;
   if (!result) {
-    if (bootError == ENOEXEC || bootError == EFBIG)
+    if (allocationFailed || bootError == ENOMEM)
+      msxReportError("Not enough PSRAM to load the MSX BIOS, RAM, cartridges or disks.");
+    else if (bootError == ENODEV)
+      msxReportError("Add compatible DISK.ROM to this BIOS profile and cold boot to attach disks.");
+    else if (bootError == ENOEXEC || bootError == EFBIG)
       msxReportError("Invalid cartridge ROM: check the AB header and size (maximum 2 MiB).");
-    else if (allocationFailed || bootError == ENOMEM)
-      msxReportError("Not enough PSRAM to load the MSX BIOS, RAM or selected cartridges.");
     else
       msxReportError("MSX boot failed: could not fully load BIOS or selected cartridge files.");
   }

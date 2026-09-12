@@ -30,6 +30,8 @@ static int selectedRamPages = 32;
 static bool soundEnabled = true;
 static bool autoBoot = true;
 static char selectedCartridges[2][MsxSdPathCapacity] = {};
+static char selectedDisks[2][MsxSdPathCapacity] = {};
+static char selectedTape[MsxSdPathCapacity] = {};
 static char statusMessage[160] = "";
 static Preferences preferences;
 static bool preferencesReady = false;
@@ -96,6 +98,31 @@ static bool validateCartridges()
     return true;
 }
 
+static bool validateMedia()
+{
+    char path[MsxSdPathCapacity + 8];
+    for (unsigned drive = 0; drive < 2; ++drive)
+    {
+        if (!selectedDisks[drive][0]) continue;
+        snprintf(path, sizeof(path), "/sdcard%s", selectedDisks[drive]);
+        if (!MsxValidateDisk(path, statusMessage, sizeof(statusMessage)))
+        {
+            Serial.printf("MSX drive %c: %s\n", 'A' + drive, statusMessage);
+            return false;
+        }
+    }
+    if (selectedTape[0])
+    {
+        snprintf(path, sizeof(path), "/sdcard%s", selectedTape);
+        if (!MsxValidateTape(path, statusMessage, sizeof(statusMessage)))
+        {
+            Serial.printf("MSX tape: %s\n", statusMessage);
+            return false;
+        }
+    }
+    return true;
+}
+
 static void saveSettings()
 {
     if (!preferencesReady)
@@ -105,12 +132,14 @@ static void saveSettings()
         return;
     }
     MsxBootSettings settings = {};
-    settings.machine.version = 2;
+    settings.machine.version = 3;
     snprintf(settings.machine.profile, sizeof(settings.machine.profile), "%s", MsxProfiles[selectedProfile].id);
     settings.machine.ramPages = selectedRamPages;
     settings.machine.sound = soundEnabled;
     settings.machine.autoBoot = autoBoot;
     memcpy(settings.cartridges, selectedCartridges, sizeof(selectedCartridges));
+    memcpy(settings.disks, selectedDisks, sizeof(selectedDisks));
+    memcpy(settings.tape, selectedTape, sizeof(selectedTape));
     if (!MsxJoystickHostPause())
     {
         snprintf(statusMessage, sizeof(statusMessage), "Cannot pause joystick host to save settings.");
@@ -125,7 +154,7 @@ static void saveSettings()
         Serial.println(statusMessage);
         return;
     }
-    snprintf(statusMessage, sizeof(statusMessage), "Boot profile, slots and settings saved.");
+    snprintf(statusMessage, sizeof(statusMessage), "Boot profile, slots, disk/tape paths and settings saved.");
 }
 
 static void readSettings()
@@ -153,6 +182,8 @@ static void readSettings()
     soundEnabled = settings.machine.sound;
     autoBoot = settings.machine.autoBoot;
     memcpy(selectedCartridges, settings.cartridges, sizeof(selectedCartridges));
+    memcpy(selectedDisks, settings.disks, sizeof(selectedDisks));
+    memcpy(selectedTape, settings.tape, sizeof(selectedTape));
     for (size_t i = 0; i < MsxProfileCount; ++i)
     {
         if (!strcmp(settings.machine.profile, MsxProfiles[i].id))
@@ -197,11 +228,12 @@ static void drawMenu(unsigned row)
         case MsxMenuRam: snprintf(label, sizeof(label), "RAM on next boot: %d KiB", selectedRamPages * 16); break;
         case MsxMenuSound: snprintf(label, sizeof(label), "Sound: %s", soundEnabled ? "On" : "Off"); break;
         case MsxMenuAutoBoot: snprintf(label, sizeof(label), "Auto boot saved settings: %s", autoBoot ? "On" : "Off"); break;
-        case MsxMenuSave: snprintf(label, sizeof(label), "Save BIOS + slots as boot default"); break;
-        case MsxMenuBoot: snprintf(label, sizeof(label), "Boot BIOS + slots (cold reset)"); break;
+        case MsxMenuSave: snprintf(label, sizeof(label), "Save BIOS + slots + media as boot default"); break;
+        case MsxMenuBoot: snprintf(label, sizeof(label), "Boot BIOS + slots + media (cold reset)"); break;
         case MsxMenuRescan: snprintf(label, sizeof(label), "Rescan SD card / other BIOS profiles"); break;
         case MsxMenuUpdate: snprintf(label, sizeof(label), "Firmware update from SD"); break;
         case MsxMenuJoysticks: snprintf(label, sizeof(label), "USB joysticks - calibrate / test"); break;
+        case MsxMenuMedia: snprintf(label, sizeof(label), "Disks / tape - attach, eject, rewind"); break;
         }
         text(10, y, label);
     }
@@ -227,7 +259,7 @@ static void backupScreen(bool restore)
 }
 
 static bool chooseSdFile(const char *title, const char *extension, bool allowEject,
-                         char selection[MsxSdPathCapacity])
+                         char selection[MsxSdPathCapacity], bool liveMedia = false)
 {
     char directory[MsxSdPathCapacity] = "/";
     if (*selection)
@@ -276,8 +308,10 @@ static bool chooseSdFile(const char *title, const char *extension, bool allowEje
             {
                 if (first + i == selected)
                     display.fillRect(6, MsxMenuRowY(i), 308, MsxMenuRowHeight, 0x48);
+                const char *entryName = liveMedia && entries[i].kind == MsxFileKind::Eject ?
+                                        "<Eject media>" : entries[i].name;
                 snprintf(label, sizeof(label), "%s%.47s",
-                         entries[i].kind == MsxFileKind::Directory ? "> " : "  ", entries[i].name);
+                         entries[i].kind == MsxFileKind::Directory ? "> " : "  ", entryName);
                 text(8, MsxMenuRowY(i), label);
             }
             if (!total) text(8, MsxMenuRowY(0), "No matching files. Esc returns to menu.");
@@ -289,7 +323,8 @@ static bool chooseSdFile(const char *title, const char *extension, bool allowEje
             text(8, 188, "Enter: select  Left: up  PgUp/Dn  Esc: back");
             if (*warning) messageLines(warning);
             else if (count && selected >= first && selected - first < count)
-                messageLines(entries[selected - first].name);
+                messageLines(liveMedia && entries[selected - first].kind == MsxFileKind::Eject ?
+                             "Eject the selected disk or tape." : entries[selected - first].name);
             video.show();
             redraw = false;
         }
@@ -354,6 +389,93 @@ static void selectCartridge(unsigned slot, const char *path)
     snprintf(selectedCartridges[slot], sizeof(selectedCartridges[slot]), "%s", path);
     snprintf(statusMessage, sizeof(statusMessage), "Slot %u %s. Choose cold reset to apply; save for auto boot.",
              slot + 1, *path ? "selected" : "ejected");
+}
+
+static bool selectMedia(unsigned item, const char *candidate)
+{
+    char path[MsxSdPathCapacity + 8] = {};
+    if (*candidate) snprintf(path, sizeof(path), "/sdcard%s", candidate);
+    bool accepted;
+    if (running)
+        accepted = item < 2 ? MsxAttachDisk(item, path, statusMessage, sizeof(statusMessage)) :
+                             MsxAttachTape(path, statusMessage, sizeof(statusMessage));
+    else
+        accepted = item < 2 ? MsxValidateDisk(path, statusMessage, sizeof(statusMessage)) :
+                             MsxValidateTape(path, statusMessage, sizeof(statusMessage));
+    if (!accepted)
+    {
+        Serial.printf("MSX media: %s\n", statusMessage);
+        return false;
+    }
+    char *selection = item < 2 ? selectedDisks[item] : selectedTape;
+    snprintf(selection, MsxSdPathCapacity, "%s", candidate);
+    snprintf(statusMessage, sizeof(statusMessage), "%s %s%s. Save defaults to retain the assignment.",
+             item == 0 ? "Drive A" : item == 1 ? "Drive B" : "Tape",
+             *candidate ? "attached read-only" : "ejected",
+             running ? "" : " on next boot");
+    return true;
+}
+
+static void mediaMenu()
+{
+    unsigned row = 0;
+    bool redraw = true;
+    MsxKeyboardClearEvents();
+    while (true)
+    {
+        if (redraw)
+        {
+            frame("Disks / tape - read-only");
+            char label[80];
+            for (unsigned item = 0; item < 4; ++item)
+            {
+                if (item == row) display.fillRect(6, MsxMenuRowY(item), 308, MsxMenuRowHeight, 0x48);
+                if (item < 2)
+                    snprintf(label, sizeof(label), "Drive %c: %.40s", 'A' + item,
+                             selectedDisks[item][0] ? baseName(selectedDisks[item]) : "<empty>");
+                else if (item == 2)
+                    snprintf(label, sizeof(label), "Tape: %.43s", selectedTape[0] ? baseName(selectedTape) : "<empty>");
+                else snprintf(label, sizeof(label), "Rewind tape");
+                text(8, MsxMenuRowY(item), label);
+            }
+            text(8, 96, running ? "Changes are ready when emulation resumes." : "Selections will be attached on cold boot.", 0xdf);
+            text(8, 112, "Original images are never modified.");
+            text(8, 128, running && !MsxDiskAvailable() ?
+                 "Disk BIOS unavailable in current machine." : "DSK drives A/B and CAS tape supported.");
+            text(8, 180, "Enter: select  Delete: eject  Arrows: move");
+            text(8, 188, "Esc/F12: back. No automatic LOAD or RUN.");
+            const char *path = row < 2 ? selectedDisks[row] : selectedTape;
+            messageLines(statusMessage[0] ? statusMessage : path);
+            video.show();
+            redraw = false;
+        }
+        const uint8_t key = MsxKeyboardMenuKey();
+        if (!key) { delay(10); continue; }
+        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return; }
+        if (key == 81 || key == 82)
+        {
+            row = MsxMoveSelection(row, key == 82 ? -1 : 1, 4);
+            statusMessage[0] = '\0';
+        }
+        else if (key == 76 && row < 3) selectMedia(row, "");
+        else if (key == 40 && row < 3)
+        {
+            char candidate[MsxSdPathCapacity];
+            snprintf(candidate, sizeof(candidate), "%s", row < 2 ? selectedDisks[row] : selectedTape);
+            if (chooseSdFile(row < 2 ? "Select disk image - .DSK" : "Select tape image - .CAS",
+                             row < 2 ? ".dsk" : ".cas", true, candidate, true))
+                selectMedia(row, candidate);
+        }
+        else if (key == 40 && row == 3)
+        {
+            if (!running)
+                snprintf(statusMessage, sizeof(statusMessage), "Tape starts at the beginning on cold boot.");
+            else if (MsxRewindTape(statusMessage, sizeof(statusMessage)))
+                snprintf(statusMessage, sizeof(statusMessage), "Tape rewound to the beginning.");
+            else Serial.printf("MSX tape: %s\n", statusMessage);
+        }
+        redraw = true;
+    }
 }
 
 static void chooseCartridge(unsigned slot)
@@ -675,7 +797,7 @@ static void menu()
                 {
                     if (MsxValidateProfile(MsxProfiles[selectedProfile]))
                     {
-                        if (validateCartridges()) saveSettings();
+                        if (validateCartridges() && validateMedia()) saveSettings();
                     }
                     else snprintf(statusMessage, sizeof(statusMessage), "%s", MsxProfiles[selectedProfile].error);
                 }
@@ -685,7 +807,7 @@ static void menu()
                 {
                     if (MsxValidateProfile(MsxProfiles[selectedProfile]))
                     {
-                        if (!validateCartridges()) break;
+                        if (!validateCartridges() || !validateMedia()) break;
                         bootRequested = true;
                         exitRequested = running;
                         leave = true;
@@ -699,7 +821,8 @@ static void menu()
                 {
                     char previous[33];
                     snprintf(previous, sizeof(previous), "%s", MsxProfiles[selectedProfile].id);
-                    MsxMountSd();
+                    // A live CAS stream belongs to the current SD mount.
+                    if (!running) MsxMountSd();
                     MsxScanProfiles();
                     selectedProfile = 0;
                     for (size_t i = 0; i < MsxProfileCount; ++i)
@@ -714,6 +837,9 @@ static void menu()
                 break;
             case MsxMenuJoysticks:
                 if (key == 40) joystickMenu();
+                break;
+            case MsxMenuMedia:
+                if (key == 40) mediaMenu();
                 break;
             }
         }
@@ -851,7 +977,8 @@ void setup()
         if (MsxKeyboardMenuKey() == 69) { interrupted = true; break; }
         delay(10);
     }
-    bootRequested = !interrupted && autoBoot && MsxProfiles[selectedProfile].available && validateCartridges();
+    bootRequested = !interrupted && autoBoot && MsxProfiles[selectedProfile].available &&
+                    validateCartridges() && validateMedia();
 }
 
 void loop()
@@ -866,7 +993,7 @@ void loop()
         snprintf(statusMessage, sizeof(statusMessage), "%s", profile.error);
         return;
     }
-    if (!validateCartridges()) return;
+    if (!validateCartridges() || !validateMedia()) return;
     char directory[96];
     snprintf(directory, sizeof(directory), "/sdcard/msx/bios/%s", profile.id);
     frame("BOOTING");
@@ -878,7 +1005,14 @@ void loop()
     for (unsigned slot = 0; slot < 2; ++slot)
         if (selectedCartridges[slot][0])
             snprintf(slotPaths[slot], sizeof(slotPaths[slot]), "/sdcard%s", selectedCartridges[slot]);
-    const bool success = MsxCoreRun(directory, profile.model, selectedRamPages, slotPaths[0], slotPaths[1]);
+    char mediaPaths[3][MsxSdPathCapacity + 8] = {};
+    for (unsigned item = 0; item < 3; ++item)
+    {
+        const char *selection = item < 2 ? selectedDisks[item] : selectedTape;
+        if (*selection) snprintf(mediaPaths[item], sizeof(mediaPaths[item]), "/sdcard%s", selection);
+    }
+    const bool success = MsxCoreRun(directory, profile.model, selectedRamPages, slotPaths[0], slotPaths[1],
+                                    mediaPaths[0], mediaPaths[1], mediaPaths[2]);
     running = false;
     MsxAudioEnable(false);
     if (!success && !statusMessage[0])

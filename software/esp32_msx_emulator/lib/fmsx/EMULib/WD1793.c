@@ -180,6 +180,17 @@ byte Write1793(register WD1793 *D,register byte A,register byte V)
       /* Reset status register */
       D->R[0]=0x00;
       D->Cmd=V;
+      /* Mounted read-only media must reject both sector and track writes. */
+      if(((V&0xE0)==0xA0||(V&0xF0)==0xF0) &&
+         D->Disk[D->Drive] && D->Disk[D->Drive]->Data &&
+         D->Disk[D->Drive]->Data[3])
+      {
+        D->R[0]=F_READONLY;
+        D->RDLength=D->WRLength=0;
+        D->Ptr=0;
+        D->IRQ=WD1793_IRQ;
+        return(D->IRQ);
+      }
       /* Depending on the command... */
       switch(V&0xF0)
       {

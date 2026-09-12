@@ -33,6 +33,11 @@ The [MSX firmware](software/esp32_msx_emulator/README.md) runs the original fMSX
 
 This is a practical build: bring your own legally obtained ROMs and BIOS files, load them from SD, and boot from the menu. The software supports the core MSX experience with USB keyboard input, graphics, sound, cartridge booting, and firmware updates through the on-screen menu. and... USB joystick support, of course.
 
+The F12 menu also attaches read-only `.dsk` images to drives A/B and `.cas`
+tapes, with ejection, tape rewind and optional saved boot defaults.
+Disk access requires a compatible user-supplied disk BIOS; see the
+[disk and tape setup guide](software/esp32_msx_emulator/README.md#disk-and-tape-images).
+
 ## Repository layout
 
 ```text
@@ -126,4 +131,3 @@ The CP400 was part of the wider Brazilian TRS-Color ecosystem, and the MSX line 
 ![Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International](https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png)
 
 All hardware and firmware binaries in this repository are released under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International license. Personal builds and community tinkering are encouraged, but commercial use or resale requires explicit authorization from the author.
-

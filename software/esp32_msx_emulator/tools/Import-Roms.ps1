@@ -5,6 +5,7 @@ param(
     [ValidateSet(0, 1)][int]$OmegaBank = 0,
     [string]$ExpertRom,
     [string]$HotbitRom,
+    [string]$DiskBios,
     [string]$PanasonicDirectory,
     [ValidateSet('FS-A1WSX', 'FS-A1F', 'FS-A1FX')][string[]]$PanasonicModels = @('FS-A1WSX', 'FS-A1F', 'FS-A1FX'),
     [string]$BiosRom,
@@ -104,6 +105,10 @@ if ($BiosRom) {
     Add-Profile $ProfileId $Name $Model $main $extension 'User-supplied BIOS and extension'
 }
 if ($profiles.Count -eq 0) { throw 'Specify at least one ROM to import.' }
+if ($DiskBios) {
+    $disk = Read-SizedRom $DiskBios @(16384)
+    foreach ($profile in $profiles) { $profile.Files['DISK.ROM'] = $disk }
+}
 
 $root = Join-Path ([System.IO.Path]::GetFullPath($Destination)) 'msx\bios'
 # Validate every input and destination before replacing any existing profile.

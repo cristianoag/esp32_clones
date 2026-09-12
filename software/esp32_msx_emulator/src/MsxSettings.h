@@ -13,10 +13,18 @@ struct MsxBootSettingsV1
     uint8_t autoBoot;
 };
 
+struct MsxBootSettingsV2
+{
+    MsxBootSettingsV1 machine;
+    char cartridges[2][MsxSdPathCapacity];
+};
+
 struct MsxBootSettings
 {
     MsxBootSettingsV1 machine;
     char cartridges[2][MsxSdPathCapacity];
+    char disks[2][MsxSdPathCapacity];
+    char tape[MsxSdPathCapacity];
 };
 
 bool MsxDecodeSettings(const void *data, size_t size, MsxBootSettings &settings);

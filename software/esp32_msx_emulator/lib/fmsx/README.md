@@ -113,9 +113,9 @@ These are **64 KiB generic fMSX BIOS/BASIC profiles**, not complete emulations
 of each Panasonic motherboard. RAM remains in fMSX slot 3/subslot 2; original
 BIOS code discovers it. Physical cartridge slots 1 and 2 remain available.
 Original MSX2+ Kanji BASIC executes its own startup animation. No substitute
-logo, forced boot patch, built-in application, disk ROM/controller configuration,
+logo, forced boot patch, built-in application, model-specific disk controller,
 firmware mapper, turbo control, FM-BASIC ROM or model-specific SRAM is added.
-Standard upstream cassette BIOS traps remain unchanged.
+The optional generic Disk BASIC ROM and read-only cassette traps are described below.
 
 Font level 1 uses D8h (column/address bits 5–10), D9h (row/bits 11–16),
 and D9h reads. FS-A1WSX additionally uses DAh/DBh for level 2. Its address
@@ -174,10 +174,9 @@ a run releases it. Other models ignore this file.
 
 Upstream optional files, including `DISK.ROM`, `CMOS.ROM`, `KANJI.ROM`, and
 system cartridges, are resolved inside the selected profile directory.
-CMOS writes stay in that same directory. Disk auto-insertion, tape, printer
-files and MIDI logging are disabled by this frontend.
-The underlying disk/tape emulation is retained, but this frontend does not
-offer an image-selection API. Both joystick ports are configured as digital
+CMOS writes stay in that same directory. Printer files and MIDI logging are
+disabled by this frontend. Disk/tape image contents are always read-only.
+Both joystick ports are configured as digital
 MSX joysticks and receive the platform's active-high U/D/L/R/A/B masks through
 `msxPollJoysticks` (bits 0-5 and 8-13). The core converts these to active-low
 PSG input, including the register-15 port selector. Mouse input is not connected.
@@ -188,7 +187,9 @@ not emulate every physical Omega expansion or board peripheral.
 
 ```cpp
 bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
-                const char* slot1 = nullptr, const char* slot2 = nullptr);
+                const char* slot1 = nullptr, const char* slot2 = nullptr,
+                const char* diskA = nullptr, const char* diskB = nullptr,
+                const char* tape = nullptr);
 bool MsxValidateCartridge(const char* absolutePath, char* error, size_t errorSize);
 ```
 
@@ -206,6 +207,58 @@ selection. Null/empty is valid; its optional error buffer is cleared on success
 and receives a bounded NUL-terminated explanation on failure. Boot validates
 again and the loader still requires a complete read, since a file can change
 after preflight.
+
+### Read-only disks and cassette
+
+The last three boot arguments select drive A, drive B and one cassette. They
+are required attachments when nonempty: a failed open/read/allocation aborts
+before executing the Z80. `MsxValidateDisk` and `MsxValidateTape` are read-only
+preflights with the same error-buffer convention as cartridge validation.
+Live `MsxAttachDisk(unsigned drive, const char* path, char* error, size_t size)`,
+`MsxAttachTape(path, error, size)` and `MsxRewindTape(error, size)` must run on
+the CPU task while paused (the F12 callback). They return errors without
+calling the platform's fatal error callback. Null/empty paths eject; failed
+replacements preserve the old image/stream and cassette position. Disk swaps
+commit only after a complete read and then reset pending FDC transfers.
+The UI owns saved boot defaults separately from these live attachments.
+
+Supported DSK images are **raw, headerless 368640 or 737280 bytes**, interpreted
+as 80 tracks × 9 sectors × 512 bytes with one or two sides respectively. Data
+is ordered track, side, sector. A 360 KiB 40-track/double-sided image is not
+the supported geometry. Container/compressed images, other sizes and raw
+controller/protection formats are unsupported. Sector contents, including an
+`AB` prefix, do not invalidate a raw image. Disk storage and its small FDI
+index are allocated in PSRAM, not the reserved internal heap.
+
+Each selected BIOS profile may contain an optional **16 KiB `DISK.ROM`**.
+It must be a compatible MSX Disk BASIC ROM with an `AB` header and standard
+JP entries at 4010h/4013h/4016h/401Ch/401Fh. The verified example is the user's
+Philips NMS8250 `nms8250_disk.rom`, SHA-1
+`c3efedda7ab947a06d9345f7b8261076fa7ceeef`. Import it unchanged as `DISK.ROM`;
+it is not distributed here. All models load it independently at **primary
+slot 3/subslot 3/page 1 (4000h–7FFFh)**, leaving the complete Omega/Panasonic
+extension at 3-1 and RAM at 3-2 untouched. It takes precedence over optional
+RS232 ROM occupancy. `MsxDiskAvailable()` reports whether it was loaded and
+patched. Missing/invalid disk BIOS does not prevent normal BASIC or cassette
+use; attempting a disk attachment reports that a compatible `DISK.ROM` must
+be added to that profile followed by a cold boot.
+
+Disk accesses use original Disk BASIC executing fMSX BIOS traps, **not
+TC8566 emulation or a claim of raw controller accuracy**. Traps are accepted
+only from the mapped system ROM, not the same address in a cartridge.
+Disk BIOS writes/format return write-protected; low-level disk writes and
+WD1793 sector/track writes also reject mounted media, and protected FDI
+images cannot be saved. No disk saved-state auto-loading or empty-image
+creation occurs.
+
+CAS images must begin with `1F A6 DE BA CC 13 7D 74`; subsequent markers may
+be byte-aligned anywhere. Tape reads use the original BIOS entry points.
+The stream stays open read-only across F12 pauses; TAPION searches forward,
+EOF returns carry/error and remains at EOF until explicit rewind or reattach.
+TAPOON/TAPOUT/TAPOOF reject save attempts without changing the stream or source.
+WAV and tape recording are unsupported. Disk contents are cached in memory,
+whereas tape remains an SD stream: after physical SD removal/reinsertion,
+restart rather than trusting an old open tape handle.
 
 Images must contain complete 8 KiB banks and be at most **2 MiB per cartridge**
 (`MSX_MAX_CART_BYTES`). This is the original core's 256-bank, byte-sized mapper
@@ -238,7 +291,13 @@ boot-time allocation of both SRAM and its filename is mandatory.
   MAIN/auxiliary/SUB/Kanji BASIC regions from an authoritative single Omega
   flash bank; load Panasonic BASIC/sub-ROM/Kanji BASIC/font combined images;
   implement WSX shared-latch, interlocked JIS level-2 font reads; implement the
-  F4 reset-status latch and raster collision polling.
+  F4 reset-status latch and raster collision polling; independently map and
+  patch Disk BASIC in slot 3-3; atomically load read-only raw disks/CAS.
+- `Patch.c`: enforce mapped-ROM traps and read-only disk/tape operations,
+  bound disk sectors to mounted geometry, validate/fallback malformed BPBs,
+  and support unaligned CAS markers with explicit EOF/rewind semantics.
+- `FDIDisk.c`, `WD1793.c`: allocate new disk buffers through PSRAM and enforce
+  mounted-media write protection in save/controller paths.
 - `V9938.c`: add command-engine reset for safe profile switching.
 - `Common.h`: apply SCREEN 6 coarse/fine horizontal scroll, two-page wrapping,
   left-edge masking and correct sprite palette-pair sampling.
@@ -251,6 +310,25 @@ All other vendored core files, including the Z80 interpreter and emulated sound
 chips, remain original upstream sources.
 
 ## Host regression
+
+`powershell -File lib\fmsx\tests\media.ps1` selects the synthetic media suite.
+It executes original Z80 CALLs through patched BIOS entries and also checks
+disk/tape register/error semantics, two drives, invalid/missing images,
+allocation-failure rollback, eject/reattach, CAS rewind/EOF, controller/BIOS
+write protection, slot isolation and unchanged complete source contents.
+With local BIOS profiles, additionally run:
+
+```powershell
+powershell -File lib\fmsx\tests\media.ps1 -ProfilesRoot .\sdcard\msx\bios -DiskBios C:\private\nms8250_disk.rom
+```
+
+Only disposable copies under `tests\.build` are used. This boots all six
+profiles with original BIOS code, lists synthetic files using `FILES "A:"`
+and `FILES "B:"`, executes `BLOAD "CAS:"`, and verifies the loaded byte in BASIC.
+All six profiles passed this test with the identified Philips ROM. No BIOS
+or game bytes are embedded in tests, and originals/prepared profiles are not
+modified. The optional real-media verification requires at least 300 frames
+(900 by default).
 
 With native GCC/G++ on PATH and the existing PlatformIO Arduino ESP32 SDK
 installed, run `powershell -File lib\fmsx\tests\host_smoke.ps1` from the firmware

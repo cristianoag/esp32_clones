@@ -378,6 +378,8 @@ void ChangePrinter(const char *FileName);
 /** Returns 1 on success, 0 on failure.                     **/
 /*************************************************************/
 byte ChangeTape(const char *FileName);
+/* Disk BASIC is independently mapped at primary 3/subslot 3/page 1. */
+byte DiskROMAvailable(void);
 
 /** RewindTape() *********************************************/
 /** Rewind currenly open tape.                              **/
@@ -386,8 +388,8 @@ void RewindTape(void);
 
 /** ChangeDisk() *********************************************/
 /** Change disk image in a given drive. Closes current disk **/
-/** image if Name=0 was given. Creates a new disk image if  **/
-/** Name="" was given. Returns 1 on success or 0 on failure.**/
+/** image if Name=0 or Name="" was given. Reads raw 360/720 **/
+/** KiB images only; failure preserves the previous disk.  **/
 /*************************************************************/
 byte ChangeDisk(byte N,const char *FileName);
 

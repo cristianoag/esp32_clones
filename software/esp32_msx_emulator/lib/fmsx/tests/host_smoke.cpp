@@ -40,7 +40,13 @@ static bool expectKanjiLogo;
 static bool logoResetTest;
 static bool truncateOmegaOnAllocation;
 static bool truncatePanasonicOnAllocation, panasonicTest, panasonicResetTest;
+static bool truncateMediaOnAllocation;
 static bool panasonicOnly;
+static bool mediaTest;
+static void checkMedia();
+static bool realMedia, realDiskASeen, realDiskBSeen, realTapeSeen;
+static unsigned mediaCommands;
+static void injectMediaCommand();
 static std::vector<byte> expectedPanasonic;
 static unsigned logoPcSamples, logoPixels, logoFrame;
 static std::vector<byte> expectedKanjiBasic;
@@ -174,6 +180,9 @@ static void captureBoot(const uint8_t* pixels, int width, int height,
       }
       text[columns] = 0;
       if (strstr(text, "Ok")) basicPrompt = true;
+      if (strstr(text, "DISKA")) realDiskASeen = true;
+      if (strstr(text, "DISKB")) realDiskBSeen = true;
+      if (strstr(text, "TAPEOK")) realTapeSeen = true;
       printf("%s\n", text);
     }
   }
@@ -182,6 +191,11 @@ static void captureBoot(const uint8_t* pixels, int width, int height,
 extern "C" void* heap_caps_malloc(size_t size, unsigned)
 {
   if (++allocation == failAllocation) return nullptr;
+  if (truncateMediaOnAllocation && size > 300000) {
+    truncateMediaOnAllocation = false;
+    FILE* f = fopen("media-short.dsk","wb");
+    assert(f && fclose(f)==0);
+  }
   if (truncateOmegaOnAllocation && size == 32768) {
     // Simulate a short read after the loader has checked the bank's exact size.
     truncateOmegaOnAllocation = false;
@@ -257,6 +271,7 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
   for (int i = 0; i < width * height; ++i)
     if (pixels[i]) { ++coloredFrames; break; }
   ++frames;
+  if (mediaTest && frames == 1) checkMedia();
   if (!realBios && frames == 1) checkStartupHardware();
   if (panasonicTest && frames == 1) checkPanasonic();
   if (logoTest && frames == 1) {
@@ -353,6 +368,7 @@ void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* pa
 void msxPollKeyboard(uint8_t matrix[16])
 {
   ++keyboardPolls;
+  if (realMedia) injectMediaCommand();
   if (!realBios) {
     matrix[0] = 0xFE;
     UPeriod = requestedDrawPercent;
@@ -860,10 +876,13 @@ static void panasonicRegression(const char* directory)
   puts("PASS: authoritative Panasonic 208/336 KiB banks, read-only 48 KiB extension, both cartridges, JIS1/2 addressing/interlock/wrap, resets, invalid/short reads, OOM and legacy recovery.");
 }
 
+#include "media_regression.h"
+
 int main(int argc, char** argv)
 {
+  const bool mediaOnly = argc == 2 && strcmp(argv[1], "--media") == 0;
   panasonicOnly = argc == 2 && strcmp(argv[1], "--panasonic") == 0;
-  if (argc > 1 && !panasonicOnly) {
+  if (argc > 1 && !panasonicOnly && !mediaOnly) {
     assert(argc == 5);
     realBios = true;
     frameLimit = static_cast<unsigned>(atoi(argv[4]));
@@ -894,7 +913,24 @@ int main(int argc, char** argv)
           puts("Auxiliary slot-0 page-2 area is erased; checking the built-in Kanji BASIC startup logo instead.");
       }
     }
-    const bool result = MsxCoreRun(argv[1], atoi(argv[2]), atoi(argv[3]));
+    const std::string diskBiosPath = std::string(argv[1]) + "/DISK.ROM";
+    realMedia = access(diskBiosPath.c_str(),F_OK)==0;
+    if (realMedia && frameLimit < 300) {
+      fprintf(stderr,"Real media verification needs at least 300 frames.\n");
+      return 1;
+    }
+    char currentDirectory[1024];
+    assert(getcwd(currentDirectory,sizeof(currentDirectory)));
+    for (char* p=currentDirectory;*p;++p) if(*p=='\\') *p='/';
+    const char* mediaRoot=currentDirectory[1]==':'? currentDirectory+2:currentDirectory;
+    const std::string diskAPath=std::string(mediaRoot)+"/real-a.dsk";
+    const std::string diskBPath=std::string(mediaRoot)+"/real-b.dsk";
+    const std::string tapePath=std::string(mediaRoot)+"/real.cas";
+    if (realMedia) prepareRealMedia();
+    const bool result = MsxCoreRun(argv[1], atoi(argv[2]), atoi(argv[3]),nullptr,nullptr,
+                                   realMedia?diskAPath.c_str():nullptr,
+                                   realMedia?diskBPath.c_str():nullptr,
+                                   realMedia?tapePath.c_str():nullptr);
     printf("BIOS boot: result=%d, frames=%u, samples=%u, BASIC prompt=%s\n",
            result, frames, audioSamples, basicPrompt ? "yes" : "not detected");
     if (expectKanjiLogo)
@@ -902,7 +938,12 @@ int main(int argc, char** argv)
     else if (expectRealLogo)
       printf("Logo boot: executing slot-0 page-2 samples=%u, captured frame=%u, detail pixels=%u\n",
              logoPcSamples, logoFrame, logoPixels);
+    if (realMedia) {
+      printf("Real Disk BASIC FILES A/B and CAS BLOAD: %d/%d/%d\n",realDiskASeen,realDiskBSeen,realTapeSeen);
+      for (const char* name : {"real-a.dsk","real-b.dsk","real.cas"}) assert(remove(name)==0);
+    }
     return result && frames == frameLimit && basicPrompt &&
+           (!realMedia||(realDiskASeen&&realDiskBSeen&&realTapeSeen)) &&
            (!expectRealLogo || (logoPcSamples && logoFrame)) &&
            (!expectKanjiLogo || logoFrame) ? 0 : 1;
   }
@@ -941,6 +982,11 @@ int main(int argc, char** argv)
     for (const char* name : names) assert(remove(name) == 0);
     return 0;
   }
+  if (mediaOnly) {
+    mediaRegression(path);
+    for (const char* name : names) assert(remove(name) == 0);
+    return 0;
+  }
   for (int pass = 0; pass < 2; ++pass)
     for (int model = 0; model < 3; ++model)
       for (int pages = 4; pages <= 32; pages *= 2) {
@@ -964,6 +1010,7 @@ int main(int argc, char** argv)
   logoRegression(path);
   omegaRegression(path);
   panasonicRegression(path);
+  mediaRegression(path);
   frameLimit = 30;
   for (int pal = 0; pal < 2; ++pal) {
     requestedPal = pal != 0;

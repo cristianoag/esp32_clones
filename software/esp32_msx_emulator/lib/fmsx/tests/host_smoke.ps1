@@ -5,10 +5,16 @@ param(
   [ValidateRange(0,2)][int]$Model = 0,
   [ValidateSet(4,8,16,32)][int]$RamPages = 4,
   [ValidateRange(1,36000)][int]$Frames = 900,
-  [switch]$PanasonicOnly
+  [switch]$PanasonicOnly,
+  [switch]$MediaOnly,
+  [string]$DiskBios = ''
 )
 $ErrorActionPreference = 'Stop'
 if ($BiosDirectory -and $ProfilesRoot) { throw 'Use either -BiosDirectory or -ProfilesRoot, not both.' }
+if ($DiskBios) {
+  $DiskBios = (Resolve-Path -LiteralPath $DiskBios).Path
+  if ($Frames -lt 300) { throw 'Real disk/tape verification requires at least 300 frames.' }
+}
 $profiles = @()
 if ($BiosDirectory) {
   $profiles += @{ Directory = (Resolve-Path -LiteralPath $BiosDirectory).Path; Name = 'custom'; Model = $Model; Ram = $RamPages }
@@ -42,7 +48,8 @@ try {
     "$PSScriptRoot\host_smoke.cpp" @(Get-ChildItem '*.o' | ForEach-Object FullName) `
     -o host_smoke.exe
   if ($LASTEXITCODE -ne 0) { throw 'Core host linking failed.' }
-  if ($PanasonicOnly) { & '.\host_smoke.exe' --panasonic }
+  if ($MediaOnly) { & '.\host_smoke.exe' --media }
+  elseif ($PanasonicOnly) { & '.\host_smoke.exe' --panasonic }
   else { & '.\host_smoke.exe' }
   if ($LASTEXITCODE -ne 0) { throw 'Core host regression failed.' }
   foreach ($profile in $profiles) {
@@ -70,6 +77,7 @@ try {
         if (Test-Path -LiteralPath $capture) { Remove-Item -LiteralPath $capture }
       }
       foreach ($name in $names) { Copy-Item -LiteralPath (Join-Path $profile.Directory $name) -Destination $bios }
+      if ($DiskBios) { Copy-Item -LiteralPath $DiskBios -Destination (Join-Path $bios 'DISK.ROM') }
       $posix = $bios.Replace('\', '/')
       if ($posix[1] -eq ':') { $posix = $posix.Substring(2) }
       Write-Output "Booting $($profile.Name)..."
@@ -81,7 +89,7 @@ try {
         Copy-Item -LiteralPath "$build\boot-logo.ppm" -Destination "$build\boot-logo-$($profile.Name).ppm"
       }
     } finally {
-      foreach ($name in @($names) + @('CMOS.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM', 'PANASONIC.ROM')) {
+      foreach ($name in @($names) + @('CMOS.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM', 'PANASONIC.ROM', 'DISK.ROM')) {
         $copy = Join-Path $bios $name
         if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy }
       }
@@ -90,6 +98,11 @@ try {
 } finally {
   foreach ($name in @('MSX.ROM', 'MSX2.ROM', 'MSX2EXT.ROM', 'MSX2P.ROM', 'MSX2PEXT.ROM', 'MSX2PLOGO.ROM', 'OMEGA.ROM', 'PANASONIC.ROM', 'KANJI.ROM', 'DISK.ROM',
                       'slot1.rom', 'slot2.rom', 'slot1.sav', 'slot2.sav', 'CARTS.CRC')) {
+    $generated = Join-Path $build $name
+    if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }
+  }
+  foreach ($name in @('media-a.dsk','media-b.dsk','media.cas','media-bad.bin','media-short.dsk',
+                      'media-forbidden.dsk','real-a.dsk','real-b.dsk','real.cas')) {
     $generated = Join-Path $build $name
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }
   }

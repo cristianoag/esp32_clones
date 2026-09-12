@@ -14,6 +14,7 @@
 /*************************************************************/
 
 #include "MSX.h"
+#include "AudioProfiles.h"
 #include "Sound.h"
 #include "Floppy.h"
 #include "SHA1.h"
@@ -176,6 +177,84 @@ YM2413 OPLL;                       /* OPLL registers & state */
 SCC  SCChip;                       /* SCC registers & state  */
 byte SCCOn[2];                     /* 1 = SCC page active    */
 word FMPACKey;                     /* MAGIC = SRAM active    */
+static int AudioProfile;
+static const char *AudioROMPath;
+static int AudioCart = -1,AudioKind;
+static byte AudioEnable,AudioBank,AudioPS,AudioSS;
+static word AudioSRAMKey;
+
+int FmsxSetAudioProfile(int Profile,const char *FMROMPath)
+{
+  if((Profile<0)||(Profile>4)) return(0);
+  AudioProfile=Profile;
+  AudioROMPath=FMROMPath&&*FMROMPath? FMROMPath:0;
+  return(1);
+}
+
+static int SCCAudioEnabled(void)
+{ return(AudioProfile==0||AudioProfile==2||AudioProfile==4); }
+
+static int FMAudioEnabled(void)
+{ return(AudioKind&&(AudioKind==1||(AudioEnable&1))); }
+
+/* FM-PAC occupies one 16kB window. SRAM never exposes ROM in its upper half. */
+static void MapAudioROM(void)
+{
+  byte *P;
+  int J;
+  if(AudioCart<0) return;
+  P=ROMData[AudioCart]+AudioBank*0x4000;
+  if(AudioKind==2&&AudioSRAMKey==FMPAC_MAGIC)
+  {
+    P=SRAMData[AudioCart];
+    P[0x1FFE]=0x4D;
+    P[0x1FFF]=0x69;
+  }
+  MemMap[AudioPS][AudioSS][2]=P;
+  MemMap[AudioPS][AudioSS][3]=
+    AudioKind==2&&AudioSRAMKey==FMPAC_MAGIC? EmptyRAM:P+0x2000;
+  for(J=2;J<4;++J)
+    if(PSL[1]==AudioPS&&SSL[1]==AudioSS)
+      RAM[J]=MemMap[AudioPS][AudioSS][J];
+}
+
+static int SelectedAudioROM(word A)
+{
+  return(AudioCart>=0&&A>=0x4000&&A<0x8000&&
+         PSL[1]==AudioPS&&SSL[1]==AudioSS);
+}
+
+static void WriteAudioROM(word A,byte V)
+{
+  if(AudioKind!=2) return;
+  switch(A)
+  {
+    case 0x7FF4: WrCtrl2413(&OPLL,V);return;
+    case 0x7FF5: WrData2413(&OPLL,V);return;
+    case 0x7FF6:
+      AudioEnable=V&0x11;
+      if(AudioEnable&0x10) AudioSRAMKey=0;
+      MapAudioROM();
+      return;
+    case 0x7FF7:
+      AudioBank=V&3;
+      MapAudioROM();
+      return;
+    case 0x5FFE:
+    case 0x5FFF:
+      if(!(AudioEnable&0x10))
+      {
+        AudioSRAMKey=A&1? (AudioSRAMKey&0xFF)|((word)V<<8):(AudioSRAMKey&0xFF00)|V;
+        MapAudioROM();
+      }
+      return;
+  }
+  if(A<0x5FFE&&AudioSRAMKey==FMPAC_MAGIC)
+  {
+    SRAMData[AudioCart][A-0x4000]=V;
+    SaveSRAM[AudioCart]=1;
+  }
+}
 
 /** Serial I/O hardware: i8251+i8253 *************************/
 I8251 SIO;                         /* SIO registers & state  */
@@ -480,6 +559,10 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
   OmegaBankLoaded = 0;
   PanasonicBankLoaded = 0;
   FMPACKey    = 0x0000;
+  AudioCart   = -1;
+  AudioKind   = 0;
+  AudioEnable = AudioBank = 0;
+  AudioSRAMKey = 0;
   ExitNow     = 0;
   NChunks     = 0;
   CheatsON    = 0;
@@ -576,9 +659,42 @@ int StartMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
     if((J<MAXSLOTS)&&LoadCart("PAINTER.ROM",J,0)) ++J;
   }
 
-  /* Load FMPAC cartridge */
+  /* Load only the globally selected FM BIOS, without consuming user slots. */
   for(;(J<MAXSLOTS)&&ROMData[J];++J);
-  if((J<MAXSLOTS)&&LoadCart("FMPAC.ROM",J,MAP_FMPAC)) ++J;
+  if(AudioProfile!=1&&AudioProfile!=2)
+  {
+    if(AudioROMPath)
+    {
+      FILE *F;
+      byte Header[32];
+      long Size;
+      int Kind,Pages;
+      if(J>=MAXSLOTS) { errno=ENOSPC;return(0); }
+      F=fopen(AudioROMPath,"rb");
+      if(!F) return(0);
+      Size=-1;
+      if(!fseek(F,0,SEEK_END)) Size=ftell(F);
+      rewind(F);
+      Kind=fread(Header,1,sizeof(Header),F)==sizeof(Header)?
+        FmsxAudioRomKind(Header,Size):0;
+      fclose(F);
+      if(!Kind) { errno=ENOEXEC;return(0); }
+      Pages=LoadCart(AudioROMPath,J,Kind==2? MAP_FMPAC:0);
+      if(!Pages) return(0);
+      /* Recheck the loaded image, not only the earlier path inspection. */
+      if(Pages!=Size/0x2000||FmsxAudioRomKind(ROMData[J],Pages*0x2000)!=Kind)
+      { errno=ENOEXEC;return(0); }
+      AudioCart=J;
+      AudioKind=Kind;
+      AudioPS=J==2? 3:0;
+      AudioSS=J==2? 0:J-2;
+      /* LoadCart's generic mirrors are not present on MSX-MUSIC hardware. */
+      for(I=0;I<8;++I) MemMap[AudioPS][AudioSS][I]=EmptyRAM;
+      MapAudioROM();
+      ++J;
+    }
+    else if(AudioProfile==3||AudioProfile==4) { errno=ENOENT;return(0); }
+  }
 
   /* Load Konami GameMaster2/GameMaster cartridges */
   for(;(J<MAXSLOTS)&&ROMData[J];++J);
@@ -679,6 +795,8 @@ void TrashMSX(void)
 
   /* Shut down sound logging */
   TrashMIDI();
+  AudioCart=-1;
+  AudioKind=0;
 
   /* Eject disks, free disk buffers */
   Reset1793(&FDC,FDD,WD1793_EJECT);
@@ -1159,12 +1277,20 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
     }
 
   /* Reset sound chips */
+  for(J=0;J<MAXCHANNELS;++J) Sound(J,0,0);
   Reset8910(&PSG,PSG_CLOCK,0);
   ResetSCC(&SCChip,AY8910_CHANNELS);
-  Reset2413(&OPLL,AY8910_CHANNELS);
+  Reset2413(&OPLL,AY8910_CHANNELS+SCC_CHANNELS);
   Sync8910(&PSG,AY8910_SYNC);
   SyncSCC(&SCChip,SCC_SYNC);
   Sync2413(&OPLL,YM2413_SYNC);
+  AudioEnable=AudioBank=0;
+  AudioSRAMKey=0;
+  if(AudioCart>=0)
+  {
+    for(J=0;J<8;++J) MemMap[AudioPS][AudioSS][J]=EmptyRAM;
+    MapAudioROM();
+  }
 
   /* Reset serial I/O */
   Reset8251(&SIO,ComIStream,ComOStream);
@@ -1235,6 +1361,11 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
 /*************************************************************/
 byte RdZ80(word A)
 {
+  if(AudioKind==2&&SelectedAudioROM(A))
+  {
+    if(A==0x7FF6) return(AudioEnable);
+    if(A==0x7FF7) return(AudioBank);
+  }
   /* Filter out everything but [xx11 1111 1xxx 1xxx] */
   if((A&0x3F88)!=0x3F88) return(RAM[A>>13][A&0x1FFF]);
 
@@ -1271,6 +1402,8 @@ void WrZ80(word A,byte V)
 {
   /* Secondary slot selector */
   if(A==0xFFFF) { SSlot(V);return; }
+
+  if(SelectedAudioROM(A)) { WriteAudioROM(A,V);return; }
 
   /* Floppy disk controller */
   /* 7FF8h..7FFFh Standard DiskROM  */
@@ -1485,8 +1618,8 @@ void OutZ80(word Port,byte Value)
   switch(Port)
   {
 
-case 0x7C: WrCtrl2413(&OPLL,Value);return;        /* OPLL Register# */
-case 0x7D: WrData2413(&OPLL,Value);return;        /* OPLL Data      */
+case 0x7C: if(FMAudioEnabled()) WrCtrl2413(&OPLL,Value);return;
+case 0x7D: if(FMAudioEnabled()) WrData2413(&OPLL,Value);return;
 case 0x91: Printer(Value);return;                 /* Printer Data   */
 case 0xA0: WrCtrl8910(&PSG,Value);return;         /* PSG Register#  */
 case 0xB4: RTCReg=Value&0x0F;return;              /* RTC Register#  */ 
@@ -1717,10 +1850,10 @@ printf("(%04Xh) = %02Xh at PC=%04Xh\n",A,V,CPU.PC.W);
   if(I>=MAXSLOTS) return;
 
   /* SCC: enable/disable for no cart */
-  if(!ROMData[I]&&(A==0x9000)) SCCOn[I]=(V==0x3F)? 1:0;
+  if(I<MAXCARTS&&!ROMData[I]&&(A==0x9000)) SCCOn[I]=(V==0x3F)? 1:0;
 
   /* If writing to SCC... */
-  if(SCCOn[I]&&((A&0xDF00)==0x9800))
+  if(I<MAXCARTS&&SCCOn[I]&&((A&0xDF00)==0x9800))
   {
     /* Compute SCC register number */
     J=A&0x00FF;
@@ -1734,7 +1867,7 @@ printf("(%04Xh) = %02Xh at PC=%04Xh\n",A,V,CPU.PC.W);
       if(!ROMData[I]&&(J<0xA0)) EmptyRAM[0x1800+J]=V;
    
       /* Output data to SCC chip */
-      WriteSCCP(&SCChip,J,V);
+      if(SCCAudioEnabled()) WriteSCCP(&SCChip,J,V);
     }
     else
     {
@@ -1744,7 +1877,7 @@ printf("(%04Xh) = %02Xh at PC=%04Xh\n",A,V,CPU.PC.W);
       if(!ROMData[I]&&(J<0x80)) EmptyRAM[0x1800+J]=V;
    
       /* Output data to SCC chip */
-      WriteSCC(&SCChip,J,V);
+      if(SCCAudioEnabled()) WriteSCC(&SCChip,J,V);
     }
 
     /* Done writing to SCC */   
@@ -2435,8 +2568,8 @@ word LoopZ80(Z80 *R)
 
     /* Flush changes to sound channels, only hit drums once a frame */
     Sync8910(&PSG,AY8910_FLUSH|(!ScanLine&&OPTION(MSX_DRUMS)? AY8910_DRUMS:0));
-    SyncSCC(&SCChip,SCC_FLUSH);
-    Sync2413(&OPLL,YM2413_FLUSH);
+    if(SCCAudioEnabled()) SyncSCC(&SCChip,SCC_FLUSH);
+    if(AudioKind) Sync2413(&OPLL,YM2413_FLUSH);
 
     /* Render and play all sound now */
     PlayAllSound(J);
@@ -3132,19 +3265,35 @@ int Cheats(int Switch)
 /*************************************************************/
 int GuessROM(const byte *Buf,int Size)
 {
+  FILE *CrcFile,*ShaFile;
+  const char *Source;
+  int Result;
+  errno=0;
+  CrcFile=fopen("CARTS.CRC","rb");
+  if(!CrcFile&&errno!=ENOENT) return(-101);
+  errno=0;
+  ShaFile=fopen("CARTS.SHA","rb");
+  if(!ShaFile&&errno!=ENOENT)
+  { if(CrcFile) fclose(CrcFile);return(-101); }
+  Result=GuessROMWithFiles(Buf,Size,CrcFile,ShaFile,&Source);
+  if(CrcFile) fclose(CrcFile);
+  if(ShaFile) fclose(ShaFile);
+  if(Result>=0) printf("MSX mapper: %s -> %s\n",Source,ROMNames[Result]);
+  return(Result);
+}
+
+int GuessROMWithFiles(const byte *Buf,int Size,FILE *CrcFile,FILE *ShaFile,const char **Source)
+{
   int J,I,K,Result,ROMCount[MAXMAPPERS];
   char S[256];
   FILE *F;
 
   /* No result yet */
   Result = -1;
-
-  /* Change to the program directory */
-  if(ProgDir && chdir(ProgDir))
-  { if(Verbose) printf("Failed changing to '%s' directory!\n",ProgDir); }
+  *Source="Heuristic";
 
   /* Try opening file with CRCs */
-  if((F=fopen("CARTS.CRC","rb")))
+  if((F=CrcFile))
   {
     /* Compute ROM's CRC */
     for(J=K=0;J<Size;++J) K+=Buf[J];
@@ -3152,14 +3301,16 @@ int GuessROM(const byte *Buf,int Size)
     /* Scan file comparing CRCs */
     while(fgets(S,sizeof(S)-4,F))
       if(sscanf(S,"%08X %d",&J,&I)==2)
-        if(K==J) { Result=I;break; }
-
-    /* Done with the file */
-    fclose(F);
+        if(K==J)
+        {
+          if(I<0||I>=MAXMAPPERS) return(-102);
+          Result=I;*Source="CARTS.CRC";break;
+        }
+    if(ferror(F)) return(-101);
   }
 
   /* Try opening file with SHA1 sums */
-  if((Result<0) && (F=fopen("CARTS.SHA","rb")))
+  if((Result<0) && (F=ShaFile))
   {
     char S1[41],S2[41];
     SHA1 C;
@@ -3171,16 +3322,14 @@ int GuessROM(const byte *Buf,int Size)
     {
       while(fgets(S,sizeof(S)-4,F))
         if((sscanf(S,"%40s %d",S2,&J)==2) && !strcmp(S1,S2))
-        { Result=J;break; }
+        {
+          if(J<0||J>=MAXMAPPERS) return(-102);
+          Result=J;*Source="CARTS.SHA";break;
+        }
     }
-
-    /* Done with the file */
-    fclose(F);
+    else return(-100);
+    if(ferror(F)) return(-101);
   }
-
-  /* We are now back to working directory */
-  if(WorkDir && chdir(WorkDir))
-  { if(Verbose) printf("Failed changing to '%s' directory!\n",WorkDir); }
 
   /* If found ROM by CRC or SHA1, we are done */
   if((Result>=0)&&(Result<MAXMAPPERS)) return(Result);
@@ -3189,10 +3338,10 @@ int GuessROM(const byte *Buf,int Size)
   Result=FmsxKnownMapper(Buf,Size);
   if(Result>=0)
   {
-    printf("MSX mapper: embedded SHA-1 database -> %s\n",ROMNames[Result]);
+    *Source="Embedded SHA-1 database";
     return(Result);
   }
-  if(Result!=-1) return(Result);
+  if(Result!=-1) { *Source="Database / signature";return(Result); }
 
   /* Clear all counters */
   for(J=0;J<MAXMAPPERS;++J) ROMCount[J]=1;
@@ -3372,13 +3521,14 @@ int FindState(const char *Name)
 /*************************************************************/
 int LoadCart(const char *FileName,int Slot,int Type)
 {
-  int C1,C2,Len,Pages,ROM64,BASIC;
+  int C1,C2,Len,Pages,ROM64,BASIC,Forced;
   byte *P,PS,SS;
   char *T;
   FILE *F;
 
   /* Slot number must be valid */
   if((Slot<0)||(Slot>=MAXSLOTS)) return(0);
+  Forced=Slot<MAXCARTS&&Type<MAP_GUESS;
   /* Find primary/secondary slots */
   for(PS=0;PS<4;++PS)
   {
@@ -3472,6 +3622,7 @@ int LoadCart(const char *FileName,int Slot,int Type)
 
   /* Calculate 2^n closest to number of 8kB pages */
   for(Pages=1;Pages<Len;Pages<<=1);
+  if(Forced&&Pages<4) Pages=4;
 
   /* Check "AB" signature in a file */
   ROM64=0;
@@ -3532,10 +3683,13 @@ int LoadCart(const char *FileName,int Slot,int Type)
   }
   fclose(F);
   ROMData[Slot]=P;
-  ROMMask[Slot]=!ROM64&&(Len>4)? (Pages-1):0x00;
+  if(Forced) ROM64=0;
+  ROMMask[Slot]=Forced||(!ROM64&&(Len>4))? (Pages-1):0x00;
 
   /* Mirror ROM if it is smaller than 2^n pages */
-  if(Len<Pages)
+  if(Len<Pages/2)
+    for(C1=Len;C1<Pages;++C1) memcpy(P+C1*0x2000,P+(C1%Len)*0x2000,0x2000);
+  else if(Len<Pages)
     memcpy(P+Len*0x2000,P+(Len-Pages/2)*0x2000,(Pages-Len)*0x2000); 
 
   /* Detect ROMs containing BASIC code */
@@ -3623,8 +3777,8 @@ int LoadCart(const char *FileName,int Slot,int Type)
     Type=GuessROM(P,Len<<13);
     if(Type<0)
     {
-      printf("MSX cartridge %c: unsupported %s\n",'A'+Slot,FmsxUnsupportedMapperName(Type));
-      errno=ENOTSUP;
+      printf("MSX cartridge %c: %s\n",'A'+Slot,FmsxUnsupportedMapperName(Type));
+      errno=Type<=-100? EINVAL:ENOTSUP;
       goto CartFailed;
     }
     if(Verbose) printf("guessed %s..",ROMNames[Type]);

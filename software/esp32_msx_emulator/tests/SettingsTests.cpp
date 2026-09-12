@@ -25,7 +25,7 @@ int main()
     assert(MsxMenuRowHeight == 8);
     assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuJoysticks);
     assert(MsxMoveSelection(MsxMenuJoysticks, 1, MsxMenuCount) == MsxMenuResume);
-    assert(MsxMoveSelection(MsxMenuBios, 1, MsxMenuCount) == MsxMenuMedia);
+    assert(MsxMoveSelection(MsxMenuRam, 1, MsxMenuCount) == MsxMenuMedia);
     assert(MsxMoveSelection(15, 1, 33) == 16);
     assert(MsxMoveSelection(32, 1, 33) == 0);
     assert(MsxMoveSelection(0, -1, 0) == 0);
@@ -33,7 +33,9 @@ int main()
     MsxBootSettingsV1 previous = {1, "omega", 32, 1, 1};
     MsxBootSettings decoded;
     assert(MsxDecodeSettings(&previous, sizeof(previous), decoded));
-    assert(decoded.machine.version == 3 && decoded.machine.ramPages == 32);
+    assert(decoded.machine.version == 4 && decoded.machine.ramPages == 32);
+    assert(decoded.mappers[0] == MsxMapperAuto && decoded.mappers[1] == MsxMapperAuto);
+    assert(decoded.audioProfile == MsxAudioAuto);
     assert(!strcmp(decoded.machine.profile, "omega"));
     assert(!decoded.cartridges[0][0] && !decoded.cartridges[1][0]);
     assert(!decoded.disks[0][0] && !decoded.disks[1][0] && !decoded.tape[0]);
@@ -42,13 +44,26 @@ int main()
     old.machine.version = 2;
     strcpy(old.cartridges[0], "/games/cart.rom");
     assert(MsxDecodeSettings(&old, sizeof(old), decoded));
-    assert(decoded.machine.version == 3 && !strcmp(decoded.cartridges[0], old.cartridges[0]));
+    assert(decoded.machine.version == 4 && !strcmp(decoded.cartridges[0], old.cartridges[0]));
+    assert(decoded.mappers[0] == MsxMapperAuto && decoded.mappers[1] == MsxMapperAuto);
+    assert(decoded.audioProfile == MsxAudioAuto);
     assert(!decoded.disks[0][0] && !decoded.disks[1][0] && !decoded.tape[0]);
     strcpy(decoded.cartridges[0], "/msx/roms/game one.ROM");
     strcpy(decoded.cartridges[1], "/Games/subfolder/utility.rom");
     strcpy(decoded.disks[0], "/disks/game disk 1.DSK");
     strcpy(decoded.disks[1], "/disks/game disk 2.dsk");
     strcpy(decoded.tape, "/tapes/basic.CAS");
+    MsxBootSettingsV3 media = {};
+    memcpy(&media, &decoded, sizeof(media));
+    media.machine.version = 3;
+    assert(MsxDecodeSettings(&media, sizeof(media), decoded));
+    assert(decoded.machine.version == 4 && !strcmp(decoded.tape, media.tape));
+    assert(!strcmp(decoded.disks[1], media.disks[1]));
+    assert(decoded.mappers[0] == MsxMapperAuto && decoded.mappers[1] == MsxMapperAuto);
+    assert(decoded.audioProfile == MsxAudioAuto);
+    decoded.mappers[0] = MsxKonamiScc;
+    decoded.mappers[1] = MsxAscii8;
+    decoded.audioProfile = MsxAudioPsgFm;
     MsxBootSettings saved = decoded;
     assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
     assert(!memcmp(&saved, &decoded, sizeof(saved)));
@@ -58,9 +73,9 @@ int main()
     saved.cartridges[1][0] = '\0';
     assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
     assert(!decoded.cartridges[0][0] && !decoded.cartridges[1][0]);
-    saved.machine.version = 4;
+    saved.machine.version = 5;
     assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
-    saved.machine.version = 3;
+    saved.machine.version = 4;
     saved.machine.ramPages = 5;
     assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
     saved.machine.ramPages = 4;
@@ -82,7 +97,7 @@ int main()
     assert(!MsxDecodeSettings(nullptr, sizeof(saved), decoded));
     saved = {};
     saved.machine = old.machine;
-    saved.machine.version = 3;
+    saved.machine.version = 4;
     strcpy(saved.disks[0], "/bad.zip");
     assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
     strcpy(saved.disks[0], "/../bad.dsk");
@@ -97,6 +112,30 @@ int main()
     assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
     assert(!decoded.disks[0][0] && !decoded.disks[1][0] && !decoded.tape[0]);
     assert(!MsxDecodeSettings(&saved, sizeof(old), decoded)); // Version/size must agree.
+    for (unsigned mapper = 0; mapper <= MsxMapperAuto; ++mapper)
+    {
+        saved.mappers[0] = mapper;
+        saved.mappers[1] = MsxMapperAuto;
+        assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
+        assert(decoded.mappers[0] == mapper && decoded.mappers[1] == MsxMapperAuto);
+    }
+    saved.mappers[0] = MsxMapperAuto + 1;
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    saved.mappers[0] = MsxMapperAuto;
+    saved.mappers[1] = 255;
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    saved.mappers[1] = MsxMapperAuto;
+    for (unsigned profile = 0; profile < MsxAudioProfileCount; ++profile)
+    {
+        saved.audioProfile = profile;
+        assert(MsxDecodeSettings(&saved, sizeof(saved), decoded));
+        assert(decoded.audioProfile == profile);
+    }
+    saved.audioProfile = MsxAudioProfileCount;
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
+    saved.audioProfile = MsxAudioAuto;
+    saved.reserved = 1;
+    assert(!MsxDecodeSettings(&saved, sizeof(saved), decoded));
 
     assert(MsxValidSdPath("", true));
     assert(!MsxValidSdPath(""));
@@ -127,5 +166,5 @@ int main()
     assert(MsxHasExtension("ESP32_MSX-1.00.flh", ".FLH"));
     assert(!MsxHasExtension("rom", ".rom"));
     assert(!MsxHasExtension("game.rom.zip", ".rom"));
-    puts("PASS: compact menu, media/slot round trips, v1/v2 migration, invalid settings, SD paths.");
+    puts("PASS: compact menu, per-slot mapper/media round trips, v1/v2/v3 migration, invalid settings, SD paths.");
 }

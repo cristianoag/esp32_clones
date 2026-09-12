@@ -154,7 +154,11 @@ int MIDILogging(int Switch);
 void MIDITicks(int N);
 
 #if !defined(MSDOS) & !defined(UNIX) & !defined(MAEMO) & !defined(WINDOWS) & !defined(S60) & !defined(UIQ) && !defined(ANDROID)
+#ifdef FMSX
+#define SND_CHANNELS 20 /* Six PSG, five SCC, nine independent OPLL voices. */
+#else
 #define SND_CHANNELS MIDI_CHANNELS         /* Default number */
+#endif
 #endif
 
 /** SndDriver ************************************************/

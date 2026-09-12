@@ -49,6 +49,8 @@ const char *FmsxUnsupportedMapperName(int mapper)
     case -12: return("ASCII16-X");
     case -14: return("Manbow2");
     case -100: return("SHA-1 calculation failure");
+    case -101: return("cannot read mapper override database");
+    case -102: return("invalid mapper ID in override database");
     default: return("unknown mapper");
   }
 }

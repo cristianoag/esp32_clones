@@ -107,7 +107,7 @@ extern "C" {
 #define MAXCHUNKS   256     /* Max number of memory blocks   */
 #define MAXCHEATS   256     /* Max number of cheats          */
 
-#define MAXCHANNELS (AY8910_CHANNELS+YM2413_CHANNELS)
+#define MAXCHANNELS (AY8910_CHANNELS+SCC_CHANNELS+YM2413_CHANNELS)
   /* Number of sound channels used by the emulation */
 
 /** Model and options bits and macros ************************/
@@ -392,6 +392,9 @@ void RewindTape(void);
 /** KiB images only; failure preserves the previous disk.  **/
 /*************************************************************/
 byte ChangeDisk(byte N,const char *FileName);
+
+/* Read-only mapper inspection; supplied database streams remain caller-owned. */
+int GuessROMWithFiles(const byte *Buf,int Size,FILE *CrcFile,FILE *ShaFile,const char **Source);
 
 /** LoadFNT() ************************************************/
 /** Load fixed 8x8 font used in text screen modes when      **/

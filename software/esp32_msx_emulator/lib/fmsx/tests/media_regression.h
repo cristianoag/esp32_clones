@@ -11,6 +11,21 @@ static std::vector<byte> diskImages[2], tapeImage;
 static bool mediaBiosPresent;
 static bool mediaCpuHooks;
 static int failDiskIo;
+static int failDiskRead;
+static std::vector<byte> suppliedDisk;
+
+extern "C" size_t fmsxTestDiskRead(void *data,size_t size,size_t count,FILE *file)
+{
+  assert(size==1 && count<=4096 && count%512==0);
+  if(failDiskRead && ftell(file)>=8192)
+  {
+    if(failDiskRead==2) { errno=ETIMEDOUT;return 0; }
+    const size_t read=fread(data,size,count/2,file);
+    errno=EIO;
+    return read;
+  }
+  return fread(data,size,count,file);
+}
 
 extern "C" size_t fmsxTestDiskWrite(const void *data,size_t size,size_t count,FILE *file)
 {
@@ -227,6 +242,31 @@ static void checkMedia()
     assert(!MsxAttachDisk(2,a.c_str(),error,sizeof(error)) && error[0]);
     assert(!MsxAttachDisk(0,bad.c_str(),error,sizeof(error)) && FDD[0].Data == old);
     assert(!ChangeDisk(0,bad.c_str()) && FDD[0].Data == old);
+    for(int failure : {1,2})
+    {
+      failDiskRead=failure;
+      FILE* oldFile=FDD[0].BackingFile;
+      assert(!MsxAttachDisk(0,a.c_str(),error,sizeof(error)));
+      assert(FDD[0].Data==old && FDD[0].BackingFile==oldFile);
+      assert(strstr(error,"SD read failed") && strstr(error,failure==1?"10240":"8192"));
+      assert(!memcmp(DataFDI(&FDD[0]),diskImages[0].data(),diskImages[0].size()));
+      failDiskRead=0;
+    }
+    if(!suppliedDisk.empty())
+    {
+      const std::string userPath=mediaDirectory+"/media-user.dsk";
+      assert(MsxAttachDisk(0,userPath.c_str(),error,sizeof(error)) && !error[0]);
+      assert(!memcmp(DataFDI(&FDD[0]),suppliedDisk.data(),suppliedDisk.size()));
+      byte sector[512];
+      for(unsigned n=0;n<suppliedDisk.size()/512;++n)
+      {
+        assert(DiskRead(0,sector,n));
+        assert(!memcmp(sector,suppliedDisk.data()+n*512,512));
+      }
+      assert(MsxAttachDisk(0,a.c_str(),error,sizeof(error)));
+      old=FDD[0].Data;
+      puts("PASS: supplied DSK attached to A and every sector verified without writing it.");
+    }
     writeImage("media-short.dsk",diskImages[0]);
     const std::string shortPath=mediaDirectory+"/media-short.dsk";
     truncateMediaOnAllocation=true;
@@ -330,6 +370,7 @@ static void mediaRegression(const char* directory)
   writeImage("media-b.dsk",diskImages[1]);
   writeImage("media.cas",tapeImage);
   writeImage("media-bad.bin",std::vector<byte>(17));
+  if(!suppliedDisk.empty()) writeImage("media-user.dsk",suppliedDisk);
   const std::string a = mediaDirectory + "/media-a.dsk";
   const std::string b = mediaDirectory + "/media-b.dsk";
   const std::string cas = mediaDirectory + "/media.cas";
@@ -420,5 +461,6 @@ static void mediaRegression(const char* directory)
   assert(contents==tapeImage);
   for (const char* name : {"DISK.ROM","media-a.dsk","media-b.dsk","media.cas","media-bad.bin"})
     assert(remove(name)==0);
+  if(!suppliedDisk.empty()) assert(remove("media-user.dsk")==0);
   puts("PASS: persistent A/B writes, BIOS/FDC sectors, partial/flush/sync failures, duplicate mounts, atomic swaps, eject/reopen, and read-only CAS.");
 }

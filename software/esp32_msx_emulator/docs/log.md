@@ -18,14 +18,15 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 - Enabled saving directly to attached DSK files on microSD from Disk BASIC and supported controller writes, synchronizing each sector before reporting success.
 - Reported disk write failures to the emulated software and UART, required reattachment after a storage write fault, and rejected mounting the same writable image in both drives.
-- Grouped cartridge slots, disks and tape under F12's Media menu with separate ROMs, Disks and Tapes pages.
-- Added ROM-page options to reboot with or without saving the complete boot configuration, and prevented rebooting when validation or saving failed.
+- Presented cartridge slots, mapper controls, disk drives, tape selection and rewind directly on F12's Media page, with only Audio opening a configuration submenu.
+- Added Media-page options to reboot with or without saving the complete boot configuration, and prevented rebooting when validation or saving failed.
 - Allowed F12 to resume directly from Media pages without rebooting for disk and tape changes, while cartridge changes remained pending until a cold boot.
 - Made the MSX firmware independently buildable by including local copies of its board definition, VGA, graphics, BusIO and USB transport dependencies instead of reading files from the CP400 firmware.
 - Made the joystick timing and packet tests use the local USB transport headers so the tests also ran without the CP400 project.
 
 ### Fixed
 
+- Reworked disk attachment to use bounded buffered reads through aligned internal memory with task yields, instead of one unbuffered image read into PSRAM, and reported the failing stage, byte offset and OS error when SD access failed.
 - Corrected Tiny Magic 1.1's automatic mapper selection from plain Konami to Konami SCC using its exact ROM fingerprint, while preserving explicit overrides and the fallback for unknown images.
 - Reported known unsupported mapper hardware instead of guessing an incompatible mapper.
 

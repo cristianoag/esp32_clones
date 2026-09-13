@@ -31,6 +31,12 @@
 #include <errno.h>
 
 #include "Esp32Port.h"
+#ifdef FMSX_TEST_MEDIA_IO
+extern size_t fmsxTestDiskRead(void *,size_t,size_t,FILE *);
+#define DISK_READ fmsxTestDiskRead
+#else
+#define DISK_READ fread
+#endif
 /* Resolve relative firmware files without changing the process directory. */
 #define fopen fmsxOpen
 #define chdir(path) 0
@@ -2901,36 +2907,73 @@ void ChangePrinter(const char *FileName)
 /** image if Name=0 or Name="" was given. Reads raw 360/720 **/
 /** KiB images only; failure preserves the previous disk.  **/
 /*************************************************************/
+static char DiskLoadError[160];
+
+const char *DiskLoadLastError(void) { return(DiskLoadError); }
+
+static byte DiskLoadFailed(byte N,const char *Stage,int Error,long Offset)
+{
+  if(!Error) Error=EIO;
+  snprintf(DiskLoadError,sizeof(DiskLoadError),"Drive %c: %s at byte %ld (errno %d); previous disk retained",
+           'A'+N,Stage,Offset,Error);
+  printf("MSX disk: %s\n",DiskLoadError);
+  errno=Error;
+  return(0);
+}
+
 byte ChangeDisk(byte N,const char *FileName)
 {
   FDIDisk Next;
   FILE *File;
-  long Size;
+  long Size,Offset=0;
   byte *P;
+  unsigned int Buffer[1024];
   unsigned Drive;
-  if(N>=MAXDRIVES) return(0);
+  const char *Stage;
+  int Error;
+  DiskLoadError[0]=0;
+  if(N>=MAXDRIVES) return(DiskLoadFailed(N,"invalid drive",EINVAL,0));
   if(!FileName||!*FileName)
   {
     Reset1793(&FDC,FDD,WD1793_KEEP);
     EjectFDI(&FDD[N]);
     return(1);
   }
-  if(!DiskROMAvailable()) { errno=ENODEV;return(0); }
-  if(strlen(FileName)>=sizeof(Next.BackingPath)) { errno=ENAMETOOLONG;return(0); }
+  if(!DiskROMAvailable()) return(DiskLoadFailed(N,"missing disk BIOS",ENODEV,0));
+  if(strlen(FileName)>=sizeof(Next.BackingPath))
+    return(DiskLoadFailed(N,"path too long",ENAMETOOLONG,0));
   for(Drive=0;Drive<MAXDRIVES;++Drive)
     if(Drive!=N&&FDD[Drive].BackingFile&&!strcasecmp(FileName,FDD[Drive].BackingPath))
-    { errno=EBUSY;return(0); }
+    return(DiskLoadFailed(N,"image attached to another drive",EBUSY,0));
+  errno=0;
   File=fopen(FileName,"r+b");
-  if(!File) return(0);
-  if(setvbuf(File,0,_IONBF,0)) { fclose(File);errno=EIO;return(0); }
-  if(fseek(File,0,SEEK_END)||(Size=ftell(File))<0||
-     (Size!=368640&&Size!=737280)||fseek(File,0,SEEK_SET))
-  { fclose(File);errno=EINVAL;return(0); }
+  if(!File) return(DiskLoadFailed(N,"cannot open writable image",errno,0));
   InitFDI(&Next);
+  Stage="cannot seek image";
+  if(fseek(File,0,SEEK_END)||(Size=ftell(File))<0) goto DiskFailed;
+  if(Size!=368640&&Size!=737280)
+  { Stage="invalid image size";errno=EINVAL;goto DiskFailed; }
+  if(fseek(File,0,SEEK_SET)) goto DiskFailed;
   P=NewFDI(&Next,Size==737280? 2:1,80,9,512);
-  if(!P) { fclose(File);errno=ENOMEM;return(0); }
-  if(fread(P,1,Size,File)!=(size_t)Size||fgetc(File)!=EOF||ferror(File))
-  { fclose(File);EjectFDI(&Next);errno=EIO;return(0); }
+  if(!P) { Stage="not enough PSRAM";errno=ENOMEM;goto DiskFailed; }
+  /* Stage reads in aligned internal memory; don't stream an unbuffered image into PSRAM. */
+  Stage="SD read failed";
+  while(Offset<Size)
+  {
+    size_t Count=Size-Offset<(long)sizeof(Buffer)? Size-Offset:sizeof(Buffer);
+    size_t Read;
+    errno=0;
+    Read=DISK_READ(Buffer,1,Count,File);
+    if(Read!=Count) { Offset+=Read;goto DiskFailed; }
+    memcpy(P+Offset,Buffer,Count);
+    Offset+=Count;
+#ifdef ESP_PLATFORM
+    fmsxMediaYield();
+#endif
+  }
+  errno=0;
+  if(fgetc(File)!=EOF||ferror(File))
+  { Stage="image changed or SD read failed";goto DiskFailed; }
   Next.Format=FMT_MSXDSK;
   Next.BackingFile=File;
   Next.BackingSize=Size;
@@ -2941,6 +2984,12 @@ byte ChangeDisk(byte N,const char *FileName)
   EjectFDI(&FDD[N]);
   FDD[N]=Next;
   return(1);
+
+DiskFailed:
+  Error=errno;
+  fclose(File);
+  EjectFDI(&Next);
+  return(DiskLoadFailed(N,Stage,Error,Offset));
 }
 
 /** LoadFile() ***********************************************/

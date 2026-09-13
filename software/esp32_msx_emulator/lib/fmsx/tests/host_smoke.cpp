@@ -916,7 +916,18 @@ static void panasonicRegression(const char* directory)
 
 int main(int argc, char** argv)
 {
-  const bool mediaOnly = argc == 2 && strcmp(argv[1], "--media") == 0;
+  const bool mediaOnly = argc >= 2 && strcmp(argv[1], "--media") == 0;
+  if(mediaOnly && argc==3)
+  {
+    FILE* file=fopen(argv[2],"rb");
+    assert(file && !fseek(file,0,SEEK_END));
+    const long size=ftell(file);
+    assert(size==368640||size==737280);
+    suppliedDisk.resize(size);
+    rewind(file);
+    assert(fread(suppliedDisk.data(),1,size,file)==static_cast<size_t>(size));
+    assert(!fclose(file));
+  }
   const bool mapperOnly = argc == 2 && strcmp(argv[1], "--mappers") == 0;
   panasonicOnly = argc == 2 && strcmp(argv[1], "--panasonic") == 0;
   if (argc > 1 && !panasonicOnly && !mediaOnly && !mapperOnly) {

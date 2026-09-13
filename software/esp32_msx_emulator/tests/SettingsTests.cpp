@@ -23,6 +23,12 @@ int main()
     for (unsigned i = 1; i < MsxMenuCount; ++i)
         assert(MsxMenuRowY(i) - MsxMenuRowY(i - 1) == 8);
     assert(MsxMenuRowHeight == 8);
+    static_assert(MsxMediaCount == 11, "All direct media controls must be reachable.");
+    assert(MsxMenuRowY(MsxMediaCount - 1) + MsxMenuRowHeight <= 140);
+    for (unsigned i = 1; i < MsxMediaCount; ++i)
+        assert(MsxMenuRowY(i) - MsxMenuRowY(i - 1) == 8);
+    assert(MsxMoveSelection(MsxMediaSlot1, -1, MsxMediaCount) == MsxMediaBoot);
+    assert(MsxMoveSelection(MsxMediaBoot, 1, MsxMediaCount) == MsxMediaSlot1);
     assert(MsxMoveSelection(0, -1, MsxMenuCount) == MsxMenuJoysticks);
     assert(MsxMoveSelection(MsxMenuJoysticks, 1, MsxMenuCount) == MsxMenuResume);
     assert(MsxMoveSelection(MsxMenuRam, 1, MsxMenuCount) == MsxMenuMedia);

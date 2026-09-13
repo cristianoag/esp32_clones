@@ -32,10 +32,16 @@ not built.
 
 The blocking `MsxCoreRun` API boots original Z80 BIOS code with the upstream
 slot/memory-mapper, PPI, AY8910, SCC, YM2413, TMS9918/V9938/V9958, and VDP command
-implementations. `Common.h` downscales 512-pixel graphics and 80-column text.
-A 272x240 intermediate buffer preserves horizontal-adjust safety; its central
-256x240 region is submitted using a fixed GGGRRRBB palette represented as
-RGB888 values. Programmable colors and MSX2+ YJK colors are quantized to this
+implementations. `Common.h` uses the original narrow rendering for 512-pixel
+graphics and 80-column text. A 272x240 intermediate buffer preserves
+horizontal-adjust safety; its central 256x240 region is submitted using a
+fixed GGGRRRBB palette represented as RGB888 values. The VGA frontend expands
+this to the full 320-pixel framebuffer width without dropping source pixels.
+It retains hardware line doubling and the 12.5875 MHz requested pixel clock.
+F12 uses native 320x240 coordinates and a 320x240 screen backup.
+The higher-resolution experiment was reverted to reduce video bandwidth and
+restore game performance; 80-column text again merges pairs of font dots.
+Programmable colors and MSX2+ YJK colors are quantized to this
 256-color output. On ESP32 an unconditional emulated-frame callback uses the
 monotonic ESP timer to pace PAL at 50 Hz and NTSC at 60 Hz, independently of
 presentation. Fractional NTSC deadlines avoid integer-period drift. Z80 clock
@@ -336,6 +342,19 @@ All other vendored core files, including the Z80 interpreter and emulated sound
 chips, remain original upstream sources.
 
 ## Host regression
+
+`powershell -File lib\fmsx\tests\animation.ps1` includes narrow TEXT80
+tests for all 64 source glyph patterns, both color sets, vertical scrolling,
+horizontal/vertical adjustment extremes, blanking and 320-pixel expansion.
+It also preserves the existing sprite/SCREEN 6 startup-animation regressions.
+For real MSX2/MSX2+ BIOS text output, run:
+
+```powershell
+powershell -File lib\fmsx\tests\host_smoke.ps1 -BiosDirectory .\sdcard\msx\bios\fs-a1f -Model 1 -RamPages 4 -Text80
+```
+
+This executes `SCREEN 0:WIDTH 80`, prints an 80-character sequence, asserts
+TEXT80 mode and captures the 256x240 frame in `tests\.build\boot.ppm`.
 
 `powershell -File tools\Test-MapperDatabase.ps1` verifies every database
 record, sort order, mapper-ID translation, unsupported entries and signatures.

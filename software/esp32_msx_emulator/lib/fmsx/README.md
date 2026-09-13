@@ -221,6 +221,11 @@ the CPU task while paused (the F12 callback). They return errors without
 calling the platform's fatal error callback. Null/empty paths eject; failed
 replacements preserve the old image/stream and cassette position. Disk swaps
 commit only after a complete read and then reset pending FDC transfers.
+Initial image loading uses bounded 4 KiB reads into aligned internal memory,
+copies each chunk to PSRAM, and yields one RTOS tick per chunk on ESP32.
+The backing stream retains normal stdio buffering; sector writes still use
+checked `fflush` and `fsync`. `DiskLoadLastError()` records a failed attachment's
+stage, byte offset and errno before cleanup can overwrite errno.
 The UI owns saved boot defaults separately from these live attachments.
 
 Supported DSK images are **raw, headerless 368640 or 737280 bytes**, interpreted
@@ -350,6 +355,10 @@ mapper/PC/bank state; completing a frame count alone is not proof of gameplay.
 It uses disposable cartridge/BIOS copies and never alters the originals.
 
 `powershell -File lib\fmsx\tests\media.ps1` selects the synthetic media suite.
+An optional `-DiskImage 'D:\msx\MSX1DRV1.dsk'` also reads a supplied image
+without modifying it, mounts a disposable copy and verifies every sector.
+The suite injects partial reads and timeouts after two chunks to check error
+details and preservation of the previous drive.
 It executes original Z80 CALLs through patched BIOS entries and also checks
 disk/tape register/error semantics, two drives, invalid/missing images,
 allocation-failure rollback, eject/reattach, CAS rewind/EOF, controller/BIOS

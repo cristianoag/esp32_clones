@@ -76,6 +76,13 @@ extern "C" FILE* fmsxOpen(const char* name, const char* mode)
   return fopen(path, mode);
 }
 
+extern "C" void fmsxMediaYield()
+{
+#ifdef ESP_PLATFORM
+  vTaskDelay(1);
+#endif
+}
+
 extern "C" void fmsxFrame()
 {
 #ifdef ESP_PLATFORM
@@ -294,7 +301,7 @@ static bool validateMedia(const char* path, bool tape, char* error, size_t size)
   if (stat(path, &info) || !S_ISREG(info.st_mode))
     return mediaResult("file is missing or is not a regular file", error, size);
   if (!tape && info.st_size != 368640 && info.st_size != 737280)
-    return mediaResult("DSK must be raw 360 or 720 KiB (80 tracks, 9 sectors)", error, size);
+    return mediaResult("DSK must be raw 360 or 720 KiB", error, size);
   FILE* file = fopen(path, tape ? "rb" : "r+b");
   if (!file) return mediaResult(tape ? "cannot open tape read-only" :
                                "disk is not writable; check file/SD write protection", error, size);
@@ -331,7 +338,7 @@ bool MsxAttachDisk(unsigned drive, const char* path, char* error, size_t size)
   if (!ChangeDisk(drive, path))
     return mediaResult(errno == ENOMEM ? "not enough PSRAM for disk; previous disk retained" :
                        errno == EBUSY ? "disk already attached to another drive; eject it there first" :
-                       "cannot open/read writable disk; previous disk retained", error, size);
+                       DiskLoadLastError(), error, size);
   return mediaResult(nullptr, error, size);
 }
 
@@ -450,6 +457,8 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
                                (JOY_STICK << 4) | (JOY_STICK << 6),
                                ramPages, model ? 8 : 2) != 0;
   const int bootError = errno;
+  char diskLoadError[160];
+  snprintf(diskLoadError, sizeof(diskLoadError), "%s", DiskLoadLastError());
   ResetVDP();
   TrashMSX();
   FmsxSetAudioProfile(MsxAudioAuto, nullptr);
@@ -473,6 +482,8 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
       msxReportError("Cartridge mapper is not emulated. See UART for the detected mapper.");
     else if (bootError == ENOEXEC || bootError == EFBIG)
       msxReportError("Invalid cartridge ROM: check the AB header and size (maximum 2 MiB).");
+    else if (diskLoadError[0])
+      msxReportError(diskLoadError);
     else
       msxReportError("MSX boot failed: check BIOS, cartridges and writable disk images on SD.");
   }

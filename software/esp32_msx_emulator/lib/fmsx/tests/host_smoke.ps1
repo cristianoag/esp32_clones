@@ -9,6 +9,7 @@ param(
   [switch]$MediaOnly,
   [switch]$MapperOnly,
   [string]$DiskBios = '',
+  [string]$DiskImage = '',
   [string]$CartridgeRom = '',
   [string]$FmBios = '',
   [ValidateRange(-1,7)][int]$Mapper = -1,
@@ -16,6 +17,10 @@ param(
   [ValidateRange(0,4)][int]$AudioProfile = 0
 )
 $ErrorActionPreference = 'Stop'
+if ($DiskImage) {
+  if (-not $MediaOnly) { throw '-DiskImage requires -MediaOnly.' }
+  $DiskImage = (Resolve-Path -LiteralPath $DiskImage).Path
+}
 if ($BiosDirectory -and $ProfilesRoot) { throw 'Use either -BiosDirectory or -ProfilesRoot, not both.' }
 if ($CartridgeRom) {
   if (-not ($BiosDirectory -or $ProfilesRoot)) { throw 'Cartridge diagnostics require -BiosDirectory or -ProfilesRoot.' }
@@ -64,7 +69,10 @@ try {
     -o host_smoke.exe
   if ($LASTEXITCODE -ne 0) { throw 'Core host linking failed.' }
   if (-not $CartridgeRom) {
-    if ($MediaOnly) { & '.\host_smoke.exe' --media }
+    if ($MediaOnly) {
+      if ($DiskImage) { & '.\host_smoke.exe' --media $DiskImage }
+      else { & '.\host_smoke.exe' --media }
+    }
     elseif ($MapperOnly) { & '.\host_smoke.exe' --mappers }
     elseif ($PanasonicOnly) { & '.\host_smoke.exe' --panasonic }
     else { & '.\host_smoke.exe' }
@@ -130,7 +138,7 @@ try {
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }
   }
   foreach ($name in @('media-a.dsk','media-b.dsk','media.cas','media-bad.bin','media-short.dsk',
-                      'media-forbidden.dsk','real-a.dsk','real-b.dsk','real.cas',
+                      'media-forbidden.dsk','media-user.dsk','real-a.dsk','real-b.dsk','real.cas',
                       'mapper-a.rom','mapper-b.rom','inspection.rom')) {
     $generated = Join-Path $build $name
     if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated }

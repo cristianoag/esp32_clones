@@ -392,6 +392,7 @@ void RewindTape(void);
 /** KiB images only; failure preserves the previous disk.  **/
 /*************************************************************/
 byte ChangeDisk(byte N,const char *FileName);
+const char *DiskLoadLastError(void);
 
 /* Read-only mapper inspection; supplied database streams remain caller-owned. */
 int GuessROMWithFiles(const byte *Buf,int Size,FILE *CrcFile,FILE *ShaFile,const char **Source);

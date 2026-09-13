@@ -168,12 +168,30 @@ static void reset(bool active = true)
     keys.clear(); files.clear(); filters.clear(); titles.clear(); labels.clear();
 }
 
+static void moveTo(unsigned from, unsigned to)
+{
+    while (from != to)
+    {
+        keys.push_back(81);
+        from = (from + 1) % MsxMediaCount;
+    }
+}
+
+static void onlyMediaPages()
+{
+    for (const auto &title : titles)
+        assert(title == "Media" || title == "Inspecting cartridge mapper" ||
+               title == "Media > Audio - whole machine");
+}
+
 int main()
 {
     const uint8_t enter = 40, esc = 41, f12 = 69, del = 76, down = 81, up = 82;
     reset();
     files = {"/games/one.rom", "/games/two.ROM"};
-    keys = {enter, enter, down, down, enter, down, down, down, enter};
+    keys = {enter, down, down, enter};
+    moveTo(MsxMediaSlot2, MsxMediaSaveBoot);
+    keys.push_back(enter);
     strcpy(selectedDisks[0], "/disks/a.dsk");
     strcpy(selectedDisks[1], "/disks/b.dsk");
     strcpy(selectedTape, "/tapes/game.cas");
@@ -188,10 +206,11 @@ int main()
     assert(!strcmp(saved.disks[0], selectedDisks[0]) && !strcmp(saved.disks[1], selectedDisks[1]));
     assert(!strcmp(saved.tape, selectedTape));
     assert(filters == std::vector<std::string>({".rom", ".rom"}));
+    onlyMediaPages();
 
     reset();
     files = {"/game.rom"};
-    keys = {enter, enter, up, enter};
+    keys = {enter, up, enter};
     assert(mediaMenu() && bootRequested && exitRequested);
     assert(!saves && !pauses && !strcmp(selectedCartridges[0], "/game.rom"));
 
@@ -210,56 +229,65 @@ int main()
     }
     reset();
     writeOk = false;
-    keys = {enter, down, down, down, down, down, enter, f12};
+    moveTo(MsxMediaSlot1, MsxMediaSaveBoot);
+    keys.insert(keys.end(), {enter, f12});
     assert(mediaMenu() && !bootRequested && !exitRequested);
     assert(saves == 1 && resumes == 1); // Save failure keeps menus usable.
 
     reset();
     files = {"/a.dsk", "/b.DSK"};
-    keys = {down, enter, enter, down, enter, f12};
+    moveTo(MsxMediaSlot1, MsxMediaDiskA);
+    keys.insert(keys.end(), {enter, down, enter, f12});
     assert(mediaMenu() && !bootRequested && !exitRequested && !saves);
     assert(diskAttaches == 2 && lastDrive == 1 && lastPath == "/sdcard/b.DSK");
     assert(!strcmp(selectedDisks[0], "/a.dsk") && !strcmp(selectedDisks[1], "/b.DSK"));
     assert(filters == std::vector<std::string>({".dsk", ".dsk"}));
     assert(!tapeAttaches && !diskValidations);
+    onlyMediaPages();
+    // Enter on the drive itself must launch the picker, with no category menu.
+    assert(titles.size() == MsxMediaDiskA + 4);
 
     reset();
     files = {"/game.CAS"};
-    keys = {up, up, enter, enter, down, enter, up, del, f12};
+    moveTo(MsxMediaSlot1, MsxMediaTape);
+    keys.insert(keys.end(), {enter, down, enter, up, del, f12});
     assert(mediaMenu() && !bootRequested && !exitRequested && !saves);
     assert(tapeAttaches == 2 && rewinds == 1 && lastPath.empty() && !selectedTape[0]);
     assert(filters == std::vector<std::string>({".cas"}));
     assert(!diskAttaches && !tapeValidations);
+    onlyMediaPages();
 
     reset();
     strcpy(selectedDisks[0], "/old.dsk");
     attachOk = false;
     files = {"/bad.dsk"};
-    keys = {down, enter, enter, f12};
+    moveTo(MsxMediaSlot1, MsxMediaDiskA);
+    keys.insert(keys.end(), {enter, f12});
     assert(mediaMenu() && !strcmp(selectedDisks[0], "/old.dsk"));
     assert(!bootRequested && !saves);
     reset();
     strcpy(selectedTape, "/old.cas");
     attachOk = false;
     files = {"/bad.cas"};
-    keys = {up, up, enter, enter, f12};
+    moveTo(MsxMediaSlot1, MsxMediaTape);
+    keys.insert(keys.end(), {enter, f12});
     assert(mediaMenu() && !strcmp(selectedTape, "/old.cas"));
 
     reset();
     strcpy(selectedCartridges[0], "/old.rom");
     validCandidate = false;
     files = {"/bad.rom", "<cancel>"};
-    keys = {enter, enter, enter, f12};
+    keys = {enter, enter, f12};
     assert(mediaMenu() && !strcmp(selectedCartridges[0], "/old.rom"));
     assert(!bootRequested && !saves);
     reset();
     strcpy(selectedCartridges[0], "/old.rom");
-    keys = {enter, del, up, enter};
+    keys = {del, up, enter};
     assert(mediaMenu() && bootRequested && !selectedCartridges[0][0] && !saves);
 
     reset();
     files = {"/pending.rom"};
-    keys = {enter, enter, f12};
+    keys = {enter, f12};
     assert(mediaMenu() && !bootRequested && !exitRequested && !saves);
     assert(!strcmp(selectedCartridges[0], "/pending.rom"));
     assert(cartridgeInfoValid[0] && cartridgeInfo[0].detectedMapper == MsxKonamiScc);
@@ -267,8 +295,9 @@ int main()
     reset();
     const uint8_t left = 80, right = 79;
     files = {"/one.rom", "/two.rom"};
-    keys = {enter, enter, down, right, right, right, down, enter, down,
-            left, left, left, down, down, enter};
+    keys = {enter, down, right, right, right, down, enter, down, left, left, left};
+    moveTo(MsxMediaMapper2, MsxMediaSaveBoot);
+    keys.push_back(enter);
     assert(mediaMenu() && bootRequested && saves == 1);
     assert(selectedMappers[0] == MsxKonamiScc && selectedMappers[1] == MsxAscii16);
     assert(saved.mappers[0] == MsxKonamiScc && saved.mappers[1] == MsxAscii16);
@@ -281,68 +310,85 @@ int main()
     strcpy(selectedCartridges[0], "/one.rom");
     selectedMappers[0] = MsxAscii8;
     files = {"/one.rom", "/new.rom"};
-    keys = {enter, enter, f12};
+    keys = {enter, f12};
     assert(mediaMenu() && selectedMappers[0] == MsxAscii8);
-    keys = {enter, enter, f12};
+    keys = {enter, f12};
     assert(mediaMenu() && selectedMappers[0] == MsxMapperAuto);
     selectedMappers[0] = MsxAscii16;
     validCandidate = false;
     files = {"/bad.rom"};
-    keys = {enter, enter, f12};
+    keys = {enter, f12};
     assert(mediaMenu() && selectedMappers[0] == MsxAscii16 && !strcmp(selectedCartridges[0], "/new.rom"));
 
     reset();
     strcpy(selectedCartridges[0], "/one.rom");
     selectedMappers[0] = MsxKonami;
-    keys = {enter, down, del, f12};
+    keys = {down, del, f12};
     assert(mediaMenu() && selectedMappers[0] == MsxMapperAuto && !bootRequested);
     selectedMappers[0] = MsxKonami;
-    keys = {enter, del, f12};
+    keys = {del, f12};
     assert(mediaMenu() && !selectedCartridges[0][0] && selectedMappers[0] == MsxMapperAuto);
-    keys = {enter, down, right, f12};
+    keys = {down, right, f12};
     assert(mediaMenu() && selectedMappers[0] == MsxMapperAuto && statusMessage[0]);
 
     reset();
     selectedProfile = 1;
     detectedMapper = -12;
     files = {"/unsupported.rom"};
-    keys = {enter, enter, down, right, f12};
+    keys = {enter, down, right, f12};
     assert(mediaMenu() && cartridgeInfo[0].detectedMapper == -12 && selectedMappers[0] == MsxGeneric8);
     assert(inspectedProfile == "/sdcard/msx/bios/fs-a1fx");
 
     reset();
-    keys = {up, enter, down, down, down, enter, down, down, enter};
+    moveTo(MsxMediaSlot1, MsxMediaAudio);
+    keys.insert(keys.end(), {enter, down, down, down, enter, down, down, enter});
     assert(mediaMenu() && bootRequested && exitRequested && saves == 1);
     assert(selectedAudioProfile == MsxAudioPsgFm && saved.audioProfile == MsxAudioPsgFm);
     assert(resolvedAudio == MsxAudioPsgFm);
     reset();
     audioAvailable = false;
-    keys = {up, enter, down, down, down, enter, f12};
+    moveTo(MsxMediaSlot1, MsxMediaAudio);
+    keys.insert(keys.end(), {enter, down, down, down, enter, f12});
     assert(mediaMenu() && selectedAudioProfile == MsxAudioAuto && !bootRequested && !saves && statusMessage[0]);
     selectedAudioProfile = MsxAudioPsgFm;
     assert(!requestBoot(true) && !bootRequested && !saves);
     reset();
-    keys = {enter, down, down, down, down, enter, down, down, down, enter, esc, f12};
+    moveTo(MsxMediaSlot1, MsxMediaAudio);
+    keys.insert(keys.end(), {enter, down, down, down, enter, esc, f12});
     assert(mediaMenu() && selectedAudioProfile == MsxAudioPsgFm && !bootRequested && !saves);
-    reset();
-    keys = {down, enter, down, down, enter, down, enter, esc, f12};
-    assert(mediaMenu() && selectedAudioProfile == MsxAudioPsg && !bootRequested);
-    reset();
-    keys = {down, down, enter, down, down, enter, down, down, enter, esc, f12};
-    assert(mediaMenu() && selectedAudioProfile == MsxAudioPsgScc && !bootRequested);
+    onlyMediaPages();
+    bool audioShown = false;
+    for (const auto &title : titles) if (title == "Media > Audio - whole machine") audioShown = true;
+    assert(audioShown && titles.back() == "Media");
 
     reset();
-    keys = {enter, esc, down, enter, esc, down, enter, esc, esc};
+    keys = {esc};
     assert(!mediaMenu() && keys.empty() && !bootRequested && !exitRequested);
-    assert(titles == std::vector<std::string>({"Media", "Media > ROMs - cartridge slots", "Media",
-        "Media", "Media > Disks - read/write", "Media", "Media", "Media > Tapes - read-only", "Media"}));
+    assert(titles == std::vector<std::string>({"Media"}));
+    for (const char *label : {"Slot 1: <empty>", "Slot 2: <empty>", "Drive A: <empty>",
+                             "Drive B: <empty>", "Tape: <empty>", "Rewind tape",
+                             "Audio: Auto", "Reboot and save configuration", "Reboot without saving"})
+    {
+        bool found = false;
+        for (const auto &shown : labels) if (shown == label) found = true;
+        assert(found);
+    }
+
+    reset();
+    strcpy(selectedDisks[0], "/a.dsk");
+    strcpy(selectedDisks[1], "/b.dsk");
+    moveTo(MsxMediaSlot1, MsxMediaDiskA);
+    keys.insert(keys.end(), {del, down, del, f12});
+    assert(mediaMenu() && diskAttaches == 2 && !selectedDisks[0][0] && !selectedDisks[1][0]);
+    assert(!bootRequested && !saves);
 
     reset(false);
     files = {"/boot.dsk", "/boot.cas"};
-    keys = {down, enter, enter, f12, down, enter, enter, down, enter, f12, f12};
+    moveTo(MsxMediaSlot1, MsxMediaDiskA);
+    keys.insert(keys.end(), {enter, down, down, enter, down, enter, f12});
     assert(!mediaMenu() && !bootRequested && !exitRequested);
     assert(diskValidations == 1 && tapeValidations == 1 && !diskAttaches && !tapeAttaches && !rewinds);
-    keys = {enter, up, enter};
+    keys = {up, enter};
     assert(mediaMenu() && bootRequested && !exitRequested && !saves);
-    puts("PASS: nested Media/ROMs/Disks/Tapes, both slots/drives, save/no-save reboot, NVS failures, live resume, eject, rewind and startup selection.");
+    puts("PASS: flat Media attachments, Audio-only submenu, mapper controls, save/no-save reboot, failures, live resume, eject, rewind and startup selection.");
 }

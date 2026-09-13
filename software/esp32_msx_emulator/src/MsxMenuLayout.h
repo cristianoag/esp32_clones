@@ -8,11 +8,19 @@ enum MsxMenuItem : unsigned
     MsxMenuUpdate, MsxMenuJoysticks, MsxMenuCount
 };
 
+enum MsxMediaItem : unsigned
+{
+    MsxMediaSlot1, MsxMediaMapper1, MsxMediaSlot2, MsxMediaMapper2,
+    MsxMediaDiskA, MsxMediaDiskB, MsxMediaTape, MsxMediaRewind,
+    MsxMediaAudio, MsxMediaSaveBoot, MsxMediaBoot, MsxMediaCount
+};
+
 constexpr int MsxMenuTop = 48;
 constexpr int MsxMenuRowHeight = 8;
 constexpr size_t MsxBrowserPageSize = 16;
 constexpr int MsxMenuRowY(unsigned row) { return MsxMenuTop + row * MsxMenuRowHeight; }
 static_assert(MsxMenuRowY(MsxMenuCount) < 180, "Menu must not overlap navigation hints.");
+static_assert(MsxMenuRowY(MsxMediaCount) <= 140, "Media must not overlap its details.");
 static_assert(MsxMenuRowY(MsxBrowserPageSize) <= 180, "File list must not overlap page information.");
 
 inline size_t MsxMoveSelection(size_t current, int direction, size_t count)

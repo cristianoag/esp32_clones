@@ -68,17 +68,17 @@ The initial profiles are:
 
 ## Media menu
 
-Open **F12 > Media** to choose **ROMs**, **Disks**, **Tapes** or **Audio profile**.
-The ROMs page contains cartridge slots 1 and 2; the Disks page contains
-drives A and B; the Tapes page contains the tape selection and rewind.
-Audio can also be opened from each of those pages and applies to the whole machine.
+Open **F12 > Media** to access cartridge slots 1 and 2, their mapper controls,
+disk drives A and B, tape selection, rewind and reboot choices on one page.
+Only **Audio** opens a configuration submenu; selecting a slot, drive or tape
+opens its file browser directly. Audio applies to the whole machine.
 Press Enter to browse for an image or Delete to eject the selected slot,
-drive or tape. Esc goes back one menu level. From these menu pages, F12
+drive or tape. Esc goes back one menu level. From Media or Audio, F12
 resumes a running machine directly.
 
 ### Cartridge ROMs and rebooting
 
-In **Media > ROMs**, select either or both cartridge slots, then choose:
+In **Media**, select either or both cartridge slots, then choose:
 
 - **Reboot and save configuration:** save the complete current boot
   configuration (BIOS, RAM, sound, auto-boot, both cartridges, both disks
@@ -94,7 +94,7 @@ selections remain pending until a cold boot.
 
 ### Automatic cartridge mapper detection
 
-After selecting a cartridge, the ROMs page shows its detected mapper and
+After selecting a cartridge, the Media page shows its detected mapper and
 the detection source. Select the **Mapper** row below either slot and use
 Left/Right (or Enter) to cycle between **Auto** and the supported manual
 mappers. Delete on a mapper row restores Auto; Delete on a slot row ejects
@@ -175,7 +175,7 @@ banking hardware and the sound hardware are separate choices.
 
 ## Disk and tape images
 
-Use **F12 > Media > Disks** or **F12 > Media > Tapes** to select:
+Use **F12 > Media** to select directly:
 
 - **Drive A** and **Drive B:** raw `.dsk` floppy images.
 - **Tape:** an MSX `.cas` cassette image.
@@ -195,8 +195,8 @@ supported. CAS images must start with the standard MSX cassette marker
 Select a drive or tape row and press Enter to browse. Select **<Eject media>**
 or press Delete on the row to remove its image. When a machine is running,
 successful attachments take effect when you resume emulation; no reset is
-needed for disk swaps or loading a new tape. Press F12 from either media
-page to return directly to the running machine. Failed attachments leave the
+needed for disk swaps or loading a new tape. Press F12 from Media
+to return directly to the running machine. Failed attachments leave the
 previous media selected. When no machine is running, selections apply at
 the next cold boot.
 
@@ -217,6 +217,14 @@ can leave a partial sector or filesystem update, as on a real disk.
 Write failures are reported to MSX software and on UART; further writes to
 that drive are blocked until you reattach its image. Check/recover the image
 on a PC if an operation failed.
+
+Disk attachment reads the image in 4 KiB chunks through aligned internal
+memory and yields between chunks so background tasks can run. If attaching
+fails, the menu/UART reports the stage, byte offset and OS error, and the
+previous disk remains attached. An SD/MMC `0x107` log means the card/host
+transaction timed out, not that the DSK format is unsupported. Persistent
+timeouts require checking the card, seating and board power; an image with
+the right size cannot by itself rule out a physical SD problem.
 
 Disk formatting and creating new blank images are not implemented; attach
 an existing, correctly formatted 360/720 KiB image. CAS tapes remain

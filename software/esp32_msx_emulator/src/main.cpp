@@ -463,75 +463,15 @@ static bool selectMedia(unsigned item, const char *candidate)
     return true;
 }
 
-static bool audioMenu();
-
-static bool diskTapeMenu(bool tape)
+static void chooseDiskOrTape(unsigned item)
 {
-    unsigned row = 0;
-    bool redraw = true;
+    const bool tape = item == 2;
+    char candidate[MsxSdPathCapacity];
+    snprintf(candidate, sizeof(candidate), "%s", tape ? selectedTape : selectedDisks[item]);
+    if (chooseSdFile(tape ? "Select tape image - .CAS" : "Select disk image - .DSK",
+                     tape ? ".cas" : ".dsk", true, candidate, true))
+        selectMedia(item, candidate);
     MsxKeyboardClearEvents();
-    while (true)
-    {
-        if (redraw)
-        {
-            frame(tape ? "Media > Tapes - read-only" : "Media > Disks - read/write");
-            char label[80];
-            for (unsigned item = 0; item < 3; ++item)
-            {
-                if (item == row) display.fillRect(6, MsxMenuRowY(item), 308, MsxMenuRowHeight, 0x48);
-                if (item == 2)
-                    snprintf(label, sizeof(label), "Audio: %.42s", MsxAudioProfileName(selectedAudioProfile));
-                else if (!tape)
-                    snprintf(label, sizeof(label), "Drive %c: %.40s", 'A' + item,
-                             selectedDisks[item][0] ? baseName(selectedDisks[item]) : "<empty>");
-                else if (item == 0)
-                    snprintf(label, sizeof(label), "Tape: %.43s", selectedTape[0] ? baseName(selectedTape) : "<empty>");
-                else snprintf(label, sizeof(label), "Rewind tape");
-                text(8, MsxMenuRowY(item), label);
-            }
-            text(8, 96, running ? "Changes are ready when emulation resumes." : "Selections will be attached on cold boot.", 0xdf);
-            text(8, 112, tape ? "Original tape images are never modified." : "Disk writes update the .DSK file on SD.");
-            if (!tape && running && !MsxDiskAvailable())
-                text(8, 128, "Disk BIOS unavailable in current machine.");
-            text(8, 180, "Enter: select  Delete: eject  Arrows: move");
-            text(8, 188, running ? "Esc: back  F12: resume without reboot" : "Esc/F12: back");
-            const char *path = row == 2 ? "" : tape ? selectedTape : selectedDisks[row];
-            messageLines(statusMessage[0] ? statusMessage : path);
-            video.show();
-            redraw = false;
-        }
-        const uint8_t key = MsxKeyboardMenuKey();
-        if (!key) { delay(10); continue; }
-        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return key == 69 && running; }
-        if (key == 81 || key == 82)
-        {
-            row = MsxMoveSelection(row, key == 82 ? -1 : 1, 3);
-            statusMessage[0] = '\0';
-        }
-        else if (key == 40 && row == 2)
-        {
-            if (audioMenu()) return true;
-            MsxKeyboardClearEvents();
-        }
-        else if (key == 76 && row < 2 && (!tape || row == 0)) selectMedia(tape ? 2 : row, "");
-        else if (key == 40 && (!tape || row == 0))
-        {
-            char candidate[MsxSdPathCapacity];
-            snprintf(candidate, sizeof(candidate), "%s", tape ? selectedTape : selectedDisks[row]);
-            if (chooseSdFile(tape ? "Select tape image - .CAS" : "Select disk image - .DSK",
-                             tape ? ".cas" : ".dsk", true, candidate, true))
-                selectMedia(tape ? 2 : row, candidate);
-        }
-        else if (key == 40 && tape && row == 1)
-        {
-            if (!running)
-                snprintf(statusMessage, sizeof(statusMessage), "Tape starts at the beginning on cold boot.");
-            else if (MsxRewindTape(statusMessage, sizeof(statusMessage)))
-                snprintf(statusMessage, sizeof(statusMessage), "Tape rewound to the beginning.");
-            else Serial.printf("MSX tape: %s\n", statusMessage);
-        }
-        redraw = true;
-    }
 }
 
 static bool audioMenu()
@@ -614,7 +554,7 @@ static void changeCartridgeMapper(unsigned slot, int direction, bool automatic)
              slot + 1, MsxMapperName(selectedMappers[slot]));
 }
 
-static bool romMenu()
+static bool mediaMenu()
 {
     unsigned row = 0;
     bool redraw = true;
@@ -626,8 +566,8 @@ static bool romMenu()
     {
         if (redraw)
         {
-            frame("Media > ROMs - cartridge slots");
-            for (unsigned item = 0; item < 7; ++item)
+            frame("Media");
+            for (unsigned item = 0; item < MsxMediaCount; ++item)
             {
                 char label[80];
                 if (item == row) display.fillRect(6, MsxMenuRowY(item), 308, MsxMenuRowHeight, 0x48);
@@ -644,29 +584,53 @@ static bool romMenu()
                                  cartridgeInfoValid[slot] ? MsxMapperName(cartridgeInfo[slot].detectedMapper) : "inspection failed");
                     else snprintf(label, sizeof(label), "  Mapper: %s (override)", MsxMapperName(selectedMappers[slot]));
                 }
-                else if (item == 4)
+                else if (item == MsxMediaDiskA || item == MsxMediaDiskB)
+                {
+                    const unsigned drive = item - MsxMediaDiskA;
+                    snprintf(label, sizeof(label), "Drive %c: %.40s", 'A' + drive,
+                             selectedDisks[drive][0] ? baseName(selectedDisks[drive]) : "<empty>");
+                }
+                else if (item == MsxMediaTape)
+                    snprintf(label, sizeof(label), "Tape: %.43s", selectedTape[0] ? baseName(selectedTape) : "<empty>");
+                else if (item == MsxMediaRewind)
+                    snprintf(label, sizeof(label), "Rewind tape");
+                else if (item == MsxMediaAudio)
                     snprintf(label, sizeof(label), "Audio: %.42s", MsxAudioProfileName(selectedAudioProfile));
-                else snprintf(label, sizeof(label), "%s", item == 5 ?
+                else snprintf(label, sizeof(label), "%s", item == MsxMediaSaveBoot ?
                               "Reboot and save configuration" : "Reboot without saving");
                 text(8, MsxMenuRowY(item), label);
             }
-            text(8, 104, "Cartridge changes require a cold reboot.", 0xdf);
             if (row < 4 && cartridgeInfoValid[row / 2])
             {
                 char label[64];
                 snprintf(label, sizeof(label), "Detected: %.40s", MsxMapperName(cartridgeInfo[row / 2].detectedMapper));
-                text(8, 112, label);
+                text(8, 140, label);
                 snprintf(label, sizeof(label), "Source: %.42s", cartridgeInfo[row / 2].source);
-                text(8, 128, label);
+                text(8, 150, label);
+            }
+            else if (row == MsxMediaDiskA || row == MsxMediaDiskB)
+            {
+                text(8, 140, "Disk writes update the .DSK file on SD.");
+                text(8, 150, running && !MsxDiskAvailable() ?
+                     "Disk BIOS unavailable in current machine." : "Attach / eject without reboot.");
+            }
+            else if (row == MsxMediaTape || row == MsxMediaRewind)
+            {
+                text(8, 140, "Tape images are read-only.");
+                text(8, 150, "Attach / eject / rewind without reboot.");
             }
             else
             {
-                text(8, 112, "Reboot discards the current machine state.");
-                text(8, 128, "Save includes BIOS, RAM, sound and all media.");
+                text(8, 140, "Reboot discards the current machine state.");
+                text(8, 150, "Save includes BIOS, RAM, sound and all media.");
             }
+            text(8, 164, running ? "ROM / audio: reboot. Disks / tape: resume." : "Selections apply on the next cold boot.", 0xdf);
             text(8, 180, "Enter: select  L/R: mapper  Del: eject/Auto");
-            text(8, 188, running ? "Esc: back  F12: resume (slots unchanged)" : "Esc/F12: back");
-            messageLines(statusMessage[0] ? statusMessage : row < 4 ? selectedCartridges[row / 2] : "");
+            text(8, 188, running ? "Esc: back  F12: resume" : "Esc/F12: back");
+            const char *path = row < 4 ? selectedCartridges[row / 2] :
+                               row == MsxMediaDiskA || row == MsxMediaDiskB ? selectedDisks[row - MsxMediaDiskA] :
+                               row == MsxMediaTape || row == MsxMediaRewind ? selectedTape : "";
+            messageLines(statusMessage[0] ? statusMessage : path);
             video.show();
             redraw = false;
         }
@@ -675,7 +639,7 @@ static bool romMenu()
         if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return key == 69 && running; }
         if (key == 81 || key == 82)
         {
-            row = MsxMoveSelection(row, key == 82 ? -1 : 1, 7);
+            row = MsxMoveSelection(row, key == 82 ? -1 : 1, MsxMediaCount);
             statusMessage[0] = '\0';
         }
         else if (key == 76 && row < 4)
@@ -685,6 +649,8 @@ static bool romMenu()
         }
         else if ((key == 79 || key == 80) && row < 4 && (row & 1))
             changeCartridgeMapper(row / 2, key == 80 ? -1 : 1, false);
+        else if (key == 76 && row >= MsxMediaDiskA && row <= MsxMediaTape)
+            selectMedia(row - MsxMediaDiskA, "");
         else if (key == 40)
         {
             if (row < 4)
@@ -692,50 +658,22 @@ static bool romMenu()
                 if (row & 1) changeCartridgeMapper(row / 2, 1, false);
                 else chooseCartridge(row / 2);
             }
-            else if (row == 4)
+            else if (row >= MsxMediaDiskA && row <= MsxMediaTape)
+                chooseDiskOrTape(row - MsxMediaDiskA);
+            else if (row == MsxMediaRewind)
+            {
+                if (!running)
+                    snprintf(statusMessage, sizeof(statusMessage), "Tape starts at the beginning on cold boot.");
+                else if (MsxRewindTape(statusMessage, sizeof(statusMessage)))
+                    snprintf(statusMessage, sizeof(statusMessage), "Tape rewound to the beginning.");
+                else Serial.printf("MSX tape: %s\n", statusMessage);
+            }
+            else if (row == MsxMediaAudio)
             {
                 if (audioMenu()) return true;
                 MsxKeyboardClearEvents();
             }
-            else if (requestBoot(row == 5)) return true;
-        }
-        redraw = true;
-    }
-}
-
-static bool mediaMenu()
-{
-    unsigned row = 0;
-    bool redraw = true;
-    MsxKeyboardClearEvents();
-    for (;;)
-    {
-        if (redraw)
-        {
-            frame("Media");
-            const char *labels[] = {"ROMs - cartridge slots 1 / 2", "Disks - drives A / B", "Tapes - attach / eject / rewind",
-                                    "Audio profile - PSG / SCC / FM-PAC"};
-            for (unsigned item = 0; item < 4; ++item)
-            {
-                if (item == row) display.fillRect(6, MsxMenuRowY(item), 308, MsxMenuRowHeight, 0x48);
-                text(8, MsxMenuRowY(item), labels[item]);
-            }
-            text(8, 96, "ROM changes: choose reboot in the ROMs menu.", 0xdf);
-            text(8, 112, "Disks / tapes: resume without reboot.");
-            text(8, 188, running ? "Enter: open  Esc: back  F12: resume" : "Enter: open  Esc/F12: back");
-            messageLines(statusMessage);
-            video.show();
-            redraw = false;
-        }
-        const uint8_t key = MsxKeyboardMenuKey();
-        if (!key) { delay(10); continue; }
-        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return key == 69 && running; }
-        if (key == 81 || key == 82) row = MsxMoveSelection(row, key == 82 ? -1 : 1, 4);
-        else if (key == 40)
-        {
-            const bool leave = row == 0 ? romMenu() : row == 3 ? audioMenu() : diskTapeMenu(row == 2);
-            if (leave) return true;
-            MsxKeyboardClearEvents();
+            else if (requestBoot(row == MsxMediaSaveBoot)) return true;
         }
         redraw = true;
     }

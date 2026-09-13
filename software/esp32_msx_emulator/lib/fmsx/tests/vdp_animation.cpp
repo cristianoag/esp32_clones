@@ -1,5 +1,6 @@
 // Include the port so the production scanline buffer can be inspected directly.
 #include "../../../src/MsxCore.cpp"
+#include "../../../src/MsxVideo.h"
 #include <cassert>
 #include <cstdlib>
 #include <initializer_list>
@@ -11,7 +12,12 @@ void msxSubmitAudio(const int16_t*, unsigned) {}
 void msxReportError(const char*) { assert(false); }
 bool msxShouldExit() { return false; }
 void msxPollKeyboard(uint8_t*) {}
-void msxPresent(const uint8_t*, int, int, const uint32_t*) {}
+static int presentedWidth;
+void msxPresent(const uint8_t*, int width, int height, const uint32_t*)
+{
+  presentedWidth=width;
+  assert(height==240);
+}
 extern "C" byte DebugZ80(Z80*) { return 1; }
 
 static byte video[0x20000], attributes[0x280], patterns[2048];
@@ -171,9 +177,90 @@ static void collisions()
 static pixel* render()
 {
   RefreshLine6(0);
-  return framebuffer + FirstLine * WIDTH + 8;
+  return framebuffer + FirstLine * WIDTH + (WIDTH-256)/2;
 }
 
+static void text80()
+{
+  setup();
+  ScrMode=MAXSCREEN+1;
+  ChrTab=video+0x1000;
+  ColTab=video+0x3000;
+  ChrGen=patterns;
+  FontBuf=nullptr;
+  ChrTabM=ColTabM=0x1FFFF;
+  FGColor=15;BGColor=1;XFGColor=9;XBGColor=2;
+  for(unsigned i=0;i<2160;++i) ChrTab[i]=i%64;
+  for(unsigned glyph=0;glyph<64;++glyph)
+    for(unsigned row=0;row<8;++row) patterns[glyph*8+row]=((glyph+row)&63)<<2;
+  memset(ColTab,0xAA,270);
+  for(int horizontal=-7;horizontal<=8;++horizontal)
+    for(int vertical=-7;vertical<=8;++vertical)
+    {
+      VDP[18]=((-vertical&15)<<4)|(-horizontal&15);
+      VScroll=3;
+      VDP[9]=0x80;
+      memset(framebuffer,0xFE,sizeof(framebuffer));
+      RefreshLineTx80(0);
+      assert(FirstLine==8+vertical);
+      for(unsigned y : {0U,7U,8U,191U,211U})
+      {
+        RefreshLineTx80(y);
+        pixel* row=framebuffer+(FirstLine+y)*WIDTH+(WIDTH-256)/2+horizontal;
+        for(unsigned x=0;x<9;++x) assert(row[x]==1);
+        for(unsigned column=0;column<80;++column)
+        {
+          const byte glyph=ChrTab[(y/8)*80+column];
+          const byte dots=patterns[glyph*8+((y+VScroll)&7)];
+          for(unsigned dot=0;dot<3;++dot)
+            assert(row[9+column*3+dot]==
+                   (dots&(0xC0>>(dot*2))? (column%2?15:9):(column%2?1:2)));
+        }
+        for(unsigned x=249;x<256;++x) assert(row[x]==1);
+      }
+      // Blanking must cover the entire narrow text line.
+      VDP[1]=0;
+      RefreshLineTx80(0);
+      const pixel* row=framebuffer+FirstLine*WIDTH+(WIDTH-256)/2+horizontal;
+      for(unsigned x=0;x<256;++x) assert(row[x]==1);
+      VDP[1]=0x40;
+    }
+  static uint8_t packed[256*HEIGHT];
+  output=packed;
+  PutImage();
+  assert(presentedWidth==256);
+  ScrMode=1;
+  PutImage();
+  assert(presentedWidth==256);
+  output=nullptr;
+}
+
+static void scaleVideo()
+{
+  static_assert(MsxVideoWidth==320 && MsxVideoHeight==240 && MsxVideoLineRepeat==2, "Keep low-bandwidth VGA timing.");
+  static_assert(WIDTH==272 && HEIGHT==240, "Keep the lightweight core framebuffer.");
+  static_assert(MsxMenuPixelScaleX*320==MsxVideoWidth, "F12 logical coordinates must fill VGA.");
+  uint16_t columns[MsxVideoWidth];
+  uint8_t colors[256], source[256], destination[MsxVideoWidth+2];
+  for(unsigned x=0;x<256;++x) colors[x]=255-x;
+  for(unsigned x=0;x<256;++x) source[x]=x;
+  for(unsigned width : {256U})
+  {
+    memset(destination,0xAC,sizeof(destination));
+    MsxVideoColumns(width,columns);
+    MsxScaleVideoRow(destination+1,source,colors,columns);
+    assert(destination[0]==0xAC && destination[MsxVideoWidth+1]==0xAC);
+    unsigned previous=0;
+    for(unsigned x=0;x<MsxVideoWidth;++x)
+    {
+      assert(columns[x]==x*width/MsxVideoWidth);
+      assert(columns[x]>=previous && columns[x]<=previous+1);
+      assert(destination[x+1]==colors[source[columns[x]]]);
+      previous=columns[x];
+    }
+    assert(previous==width-1); // No source dot is lost, and no side bars remain.
+  }
+}
 static void scroll()
 {
   setup();
@@ -236,5 +323,7 @@ int main()
 {
   collisions();
   scroll();
-  puts("VDP animation: beam latch, EI, HBlank, zoom, clipping, scroll and color tests passed.");
+  text80();
+  scaleVideo();
+  puts("PASS: VDP animation, narrow TEXT80 colors/scroll/adjust/blanking, full-width 320x240 scaling.");
 }

@@ -24,7 +24,7 @@ try {
   & gcc @flags -std=gnu99 -c @sources
   if ($LASTEXITCODE -ne 0) { throw 'Animation core compilation failed.' }
   & g++ @flags -std=gnu++11 "-I$Sdk\include\heap\include" "-I$Sdk\qio_opi\include" `
-    "-I$Sdk\include\esp_common\include" "$PSScriptRoot\vdp_animation.cpp" `
+    "-I$Sdk\include\esp_common\include" "$PSScriptRoot\vdp_animation.cpp" "$core\..\..\src\MsxAudioProfiles.cpp" `
     @(Get-ChildItem '*.o' | ForEach-Object FullName) -o vdp_animation.exe
   if ($LASTEXITCODE -ne 0) { throw 'VDP animation test compilation failed.' }
   & '.\vdp_animation.exe'
@@ -35,7 +35,7 @@ try {
              else { throw 'Animation capture requires OMEGA.ROM or PANASONIC.ROM in the BIOS directory.' }
   Copy-Item -LiteralPath "$biosSource\$romName" -Destination "$build\bios"
   & g++ @flags -std=gnu++11 "-I$Sdk\include\heap\include" "-I$Sdk\qio_opi\include" `
-    "-I$Sdk\include\esp_common\include" "$core\..\..\src\MsxCore.cpp" `
+    "-I$Sdk\include\esp_common\include" "$core\..\..\src\MsxCore.cpp" "$core\..\..\src\MsxAudioProfiles.cpp" `
     "$PSScriptRoot\animation.cpp" @(Get-ChildItem '*.o' | ForEach-Object FullName) `
     -o animation.exe
   if ($LASTEXITCODE -ne 0) { throw 'Animation host linking failed.' }

@@ -29,6 +29,9 @@ static unsigned frames, audioSamples, nonzeroSamples, coloredFrames, errors, all
 static unsigned failAllocation;
 static unsigned frameLimit = 3;
 static bool realBios;
+static bool text80Boot;
+static unsigned text80Commands;
+static void injectText80Command();
 static bool realCartridge;
 static bool mapperOverrideTest, truncateInspectionOnAllocation;
 static void checkMapperOverrides();
@@ -179,10 +182,10 @@ static void captureBoot(const uint8_t* pixels, int width, int height,
 {
   captureImage("boot.ppm", pixels, width, height, palette);
   printf("Final screen: mode=%u, PC=%04X, RAM=%d KiB\n", ScrMode, CPU.PC.W, RAMPages * 16);
-  if (ScrMode == 0 || ScrMode == 1) {
-    const int columns = ScrMode == 0 ? 40 : 32;
+  if (ScrMode == 0 || ScrMode == 1 || ScrMode == MAXSCREEN+1) {
+    const int columns = ScrMode == MAXSCREEN+1 ? 80 : ScrMode == 0 ? 40 : 32;
     for (int row = 0; row < 24; ++row) {
-      char text[41];
+      char text[81];
       for (int col = 0; col < columns; ++col) {
         const unsigned char c = ChrTab[row * columns + col];
         text[col] = c >= 32 && c < 127 ? c : ' ';
@@ -392,6 +395,7 @@ void msxPollKeyboard(uint8_t matrix[16])
 {
   ++keyboardPolls;
   if (realMedia) injectMediaCommand();
+  if (text80Boot) injectText80Command();
   if (!realBios) {
     matrix[0] = 0xFE;
     UPeriod = requestedDrawPercent;
@@ -914,6 +918,24 @@ static void panasonicRegression(const char* directory)
 #include "media_regression.h"
 #include "mapper_override_regression.h"
 
+static void injectText80Command()
+{
+  if(text80Commands>=2 || frames<500+text80Commands*100) return;
+  const byte ps=PSLReg,ss=SSLReg[3];
+  OutZ80(0xA8,0xFF);SSlot(0xAA);
+  const word put=RdZ80(0xF3F8)|(RdZ80(0xF3F9)<<8);
+  const word get=RdZ80(0xF3FA)|(RdZ80(0xF3FB)<<8);
+  if(put==get)
+  {
+    const char* command=text80Commands++ ? "FOR I=33 TO 112:?CHR$(I);:NEXT\r" : "SCREEN 0:WIDTH 80\r";
+    const unsigned length=strlen(command);
+    for(unsigned i=0;i<length;++i) WrZ80(0xFBF0+i,command[i]);
+    WrZ80(0xF3FA,0xF0);WrZ80(0xF3FB,0xFB);
+    WrZ80(0xF3F8,(0xFBF0+length)&255);WrZ80(0xF3F9,(0xFBF0+length)>>8);
+  }
+  SSlot(ss);OutZ80(0xA8,ps);
+}
+
 int main(int argc, char** argv)
 {
   const bool mediaOnly = argc >= 2 && strcmp(argv[1], "--media") == 0;
@@ -932,7 +954,8 @@ int main(int argc, char** argv)
   panasonicOnly = argc == 2 && strcmp(argv[1], "--panasonic") == 0;
   if (argc > 1 && !panasonicOnly && !mediaOnly && !mapperOnly) {
     assert(argc >= 5 && argc <= 8);
-    realCartridge = argc >= 6;
+    text80Boot=argc==6 && !strcmp(argv[5],"--text80");
+    realCartridge = argc >= 6 && !text80Boot;
     if(argc >= 7) expectedRealMapper = atoi(argv[6]);
     const unsigned audioProfile=argc==8?static_cast<unsigned>(atoi(argv[7])):static_cast<unsigned>(MsxAudioAuto);
     realBios = true;
@@ -965,7 +988,7 @@ int main(int argc, char** argv)
       }
     }
     const std::string diskBiosPath = std::string(argv[1]) + "/DISK.ROM";
-    realMedia = !realCartridge && access(diskBiosPath.c_str(),F_OK)==0;
+    realMedia = !realCartridge && !text80Boot && access(diskBiosPath.c_str(),F_OK)==0;
     if (realMedia && frameLimit < 900) {
       fprintf(stderr,"Real media save/reload verification needs at least 900 frames.\n");
       return 1;
@@ -1009,6 +1032,13 @@ int main(int argc, char** argv)
       assert(realSavedASeen&&realSavedBSeen&&!errors);
       printf("Disk BASIC SAVE A/B persisted across cold boot and LOAD/RUN: %d/%d\n",realSavedASeen,realSavedBSeen);
       for (const char* name : {"real-a.dsk","real-b.dsk","real.cas"}) assert(remove(name)==0);
+    }
+    if(text80Boot)
+    {
+      fflush(stdout);
+      fprintf(stderr,"TEXT80 verification: commands=%u mode=%u result=%d error=%s\n",
+              text80Commands,ScrMode,result,lastError);
+      assert(text80Commands==2 && ScrMode==MAXSCREEN+1);
     }
     return result && frames == frameLimit && (realCartridge || basicPrompt) &&
            (!realMedia||(realDiskASeen&&realDiskBSeen&&realTapeSeen)) &&

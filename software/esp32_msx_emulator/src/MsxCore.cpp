@@ -17,7 +17,7 @@
 #include <freertos/task.h>
 #endif
 
-// Common.h needs 8 pixels of side border for the VDP horizontal-adjust register.
+// Common.h needs side borders for the VDP horizontal-adjust register.
 #define WIDTH 272
 #define HEIGHT 240
 static_assert(sizeof(pixel) == 1, "fMSX requires BPP8");
@@ -121,9 +121,10 @@ extern "C" void fmsxFrame()
 
 static void PutImage()
 {
+  const int width = 256;
   for (int y = 0; y < HEIGHT; ++y)
-    memcpy(output + y * 256, XBuf + y * WIDTH + 8, 256);
-  msxPresent(output, 256, HEIGHT, rgbPalette);
+    memcpy(output + y * width, XBuf + y * WIDTH + (WIDTH - width) / 2, width);
+  msxPresent(output, width, HEIGHT, rgbPalette);
 #ifdef ESP_PLATFORM
   ++speedPresented;
 #endif

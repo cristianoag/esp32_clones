@@ -16,6 +16,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Restored 320x240 VGA timing and the lightweight core renderer after the 640x480 version slowed games, while retaining full-width picture scaling instead of extra side bars.
 - Enabled saving directly to attached DSK files on microSD from Disk BASIC and supported controller writes, synchronizing each sector before reporting success.
 - Reported disk write failures to the emulated software and UART, required reattachment after a storage write fault, and rejected mounting the same writable image in both drives.
 - Presented cartridge slots, mapper controls, disk drives, tape selection and rewind directly on F12's Media page, with only Audio opening a configuration submenu.

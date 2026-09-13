@@ -17,6 +17,7 @@
 #include "MsxJoystickHost.h"
 #include "MsxJoystickDisplay.h"
 #include "MsxBootProgress.h"
+#include "MsxVideo.h"
 
 static VGA video;
 static uint8_t *screenBackup = nullptr;
@@ -47,7 +48,8 @@ public:
     void drawPixel(int16_t x, int16_t y, uint16_t color) override
     {
         if (x >= 0 && x < width() && y >= 0 && y < height())
-            video.dot(x, y, color & 0xff);
+            for (int dx = 0; dx < MsxMenuPixelScaleX; ++dx)
+                video.dot(x * MsxMenuPixelScaleX + dx, y, color & 0xff);
     }
 };
 
@@ -279,9 +281,9 @@ static void backupScreen(bool restore)
     for (int y = 0; y < MsxBoard::Height; ++y)
     {
         uint8_t *line = video.dmaBuffer->getLineAddr8(y);
-        uint8_t *backup = screenBackup + y * MsxBoard::Width;
-        if (restore) memcpy(line, backup, MsxBoard::Width);
-        else memcpy(backup, line, MsxBoard::Width);
+        uint8_t *backup = screenBackup + y * MsxVideoWidth;
+        if (restore) memcpy(line, backup, MsxVideoWidth);
+        else memcpy(backup, line, MsxVideoWidth);
     }
     if (restore) video.show();
 }
@@ -1014,7 +1016,7 @@ static void menu()
 
 void msxPresent(const uint8_t *pixels, int width, int height, const uint32_t *palette)
 {
-    if (!pixels || !palette || width <= 0 || height <= 0)
+    if (!pixels || !palette || width != 256 || height != MsxVideoHeight)
     {
         msxReportError("Invalid core video frame.");
         return;
@@ -1025,24 +1027,12 @@ void msxPresent(const uint8_t *pixels, int width, int height, const uint32_t *pa
         const uint32_t rgb = palette[i];
         colors[i] = ((rgb >> 21) & 7) | ((rgb >> 10) & 0x38) | (rgb & 0xc0);
     }
-    const int outputWidth = std::min(width, MsxBoard::Width);
-    const int outputHeight = std::min(height, MsxBoard::Height);
-    const int left = (MsxBoard::Width - outputWidth) / 2;
-    const int top = (MsxBoard::Height - outputHeight) / 2;
-    for (int y = 0; y < MsxBoard::Height; ++y)
+    uint16_t sourceX[MsxVideoWidth];
+    MsxVideoColumns(width, sourceX);
+    for (int y = 0; y < MsxVideoHeight; ++y)
     {
         uint8_t *line = video.dmaBuffer->getLineAddr8(y);
-        if (y < top || y >= top + outputHeight) memset(line, colors[0], MsxBoard::Width);
-        else
-        {
-            memset(line, colors[0], left);
-            const uint8_t *source = pixels + ((y - top) * height / outputHeight) * width;
-            if (width == outputWidth)
-                for (int x = 0; x < outputWidth; ++x) line[left + x] = colors[source[x]];
-            else
-                for (int x = 0; x < outputWidth; ++x) line[left + x] = colors[source[x * width / outputWidth]];
-            memset(line + left + outputWidth, colors[0], MsxBoard::Width - left - outputWidth);
-        }
+        MsxScaleVideoRow(line, pixels + y * width, colors, sourceX);
     }
     video.show();
 }
@@ -1095,8 +1085,8 @@ void setup()
                          -1, -1, -1, -1, MsxBoard::GreenLow, MsxBoard::GreenHigh,
                          -1, -1, -1, MsxBoard::BlueLow, MsxBoard::BlueHigh,
                          MsxBoard::HSync, MsxBoard::VSync);
-    const Mode timing(8, 48, 24, MsxBoard::Width, 10, 2, 33, MsxBoard::Height,
-                      12587500, 0, 0, 2);
+    const Mode timing(8, 48, 24, MsxVideoWidth, 10, 2, 33, MsxVideoHeight,
+                      12587500, 0, 0, MsxVideoLineRepeat);
     if (!video.init(pins, timing, 8)) fatal("VGA framebuffer allocation failed.");
     // The shared VGA driver temporarily routes its pixel clock to the LED pin.
     pinMode(MsxBoard::RgbLed, INPUT);
@@ -1105,7 +1095,7 @@ void setup()
     videoReady = video.start();
     if (!videoReady) fatal("VGA output could not start.");
     bootProgress("Preparing menu buffers...", MsxBootBuffers);
-    screenBackup = static_cast<uint8_t *>(heap_caps_malloc(MsxBoard::Width * MsxBoard::Height,
+    screenBackup = static_cast<uint8_t *>(heap_caps_malloc(MsxVideoWidth * MsxVideoHeight,
                                                           MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!screenBackup) fatal("Cannot allocate F12 screen backup.");
     bootProgress("Starting keyboard host...", MsxBootKeyboard);

@@ -8,6 +8,7 @@ param(
   [switch]$PanasonicOnly,
   [switch]$MediaOnly,
   [switch]$MapperOnly,
+  [switch]$Text80,
   [string]$DiskBios = '',
   [string]$DiskImage = '',
   [string]$CartridgeRom = '',
@@ -22,6 +23,9 @@ if ($DiskImage) {
   $DiskImage = (Resolve-Path -LiteralPath $DiskImage).Path
 }
 if ($BiosDirectory -and $ProfilesRoot) { throw 'Use either -BiosDirectory or -ProfilesRoot, not both.' }
+if ($Text80 -and ($CartridgeRom -or $DiskBios -or $Frames -lt 900 -or -not $BiosDirectory -or $Model -eq 0)) {
+  throw '-Text80 requires an MSX2/MSX2+ -BiosDirectory, at least 900 frames, and no cartridge/disk test.'
+}
 if ($CartridgeRom) {
   if (-not ($BiosDirectory -or $ProfilesRoot)) { throw 'Cartridge diagnostics require -BiosDirectory or -ProfilesRoot.' }
   if ($DiskBios) { throw 'Cartridge and disk diagnostics must run separately.' }
@@ -68,7 +72,7 @@ try {
     "$PSScriptRoot\host_smoke.cpp" @(Get-ChildItem '*.o' | ForEach-Object FullName) `
     -o host_smoke.exe
   if ($LASTEXITCODE -ne 0) { throw 'Core host linking failed.' }
-  if (-not $CartridgeRom) {
+  if (-not $CartridgeRom -and -not $Text80) {
     if ($MediaOnly) {
       if ($DiskImage) { & '.\host_smoke.exe' --media $DiskImage }
       else { & '.\host_smoke.exe' --media }
@@ -117,6 +121,7 @@ try {
       Write-Output "Booting $($profile.Name)..."
       $arguments = @($posix, $profile.Model, $profile.Ram, $Frames)
       if ($CartridgeRom) { $arguments += @("$posix/diagnostic.rom", $ExpectedMapper, $AudioProfile) }
+      elseif ($Text80) { $arguments += '--text80' }
       & '.\host_smoke.exe' @arguments
       if ($LASTEXITCODE -ne 0) { throw 'Real BIOS boot/logo verification failed; inspect the PPM captures and transcript.' }
       Copy-Item -LiteralPath "$build\boot.ppm" -Destination "$build\boot-$($profile.Name).ppm"

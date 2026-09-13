@@ -270,6 +270,21 @@ images, and normal disk loading commands such as `LOAD "A:PROGRAM.BAS"`.
 
 ## Notes
 
+VGA uses the performance-oriented **320x240** framebuffer and lower pixel
+clock, with hardware line doubling. The MSX picture still fills the 4:3
+display width instead of sitting inside extra side bars. F12 uses its native
+320x240 layout. The 640x480 rendering experiment was reverted after it slowed
+games on the board.
+If your monitor is widescreen, select its **4:3/aspect** display setting
+rather than stretching the VGA signal to the whole panel.
+
+MSX2/MSX2+ 80-column text is still available through `SCREEN 0:WIDTH 80`,
+but uses the original reduced-resolution renderer: pairs of font dots are
+merged, so it is less sharp than the high-resolution version. Use
+`SCREEN 0:WIDTH 40` when readability matters. This deliberately prioritizes
+game speed; the smaller core image, VGA scanout and F12 backup all reduce
+memory traffic compared with the 640x480 version.
+
 Once VGA is ready, the startup page shows a progress gauge for menu buffers,
 keyboard, audio, microSD, BIOS scanning, saved settings and joystick startup.
 The percentage counts completed initialization stages, not elapsed time or

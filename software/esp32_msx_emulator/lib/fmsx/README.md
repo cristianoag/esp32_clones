@@ -37,6 +37,12 @@ graphics and 80-column text. A 272x240 intermediate buffer preserves
 horizontal-adjust safety; its central 256x240 region is submitted using a
 fixed GGGRRRBB palette represented as RGB888 values. The VGA frontend expands
 this to the full 320-pixel framebuffer width without dropping source pixels.
+`msxPresent` receives a row stride and a pointer to the cropped first pixel;
+there is no second packed PSRAM frame. The frontend stages each 256-pixel
+source row and converted 320-pixel output row in internal stack memory,
+uses an unrolled 4-to-5 expansion, copies the row to the single DMA buffer,
+and flushes that row while cached. It does not perform a second whole-frame
+`show()` flush. F12 continues using the driver's normal `show()` path.
 It retains hardware line doubling and the 12.5875 MHz requested pixel clock.
 F12 uses native 320x240 coordinates and a 320x240 screen backup.
 The higher-resolution experiment was reverted to reduce video bandwidth and
@@ -51,7 +57,9 @@ Every 100 ms of emulated time (six NTSC frames or five PAL frames), sustained
 work above 105% of budget reduces upstream `UPeriod` proportionally, with
 headroom, instead of slowly stepping down through multiple half-second windows.
 The half-second window still handles small adjustments and restores five
-percentage points when there is ample headroom (10–100% rendering).
+percentage points when work is below 90% of the frame budget (10–100% rendering).
+This retains 10% headroom without permanently stranding a CPU-heavy workload
+at minimum drawing merely because it has less than 20% spare frame time.
 This skips only rendering/presentation; it cannot make an overloaded CPU or
 audio path run at real-time speed. It starts at 100% on a new boot or video
 standard, so light workloads retain all display frames.
@@ -71,6 +79,14 @@ reports **emulated fps / target**, presented fps and current drawing percentage.
 F12 waits are excluded by restarting the measurement window. Hardware speed
 must be measured with these counters; host simulations are not ESP32 benchmarks.
 Host regressions remain unpaced with adaptive rendering disabled.
+
+ESP32 work telemetry samples one complete frame per 17 emulated frames.
+`WorkProfile.h` brackets VDP commands, rendered lines, output conversion,
+collision preparation, sound updates and input polling. Frame totals begin
+after pacing/yields, and F12 discards an in-progress sample. `cpu/other` is
+the unaccounted wall time, not a cycle-exact CPU profile; ISR/task interference
+and some VDP I/O work are included there. Timing calls are skipped on the
+other 16 frames, and native builds compile the instrumentation calls out.
 
 CPU-addressed RAM, BIOS/extension ROMs, cartridges and cartridge SRAM of at
 most 64 KiB preferentially use internal byte-addressable SRAM, only when at
@@ -163,6 +179,11 @@ reassert until the beam reaches another overlapping pixel; elapsed pixels are
 never replayed. Magnification, clipping, sprite limits and mode-2 IC/color
 controls participate in collision detection even when rendering is skipped.
 This is a beam-timed collision approximation, not a cycle-exact VDP pipeline.
+The masks are built as eight 32-bit words: each sprite touches at most two
+screen words, including magnification and early-clock clipping. Status reads
+scan words for the first set bit within the unconsumed beam interval instead
+of walking every dot. This reduces work even on skipped frames, without
+omitting sprite collision evaluation or changing its status semantics.
 SCREEN 6 rendering applies the coarse/fine horizontal scroll registers, optional
 two-page wrap and left-edge mask; its downsampled sprites select the proper
 two-bit palette pair rather than producing a spurious light-blue bar.
@@ -338,10 +359,27 @@ boot-time allocation of both SRAM and its filename is mandatory.
   metadata, a binary lookup adapter using the existing fMSX SHA-1, and
   unsupported-hardware signature checks.
 
-All other vendored core files, including the Z80 interpreter and emulated sound
-chips, remain original upstream sources.
+The Z80 interpreter's instruction behavior remains upstream; `RunZ80` has
+an ESP32-only instruction-RAM placement annotation, as do `RdZ80` and `WrZ80`.
+The linked hot routines occupy about 32 KiB of IRAM, reducing flash instruction
+fetches but also reducing the shared internal data heap. CPU-ROM/RAM
+allocations retain their 64 KiB driver reserve and PSRAM fallback. These
+routines are not declared cache-off-safe and are not used as interrupt handlers.
+Other emulated sound-chip implementations remain upstream.
 
 ## Host regression
+
+`powershell -File tools\Test-Video.ps1` executes the production VGA callback
+with a mocked DMA buffer, checking cropped/strided source frames, every
+output pixel, palette conversion, row flush order and guard bytes. The
+snapshot is mathematically identical to the previous nearest-neighbor
+scaler. The target build's ELF symbols must place `RunZ80`, `RdZ80` and
+`WrZ80` in `.iram0.text` (0x403... on this board), not flash (0x420...).
+
+`powershell -File tools\Test-SpriteCollision.ps1` compares the optimized masks
+against a scalar reference for all 16-bit sprite patterns, both zoom factors,
+1024 generated scanlines and every beam interval. It also times both versions
+on the host; the ratio describes this routine only, not ESP32/game FPS.
 
 `powershell -File lib\fmsx\tests\animation.ps1` includes narrow TEXT80
 tests for all 64 source glyph patterns, both color sets, vertical scrolling,

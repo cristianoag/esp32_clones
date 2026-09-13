@@ -13,9 +13,13 @@ void msxReportError(const char*) { assert(false); }
 bool msxShouldExit() { return false; }
 void msxPollKeyboard(uint8_t*) {}
 static int presentedWidth;
-void msxPresent(const uint8_t*, int width, int height, const uint32_t*)
+static int presentedStride;
+static const uint8_t* presentedPixels;
+void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t*, int stride)
 {
   presentedWidth=width;
+  presentedStride=stride;
+  presentedPixels=pixels;
   assert(height==240);
 }
 extern "C" byte DebugZ80(Z80*) { return 1; }
@@ -225,14 +229,12 @@ static void text80()
       for(unsigned x=0;x<256;++x) assert(row[x]==1);
       VDP[1]=0x40;
     }
-  static uint8_t packed[256*HEIGHT];
-  output=packed;
   PutImage();
   assert(presentedWidth==256);
+  assert(presentedStride==WIDTH && presentedPixels==framebuffer+(WIDTH-256)/2);
   ScrMode=1;
   PutImage();
   assert(presentedWidth==256);
-  output=nullptr;
 }
 
 static void scaleVideo()
@@ -240,23 +242,21 @@ static void scaleVideo()
   static_assert(MsxVideoWidth==320 && MsxVideoHeight==240 && MsxVideoLineRepeat==2, "Keep low-bandwidth VGA timing.");
   static_assert(WIDTH==272 && HEIGHT==240, "Keep the lightweight core framebuffer.");
   static_assert(MsxMenuPixelScaleX*320==MsxVideoWidth, "F12 logical coordinates must fill VGA.");
-  uint16_t columns[MsxVideoWidth];
   uint8_t colors[256], source[256], destination[MsxVideoWidth+2];
   for(unsigned x=0;x<256;++x) colors[x]=255-x;
   for(unsigned x=0;x<256;++x) source[x]=x;
   for(unsigned width : {256U})
   {
     memset(destination,0xAC,sizeof(destination));
-    MsxVideoColumns(width,columns);
-    MsxScaleVideoRow(destination+1,source,colors,columns);
+    MsxScaleVideoRow(destination+1,source,colors);
     assert(destination[0]==0xAC && destination[MsxVideoWidth+1]==0xAC);
     unsigned previous=0;
     for(unsigned x=0;x<MsxVideoWidth;++x)
     {
-      assert(columns[x]==x*width/MsxVideoWidth);
-      assert(columns[x]>=previous && columns[x]<=previous+1);
-      assert(destination[x+1]==colors[source[columns[x]]]);
-      previous=columns[x];
+      const unsigned sourceX=x*width/MsxVideoWidth;
+      assert(sourceX>=previous && sourceX<=previous+1);
+      assert(destination[x+1]==colors[source[sourceX]]);
+      previous=sourceX;
     }
     assert(previous==width-1); // No source dot is lost, and no side bars remain.
   }

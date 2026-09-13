@@ -20,6 +20,8 @@
 #include "SHA1.h"
 #include "MapperDatabase.h"
 #include "MCF.h"
+#include "SpriteCollision.h"
+#include "WorkProfile.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -410,7 +412,7 @@ void VDPOut(byte R,byte V);       /* Write value into a VDP register */
 void Printer(byte V);             /* Send a character to a printer   */
 void PPIOut(byte New,byte Old);   /* Set PPI bits (key click, etc.)  */
 int  CheckSprites(void);          /* Check for sprite collisions     */
-static byte SpriteCollisions[32];
+static uint32_t SpriteCollisions[8];
 static int SpriteCollisionCursor=256;
 static void PrepareSpriteLine(unsigned int Y);
 static void SyncSpriteCollision(int X);
@@ -1365,8 +1367,10 @@ int ResetMSX(int NewMode,int NewRAMPages,int NewVRAMPages)
 /** address A in the Z80 address space. Also see OpZ80() in **/
 /** Z80.c which is a simplified code-only RdZ80() version.  **/
 /*************************************************************/
-byte RdZ80(word A)
+byte FMSX_CPU_HOT RdZ80(word A)
 {
+  /* Ordinary memory does not need any peripheral-state lookup. */
+  if((A&0x3F80)!=0x3F80) return(RAM[A>>13][A&0x1FFF]);
   if(AudioKind==2&&SelectedAudioROM(A))
   {
     if(A==0x7FF6) return(AudioEnable);
@@ -1404,10 +1408,12 @@ byte RdZ80(word A)
 /** Z80 emulation calls this function to write byte V to    **/
 /** address A of Z80 address space.                         **/
 /*************************************************************/
-void WrZ80(word A,byte V)
+void FMSX_CPU_HOT WrZ80(word A,byte V)
 {
   /* Secondary slot selector */
   if(A==0xFFFF) { SSlot(V);return; }
+
+  if(EnWrite[A>>14]) { RAM[A>>13][A&0x1FFF]=V;return; }
 
   if(SelectedAudioROM(A)) { WriteAudioROM(A,V);return; }
 
@@ -1439,9 +1445,6 @@ void WrZ80(word A,byte V)
         Write1793(&FDC,WD1793_SYSTEM,(V&0x03)|S_DENSITY|(V&0x04? 0:S_SIDE));
         return;
     }
-
-  /* Write to RAM, if enabled */
-  if(EnWrite[A>>14]) { RAM[A>>13][A&0x1FFF]=V;return; }
 
   /* Switch MegaROM pages */
   if((A>0x3FFF)&&(A<0xC000)) MapROM(A,V);
@@ -2435,7 +2438,12 @@ word LoopZ80(Z80 *R)
   register int J;
 
   /* Finish visible-dot events even when this frame is not being rendered. */
-  if(!(VDPStatus[2]&0x20)) SyncSpriteCollision(256);
+  if(!(VDPStatus[2]&0x20))
+  {
+    FMSX_WORK_BEGIN(FmsxWorkSprites);
+    SyncSpriteCollision(256);
+    FMSX_WORK_END(FmsxWorkSprites);
+  }
 
   /* Flip HRefresh bit */
   VDPStatus[2]^=0x20;
@@ -2512,7 +2520,9 @@ word LoopZ80(Z80 *R)
       }
     }
 
+    FMSX_WORK_BEGIN(FmsxWorkSprites);
     PrepareSpriteLine(ScanLine);
+    FMSX_WORK_END(FmsxWorkSprites);
 
     /* Return whatever interrupt is pending */
     R->IRequest=IRQPending? INT_IRQ:INT_NONE;
@@ -2551,21 +2561,26 @@ word LoopZ80(Z80 *R)
   }
 
   /* Run V9938 engine */
+  FMSX_WORK_BEGIN(FmsxWorkVdp);
   LoopVDP();
+  FMSX_WORK_END(FmsxWorkVdp);
 
   /* Refresh scanline, possibly with the overscan */
   if((UCount>=100)&&Drawing&&(ScanLine<256))
   {
+    FMSX_WORK_BEGIN(FmsxWorkDraw);
     if(!ModeYJK||(ScrMode<7)||(ScrMode>8))
       (RefreshLine[ScrMode])(ScanLine);
     else
       if(ModeYAE) RefreshLine10(ScanLine);
       else RefreshLine12(ScanLine);
+    FMSX_WORK_END(FmsxWorkDraw);
   }
 
   /* Every few scanlines, update sound */
   if(!(ScanLine&0x07))
   {
+    FMSX_WORK_BEGIN(FmsxWorkAudio);
     /* Compute number of microseconds */
     J = (int)(1000000L*(CPU_HPERIOD<<3)/CPU_CLOCK);
 
@@ -2579,6 +2594,7 @@ word LoopZ80(Z80 *R)
 
     /* Render and play all sound now */
     PlayAllSound(J);
+    FMSX_WORK_END(FmsxWorkAudio);
   }
 
   /* Keyboard, sound, and other stuff always runs at line 192    */
@@ -2597,10 +2613,12 @@ word LoopZ80(Z80 *R)
     if(CheatsON&&CheatCount) ApplyCheats();
 
     /* Check joystick */
+    FMSX_WORK_BEGIN(FmsxWorkInput);
     JoyState=Joystick();
 
     /* Check keyboard */
     Keyboard();
+    FMSX_WORK_END(FmsxWorkInput);
 
     /* Exit emulation if requested */
     if(ExitNow) return(INT_QUIT);
@@ -2666,10 +2684,10 @@ word LoopZ80(Z80 *R)
 /*************************************************************/
 static void PrepareSpriteLine(unsigned int Y)
 {
-  byte Occupied[32] = {0};
+  uint32_t Occupied[8] = {0};
   unsigned int I,Active=0,Width=Sprites16x16? 16:8,Zoom=BigSprites? 2:1;
-  int X,Row,Pixel;
-  byte *Attribute,*Pattern,Color,Bit;
+  int X,Row;
+  byte *Attribute,*Pattern,Color;
 
   SpriteCollisionCursor=256;
   if(!ScreenON||SpritesOFF||!ScrMode||ScrMode>=MAXSCREEN+1||Y>=(ScanLines212? 212:192)) return;
@@ -2686,28 +2704,9 @@ static void PrepareSpriteLine(unsigned int Y)
     if((!(Color&15)&&!SolidColor0)||(ScrMode>3&&(Color&0x60))) continue;
     X=(int)Attribute[1]-(Color&0x80? 32:0);
     Pattern=SprGen+((Width==16? Attribute[2]&0xFC:Attribute[2])<<3)+Row;
-    for(Pixel=0;Pixel<(int)Width;++Pixel)
-    {
-      Bit=Pattern[Pixel<8? 0:16]&(0x80>>(Pixel&7));
-      if(Bit)
-      {
-        unsigned int Copy;
-        for(Copy=0;Copy<Zoom;++Copy)
-        {
-          int ScreenX=X+Pixel*(int)Zoom+(int)Copy;
-          if(ScreenX>=0&&ScreenX<256)
-          {
-            byte Mask=1<<(ScreenX&7);
-            if(Occupied[ScreenX>>3]&Mask)
-            {
-              SpriteCollisions[ScreenX>>3]|=Mask;
-              SpriteCollisionCursor=0;
-            }
-            Occupied[ScreenX>>3]|=Mask;
-          }
-        }
-      }
-    }
+    if(AddSpriteDots(Occupied,SpriteCollisions,X,
+                     SpriteDots(((unsigned int)Pattern[0]<<8)|(Width==16? Pattern[16]:0),Zoom)))
+      SpriteCollisionCursor=0;
   }
 }
 
@@ -2718,9 +2717,10 @@ static void SyncSpriteCollision(int X)
   if(X>256) X=256;
   if(X<=SpriteCollisionCursor) return;
   if(!(VDPStatus[0]&0x20))
-    for(Pixel=SpriteCollisionCursor;Pixel<X;++Pixel)
-      if(SpriteCollisions[Pixel>>3]&(1<<(Pixel&7)))
-      {
+  {
+    Pixel=FirstSpriteCollision(SpriteCollisions,SpriteCollisionCursor,X);
+    if(Pixel>=0)
+    {
         VDPStatus[0]|=0x20;
         if(!MODEL(MSX_MSX1))
         {
@@ -2729,8 +2729,8 @@ static void SyncSpriteCollision(int X)
           VDPStatus[5]=(ScanLine+8)&0xFF;
           VDPStatus[6]=(VDPStatus[6]&0xFC)|((ScanLine+8)>>8);
         }
-        break;
-      }
+    }
+  }
   /* A read acknowledges elapsed dots, never replaying an old overlap. */
   SpriteCollisionCursor=X;
 }

@@ -1,4 +1,5 @@
 #include "../FramePacer.h"
+#include "../WorkProfile.h"
 #include <cassert>
 #include <cstdio>
 
@@ -59,6 +60,35 @@ static void startupResponse(bool pal)
 
 int main()
 {
+  {
+    FmsxWorkProfile work;
+    for(int frame=1;frame<=34;++frame)
+    {
+      const int64_t start=frame*20000;
+      const bool sampled=work.startFrame(start);
+      assert(sampled==(frame%17==0));
+      if(sampled)
+      {
+        work.begin(FmsxWorkVdp,start+1000);
+        work.end(FmsxWorkVdp,start+3000);
+        work.begin(FmsxWorkAudio,start+4000);
+        work.end(FmsxWorkAudio,start+5000);
+        work.begin(FmsxWorkAudio,start+6000);
+        work.end(FmsxWorkAudio,start+7000);
+      }
+      work.finishFrame(start+15000);
+    }
+    assert(work.samples==2 && work.total==30000);
+    assert(work.times[FmsxWorkVdp]==4000 && work.times[FmsxWorkAudio]==4000);
+    assert(work.cpuOther()==22000); // Pacing time between frames is excluded.
+    work.clearWindow();
+    assert(!work.samples && !work.total && !work.cpuOther());
+    for(unsigned i=0;i<17;++i) work.startFrame(i*20000);
+    work.reset(); // A paused F12 frame must not pollute measurements.
+    work.finishFrame(100000000);
+    assert(!work.samples && !work.total);
+    puts("PASS: sampled work timing, accumulated sections, wait exclusion and menu reset.");
+  }
   steadyRate(false);
   steadyRate(true);
   startupResponse(false);
@@ -94,6 +124,14 @@ int main()
     assert(pacer.renderingPercent() >= 10 && pacer.renderingPercent() <= 100);
   }
   assert(pacer.renderingPercent() == 10);
+  // After a heavy scene, 13% spare CPU is enough to start restoring drawing;
+  // requiring 20% spare time left CPU-heavy games stuck at the minimum.
+  for (unsigned i = 0; i < 120; ++i) {
+    now += 14500;
+    now += pacer.frame(now, false);
+    pacer.released(now);
+  }
+  assert(pacer.renderingPercent() >= 25);
   for (unsigned i = 0; i < 600; ++i) {
     now += 5000;
     now += pacer.frame(now, false);

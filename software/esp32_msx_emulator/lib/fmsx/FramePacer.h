@@ -49,7 +49,7 @@ public:
       const int64_t budget = int64_t(windowFrames) * 1000000 / hz;
       if (windowWork > budget * 97 / 100)
         drawPercent = drawPercent > 20 ? drawPercent - 10 : 10;
-      else if (windowWork < budget * 80 / 100)
+      else if (windowWork < budget * 90 / 100)
         drawPercent = drawPercent < 95 ? drawPercent + 5 : 100;
       windowFrames = 0;
       windowWork = 0;

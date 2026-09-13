@@ -3,7 +3,7 @@
 This log tracks user-visible changes to the ESP32 MSX / fMSX firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
-## 1.01 - Unreleased
+## 1.01 - 2026-09-13
 
 ### Added
 
@@ -16,6 +16,12 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Removed the extra PSRAM frame copy, scaled each VGA row in internal memory and wrote back its cache immediately to reduce frame-presentation overhead without changing the picture.
+- Moved the main Z80 interpreter and memory read/write dispatch into ESP32-S3 instruction RAM while retaining the existing driver-memory reserve.
+- Reduced ordinary Z80 memory-access overhead by bypassing peripheral-state checks for normal reads and mapped-RAM writes.
+- Added sampled UART timing for CPU/other work, VDP commands, rendering, VGA copying, sprites, audio and input so persistent game slowdowns could be diagnosed on the board.
+- Reduced sprite-collision overhead on every emulated scanline using word-sized masks while preserving clipping, magnification and beam-timed status reads.
+- Allowed drawing to recover with 10% spare frame time instead of requiring 20%, helping CPU-heavy games recover from low presentation rates after a busy scene.
 - Restored 320x240 VGA timing and the lightweight core renderer after the 640x480 version slowed games, while retaining full-width picture scaling instead of extra side bars.
 - Enabled saving directly to attached DSK files on microSD from Disk BASIC and supported controller writes, synchronizing each sector before reporting success.
 - Reported disk write failures to the emulated software and UART, required reattachment after a storage write fault, and rejected mounting the same writable image in both drives.

@@ -283,9 +283,12 @@ static void checkPanasonic()
   }
 }
 
-void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* palette)
+void msxPresent(const uint8_t* source, int width, int height, const uint32_t* palette, int stride)
 {
-  assert(pixels && palette && width == 256 && height == 240);
+  assert(source && palette && width == 256 && height == 240 && stride>=width);
+  static std::vector<uint8_t> packed(256*240);
+  for(int y=0;y<height;++y) memcpy(packed.data()+y*width,source+y*stride,width);
+  const uint8_t* pixels=packed.data();
   assert(palette[255] == 0xFFFFFF);
   for (int i = 0; i < width * height; ++i)
     if (pixels[i]) { ++coloredFrames; break; }
@@ -1102,7 +1105,8 @@ int main(int argc, char** argv)
         assert(RAMPages == pages);
         assert(KeyState[0] == 0xFE);
       }
-  for (unsigned failure = 1; failure <= 7; ++failure) {
+  const unsigned bootAllocations=allocation; // Last successful run was MSX2+ with 512 KiB RAM.
+  for (unsigned failure = 1; failure <= bootAllocations; ++failure) {
     frames = audioSamples = errors = allocation = 0;
     failAllocation = failure;
     assert(!MsxCoreRun(path, 2, 32));
@@ -1141,5 +1145,5 @@ int main(int argc, char** argv)
   frames = errors = 0;
   assert(!MsxCoreRun(path, 2, 8));
   assert(errors == 1);
-  puts("PASS: 24 boots, 7 allocation failures/recoveries, missing BIOS, input, audio, video.");
+  printf("PASS: 24 boots, %u allocation failures/recoveries, missing BIOS, input, audio, video.\n",bootAllocations);
 }

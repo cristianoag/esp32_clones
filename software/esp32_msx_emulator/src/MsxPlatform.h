@@ -4,7 +4,8 @@
 // The platform must consume/copy buffers before returning; they remain core-owned.
 // Palette entries are 0x00RRGGBB. The core paces PAL/NTSC; do not delay here.
 // Frames are 256x240, expanded horizontally to fill the 320x240 VGA framebuffer.
-void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* palette);
+// stride is the byte distance between row starts, including core side borders.
+void msxPresent(const uint8_t* pixels, int width, int height, const uint32_t* palette, int stride);
 void msxPollKeyboard(uint8_t matrix[16]);
 // Active-high U,D,L,R,A,B in bits 0..5 and 8..13 for MSX ports 1 and 2.
 uint16_t msxPollJoysticks();

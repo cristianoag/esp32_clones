@@ -2,6 +2,7 @@
 #include "MsxPlatform.h"
 #include "Esp32Port.h"
 #include "FramePacer.h"
+#include "WorkProfile.h"
 #include "MSX.h"
 #include "Sound.h"
 #include "MapperDatabase.h"
@@ -22,7 +23,6 @@
 #define HEIGHT 240
 static_assert(sizeof(pixel) == 1, "fMSX requires BPP8");
 static pixel* XBuf;
-static uint8_t* output;
 static unsigned int XPal[80], BPal[256], XPal0;
 static uint32_t rgbPalette[256];
 static char biosDirectory[256];
@@ -33,6 +33,12 @@ static bool allocationFailed;
 static FramePacer framePacer;
 static int64_t lastYield, speedStart;
 static unsigned speedFrames, speedPresented;
+static FmsxWorkProfile workProfile;
+extern "C" {
+unsigned char fmsxProfileActive=0;
+void fmsxProfileBegin(unsigned section) { workProfile.begin(section,esp_timer_get_time()); }
+void fmsxProfileEnd(unsigned section) { workProfile.end(section,esp_timer_get_time()); }
+}
 #endif
 static void PutImage();
 #include "Common.h"
@@ -87,6 +93,8 @@ extern "C" void fmsxFrame()
 {
 #ifdef ESP_PLATFORM
   int64_t now = esp_timer_get_time();
+  workProfile.finishFrame(now);
+  fmsxProfileActive=0;
   const int64_t wait = framePacer.frame(now, PALVideo);
   const int64_t target = now + wait;
   while (now < target) {
@@ -111,20 +119,32 @@ extern "C" void fmsxFrame()
     printf("MSX speed: %.1f/%u emulated fps, %.1f presented fps, draw=%u%%\n",
            speedFrames * 1000000.0 / elapsed, PALVideo ? 50U : 60U,
            speedPresented * 1000000.0 / elapsed, static_cast<unsigned>(UPeriod));
+    if(workProfile.samples)
+    {
+      const double scale=1.0/(1000.0*workProfile.samples);
+      printf("MSX work: samples=%u total=%.2f cpu/other=%.2f vdp=%.2f draw=%.2f blit=%.2f sprites=%.2f audio=%.2f input=%.2f ms/frame\n",
+             workProfile.samples,workProfile.total*scale,workProfile.cpuOther()*scale,
+             workProfile.times[FmsxWorkVdp]*scale,workProfile.times[FmsxWorkDraw]*scale,
+             workProfile.times[FmsxWorkBlit]*scale,workProfile.times[FmsxWorkSprites]*scale,
+             workProfile.times[FmsxWorkAudio]*scale,workProfile.times[FmsxWorkInput]*scale);
+    }
+    workProfile.clearWindow();
     speedStart = now;
     speedFrames = speedPresented = 0;
   }
-  framePacer.released(esp_timer_get_time());
+  now=esp_timer_get_time();
+  framePacer.released(now);
+  fmsxProfileActive=workProfile.startFrame(now);
 #endif
   if (msxShouldExit()) ExitNow = 1;
 }
 
 static void PutImage()
 {
+  FMSX_WORK_BEGIN(FmsxWorkBlit);
   const int width = 256;
-  for (int y = 0; y < HEIGHT; ++y)
-    memcpy(output + y * width, XBuf + y * WIDTH + (WIDTH - width) / 2, width);
-  msxPresent(output, width, HEIGHT, rgbPalette);
+  msxPresent(XBuf + (WIDTH - width) / 2, width, HEIGHT, rgbPalette, WIDTH);
+  FMSX_WORK_END(FmsxWorkBlit);
 #ifdef ESP_PLATFORM
   ++speedPresented;
 #endif
@@ -151,6 +171,8 @@ extern "C" void Keyboard()
   // F12 menus block inside the platform callback. Discard their wall time/debt.
   if (esp_timer_get_time() - pollStart >= 100000) {
     framePacer.reset(true);
+    workProfile.reset();
+    fmsxProfileActive=0;
     speedStart = 0;
     speedFrames = speedPresented = 0;
   }
@@ -406,12 +428,9 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   allocationFailed = false;
   strcpy(biosDirectory, romDirectory);
   XBuf = static_cast<pixel*>(fmsxAllocate(WIDTH * HEIGHT * sizeof(pixel)));
-  output = static_cast<uint8_t*>(fmsxAllocate(256 * HEIGHT));
-  if (!XBuf || !output) {
+  if (!XBuf) {
     heap_caps_free(XBuf);
-    heap_caps_free(output);
     XBuf = nullptr;
-    output = nullptr;
     running = false;
     FmsxSetAudioProfile(MsxAudioAuto, nullptr);
     msxReportError("Not enough PSRAM for MSX video.");
@@ -428,6 +447,8 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   audioFraction = 0;
 #ifdef ESP_PLATFORM
   framePacer.reset();
+  workProfile.reset();
+  fmsxProfileActive=0;
   lastYield = esp_timer_get_time();
   speedStart = 0;
   speedFrames = speedPresented = 0;
@@ -462,15 +483,16 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
   snprintf(diskLoadError, sizeof(diskLoadError), "%s", DiskLoadLastError());
   ResetVDP();
   TrashMSX();
+#ifdef ESP_PLATFORM
+  fmsxProfileActive=0;
+#endif
   FmsxSetAudioProfile(MsxAudioAuto, nullptr);
   for (int i = 0; i < MAXCARTS; ++i) ROMName[i] = nullptr;
   for (int i = 0; i < MAXDRIVES; ++i) DSKName[i] = nullptr;
   CasName = nullptr;
   TrashSound();
   heap_caps_free(XBuf);
-  heap_caps_free(output);
   XBuf = nullptr;
-  output = nullptr;
   running = false;
   if (!result) {
     if (allocationFailed || bootError == ENOMEM)

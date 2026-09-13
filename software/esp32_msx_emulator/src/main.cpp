@@ -1014,9 +1014,10 @@ static void menu()
     MsxAudioEnable(audioReady && soundEnabled && !exitRequested);
 }
 
-void msxPresent(const uint8_t *pixels, int width, int height, const uint32_t *palette)
+void msxPresent(const uint8_t *pixels, int width, int height, const uint32_t *palette, int stride)
 {
-    if (!pixels || !palette || width != 256 || height != MsxVideoHeight)
+    if (!pixels || !palette || width != 256 || height != MsxVideoHeight || stride < width ||
+        video.bufferCount != 1)
     {
         msxReportError("Invalid core video frame.");
         return;
@@ -1027,14 +1028,16 @@ void msxPresent(const uint8_t *pixels, int width, int height, const uint32_t *pa
         const uint32_t rgb = palette[i];
         colors[i] = ((rgb >> 21) & 7) | ((rgb >> 10) & 0x38) | (rgb & 0xc0);
     }
-    uint16_t sourceX[MsxVideoWidth];
-    MsxVideoColumns(width, sourceX);
+    alignas(4) uint8_t source[256], converted[MsxVideoWidth];
     for (int y = 0; y < MsxVideoHeight; ++y)
     {
         uint8_t *line = video.dmaBuffer->getLineAddr8(y);
-        MsxScaleVideoRow(line, pixels + y * width, colors, sourceX);
+        memcpy(source, pixels + y * stride, sizeof(source));
+        MsxScaleVideoRow(converted, source, colors);
+        memcpy(line, converted, sizeof(converted));
+        // Write back while this row is still cached; single-buffer DMA needs no swap.
+        video.dmaBuffer->flush(0, y);
     }
-    video.show();
 }
 
 void msxPollKeyboard(uint8_t matrix[16])

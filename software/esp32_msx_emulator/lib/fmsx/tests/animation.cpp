@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <set>
+#include <vector>
 #include "animation_gif.h"
 
 static unsigned frames, polls, firstLogo, lastLogo, basicFrame, distinct;
@@ -72,8 +73,12 @@ extern "C" byte DebugZ80(Z80*)
   return 1;
 }
 
-void msxPresent(const uint8_t* pixels, int w, int h, const uint32_t* palette)
+void msxPresent(const uint8_t* source, int w, int h, const uint32_t* palette, int stride)
 {
+  assert(w==256&&h==240&&stride>=w);
+  static std::vector<uint8_t> packed(256*240);
+  for(int y=0;y<h;++y) memcpy(packed.data()+y*w,source+y*stride,w);
+  const uint8_t* pixels=packed.data();
   ++frames;
   unsigned hash = 2166136261U, white = 0;
   for (int i = 0; i < w * h; ++i) {

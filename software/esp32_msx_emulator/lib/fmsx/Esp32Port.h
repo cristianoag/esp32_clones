@@ -2,6 +2,12 @@
 #define FMSX_ESP32_PORT_H
 #include <stdio.h>
 #include <stddef.h>
+#ifdef ESP_PLATFORM
+#include <esp_attr.h>
+#define FMSX_CPU_HOT IRAM_ATTR
+#else
+#define FMSX_CPU_HOT
+#endif
 #ifdef __cplusplus
 extern "C" {
 #endif

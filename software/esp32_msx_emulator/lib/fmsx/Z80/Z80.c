@@ -14,6 +14,7 @@
 /*************************************************************/
 
 #include "Z80.h"
+#include "../Esp32Port.h"
 #include "Tables.h"
 #include <stdio.h>
 
@@ -657,7 +658,7 @@ void IntZ80(Z80 *R,word Vector)
 /** emulation stopped, and current register values in R.    **/
 /*************************************************************/
 #ifndef EXECZ80
-word RunZ80(Z80 *R)
+word FMSX_CPU_HOT RunZ80(Z80 *R)
 {
   register byte I;
   register pair J;

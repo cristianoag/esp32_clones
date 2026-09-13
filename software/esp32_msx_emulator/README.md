@@ -299,6 +299,32 @@ level. This can trade display smoothness for speed; it cannot guarantee full
 speed for every ROM. The UART `MSX speed:` lines show the measured emulated
 and presented frame rates.
 
+Sprite collisions still run when drawing is skipped, but now use word-sized
+masks rather than per-dot loops. Collision timing and game logic are unchanged.
+Drawing recovery starts with 10% spare frame time rather than 20%, so games
+with a high base CPU cost can recover from a low draw percentage sooner.
+For Space Manbow, use **PSG + SCC** audio; FM-PAC is not required by the
+original game. Host collision benchmarks are not a guarantee of ESP32 FPS:
+compare the UART rates during the same gameplay scene after updating.
+
+Alongside `MSX speed:`, the `MSX work:` line reports sampled milliseconds per
+emulated frame for VDP commands, rendering, VGA copying, sprites, audio and
+input. `cpu/other` is the remaining frame time, including CPU emulation,
+memory accesses and any unsampled work or interruptions; it is not a pure
+CPU-cycle measurement. One frame in 17 is sampled to limit timing overhead
+and avoid consistently selecting the same frame-skipping phase. Deliberate
+pacing waits and time spent in F12 are excluded. Sampled stage timings can
+vary, so compare several consecutive lines from the same gameplay scene.
+
+The presentation path reads the cropped core image directly with its row
+stride, stages one row in internal memory, expands four pixels into five,
+and flushes the VGA cache row immediately. This removes the extra
+60 KiB PSRAM staging image and its per-frame copy. The main Z80 interpreter
+and byte read/write dispatch routines execute from instruction RAM on
+ESP32-S3, without changing the emulated clock. This uses about 32 KiB more
+internal instruction memory; the CPU-data allocator still preserves its
+existing driver-memory reserve and falls back to PSRAM when needed.
+
 This project keeps the original hardware and software assumptions in mind, but it is still an emulator build on modern hardware. That means the goal is a working, usable system rather than a perfect cycle-accurate reproduction of every board detail.
 
 For setup, build, and firmware update details, read the rest of this folder's documentation and use the project notes in the repository as the main reference.

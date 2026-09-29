@@ -795,7 +795,14 @@ void InitPeripherals_and_Others(void)
 
   
   
-  CopyCP400ROMS();
+  if (!CopyCP400ROMS())
+  {
+    Serial.println("CP400 startup halted: required BIOS files could not be loaded.");
+    while (true)
+    {
+      delay(1000);
+    }
+  }
   //CopyCoCo3ROMS();
 
   //The ROM copy leaves the whole I/O page reading back as 0xFF, which would look
@@ -2574,73 +2581,79 @@ void RenderCP400GraphMode_32X16_8X12(void)
 
 
 
-void CopyCP400ROMS1(void)
+bool LoadRomFromSD(const char *path, uint8_t *destination, size_t expectedSize,
+                   size_t bytesToLoad = 0)
 {
-  uint32_t LoopRomSource, LoopRam1;
-
-  // Copy extbas11 to 0x8000 (8K)
-  LoopRam1 = 0x8000;
-  for (LoopRomSource = 0; LoopRomSource < 8192; LoopRomSource++)
-    memory[LoopRam1++] = extbas11[LoopRomSource];
-
-  // Copy bas12 to 0xA000 (8K)
-  LoopRam1 = 0xA000;
-  for (LoopRomSource = 0; LoopRomSource < 8192; LoopRomSource++)
-  memory[LoopRam1++] = bas13[LoopRomSource];
-
-
-  const uint8_t *diskRom = selectedDiskRom == DiskRomSelection::CP400
-                             ? cp400dsk
-                             : disk11;
-
-  // Copy the selected disk controller ROM to 0xC000 (8K)
-  LoopRam1 = 0xC000;
-  for (LoopRomSource = 0; LoopRomSource < 8192; LoopRomSource++)
-    memory[LoopRam1++] = diskRom[LoopRomSource];
-
-  // copy memory[0x8000 - 0xFFFF] to rom[0 - 0x7FFF]
-  LoopRomSource = 0;
-  for (LoopRam1 = 0x8000; LoopRam1 < 0x10000; LoopRam1++)
+  if (!SD_Card_Mounted)
   {
-    rom[LoopRomSource++] = memory[LoopRam1];
+    Serial.printf("Cannot load %s: microSD card is not mounted.\n", path);
+    return false;
   }
-  // Reset vectors
-  
-  uint32_t VectorsLoop = 0;
-  LoopRomSource = 0xfff0 - 0x8000;
-  for (VectorsLoop = 0; VectorsLoop !=16 ; VectorsLoop++)
+
+  File romFile = SD_MMC.open(path, FILE_READ);
+  if (!romFile || romFile.isDirectory())
   {
-    memory[LoopRomSource + 0x8000] = ResetVectors[VectorsLoop];
-    rom[LoopRomSource++] = ResetVectors[VectorsLoop];
+    Serial.printf("Cannot load %s: file is missing or unreadable.\n", path);
+    if (romFile)
+    {
+      romFile.close();
+    }
+    return false;
   }
+
+  if (romFile.size() != expectedSize)
+  {
+    Serial.printf("Cannot load %s: expected %u bytes, found %u.\n",
+                  path, static_cast<unsigned>(expectedSize),
+                  static_cast<unsigned>(romFile.size()));
+    romFile.close();
+    return false;
+  }
+
+  if (bytesToLoad == 0)
+  {
+    bytesToLoad = expectedSize;
+  }
+  if (bytesToLoad > expectedSize)
+  {
+    Serial.printf("Cannot load %s: requested data exceeds the ROM size.\n", path);
+    romFile.close();
+    return false;
+  }
+
+  size_t loaded = 0;
+  while (loaded < bytesToLoad)
+  {
+    const size_t bytesRead = romFile.read(destination + loaded, bytesToLoad - loaded);
+    if (bytesRead == 0)
+    {
+      Serial.printf("Cannot load %s: read stopped after %u bytes.\n",
+                    path, static_cast<unsigned>(loaded));
+      romFile.close();
+      return false;
+    }
+    loaded += bytesRead;
+  }
+
+  romFile.close();
+  Serial.printf("Loaded BIOS %s (%u bytes).\n", path, static_cast<unsigned>(expectedSize));
+  return true;
 }
 
 
-// Loads the active CP400 ROM set (extended BASIC, BASIC, disk controller ROM)
-// into emulated memory/ROM space.
-void CopyCP400ROMS(void)
+bool CopyCP400ROMS(void)
 {
   uint32_t LoopRomSource, LoopRam1;
 
-  // Copy extbas11 to 0x8000 (8K)
-  LoopRam1 = 0x8000;
-  for (LoopRomSource = 0; LoopRomSource < 8192; LoopRomSource++)
-    memory[LoopRam1++] = extbas11[LoopRomSource];
-
-  // Copy bas12 to 0xA000 (8K)
-  LoopRam1 = 0xA000;
-  for (LoopRomSource = 0; LoopRomSource < 8192; LoopRomSource++)
-  memory[LoopRam1++] = bas13[LoopRomSource];
-
-
-  const uint8_t *diskRom = selectedDiskRom == DiskRomSelection::CP400
-                             ? cp400dsk
-                             : disk11;
-
-  // Copy the selected disk controller ROM to 0xC000 (8K)
-  LoopRam1 = 0xC000;
-  for (LoopRomSource = 0; LoopRomSource < 8192; LoopRomSource++)
-    memory[LoopRam1++] = diskRom[LoopRomSource];
+  const char *diskRomPath = selectedDiskRom == DiskRomSelection::CP400
+                              ? "/cp400/bios/cp400dsk.rom"
+                              : "/cp400/bios/disk11.rom";
+  if (!LoadRomFromSD("/cp400/bios/extbas11.rom", memory + 0x8000, 8192) ||
+      !LoadRomFromSD("/cp400/bios/bas13.rom", memory + 0xA000, 8192) ||
+      !LoadRomFromSD(diskRomPath, memory + 0xC000, 8192))
+  {
+    return false;
+  }
 
   // copy memory[0x8000 - 0xFFFF] to rom[0 - 0x7FFF]
   LoopRomSource = 0;
@@ -2657,42 +2670,32 @@ void CopyCP400ROMS(void)
     memory[LoopRomSource + 0x8000] = ResetVectors[VectorsLoop];
     rom[LoopRomSource++] = ResetVectors[VectorsLoop];
   }
+
+  return true;
 }
 
 
 // Optional CoCo 3 ROM loader, kept for compatibility/reference; not part of
 // the active CP400 emulation path (see CopyCP400ROMS()).
-void CopyCoCo3ROMS(void)
+bool CopyCoCo3ROMS(void)
 {
-  uint32_t LoopRom1, LoopRam1, LoopRomSource;
-
-  LoopRam1 = 0x8000;  //coco3p
-  for (LoopRom1 = 0; LoopRom1 != 8192 * 3; LoopRom1++)
+  uint32_t LoopRam1, LoopRomSource;
+  const char *diskRomPath = selectedDiskRom == DiskRomSelection::CP400
+                              ? "/cp400/bios/cp400dsk.rom"
+                              : "/cp400/bios/disk11.rom";
+  if (!LoadRomFromSD("/cp400/bios/coco3.rom", memory + 0x8000, 8192 * 4, 8192 * 3) ||
+      !LoadRomFromSD(diskRomPath, memory + 0xC000, 8192))
   {
-    memory[LoopRam1++] = coco3[LoopRom1];
+    return false;
   }
 
-  const uint8_t *diskRom = selectedDiskRom == DiskRomSelection::CP400
-                             ? cp400dsk
-                             : disk11;
-
-  LoopRam1 = 0xc000;  // Selected disk controller ROM
-  for (LoopRom1 = 0; LoopRom1 != 8192; LoopRom1++)
+  LoopRomSource = 0;
+  for (LoopRam1 = 0x8000; LoopRam1 < 0x10000; LoopRam1++)
   {
-    memory[LoopRam1++] = diskRom[LoopRom1];
+    rom[LoopRomSource++] = memory[LoopRam1];
   }
 
- 
-    // Copy de memory[0x8000 - 0xFFFF] to rom[0 - 0x7FFF]
-    LoopRomSource = 0;
-    for (LoopRam1 = 0x8000; LoopRam1 < 0x10000; LoopRam1++)
-    {
-      rom[LoopRomSource++] = memory[LoopRam1];
-    }
-
-    
- 
-  return;
+  return true;
 }
 
 /*

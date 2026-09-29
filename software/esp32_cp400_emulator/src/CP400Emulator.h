@@ -364,8 +364,8 @@ void ManagePeripherals_Write(uint16_t address, uint8_t value);
 void ManagePeripherals_Read(uint16_t address);
 void ManageKeyboardScan(uint8_t value);
 void FillKeyboardMatrix(void);
-void CopyCP400ROMS(void);
-void CopyCoCo3ROMS(void); //Optional CoCo 3 compatibility ROMs, kept for reference/testing.
+bool CopyCP400ROMS(void);
+bool CopyCoCo3ROMS(void); //Optional CoCo 3 compatibility ROMs, kept for reference/testing.
 
 void SetVideoMode(uint8_t VideoMode);
 void VideoCore(void *pvParameters);

@@ -7,6 +7,7 @@ Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
 ### Changed
 
+- Loaded the CP400 BASIC, Extended BASIC, and selected CP400 or CoCo disk controller ROM from `cp400/bios` on the microSD card instead of embedding them in the firmware. Startup now stops with a serial error when a required ROM is missing, unreadable, or the wrong size.
 - Drove the sound output on GPIO47 only, matching the board revision that removes the second audio channel. On this module GPIO48 is the data line of the onboard RGB LED, so audio could not share it. The machine's sound is mono, so nothing is lost.
 - Raised the audio carrier well above the audible range, so the board's audio filter now removes almost all of it instead of leaving an ultrasonic tone on the jack.
 - Moved the emulated ROM and RAM from the external PSRAM chip into the ESP32's internal memory, which is considerably faster for the emulated processor.

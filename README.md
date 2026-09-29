@@ -4,14 +4,15 @@ The Retro Hacker Clone Series brings together hardware designs and source-availa
 
  The board is designed to feel like a small retro computer rather than a bare dev board, and the firmwares are built to be practical, tweakable, and easy to build from a standard Git checkout.
 
-At the moment the series includes two emulator builds on the same ESP32-S3 board:
+At the moment the series includes three emulator builds on the same ESP32-S3 board:
 
 | Firmware | Covered machines | Project |
 | --- | --- | --- |
 | CP400 | Prologica CP400 / CoCo 2 | [Firmware](software/esp32_cp400_emulator/) and [change log](software/esp32_cp400_emulator/docs/log.md) |
 | MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32_msx_emulator/README.md) and [change log](software/esp32_msx_emulator/docs/log.md) |
+| TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32_tk95_emulator/README.md) and [change log](software/esp32_tk95_emulator/docs/log.md) |
 
-Both builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
+All three builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
 ## Why this exists
 
@@ -31,12 +32,22 @@ The MSX has a very special place in Brazilian computing history. It officially a
 
 The [MSX firmware](software/esp32_msx_emulator/README.md) runs the original fMSX core on the same shared board. It includes multiple BIOS profiles for Omega MSX2+, Gradiente Expert 1.1, Sharp Hotbit 1.2, and Panasonic FS-A1WSX / FS-A1F / FS-A1FX.
 
-This is a practical build: bring your own legally obtained ROMs and BIOS files, load them from SD, and boot from the menu. The software supports the core MSX experience with USB keyboard input, graphics, sound, cartridge booting, and firmware updates through the on-screen menu. and... USB joystick support, of course.
+The software supports the core MSX experience with USB keyboard input, graphics, sound, cartridge booting, and firmware updates through the on-screen menu. and... USB joystick support, of course.
 
-The F12 Media menu attaches writable `.dsk` images to drives A/B and read-only
-`.cas` tapes, with ejection, tape rewind and optional saved boot defaults.
-Disk access requires a compatible user-supplied disk BIOS; see the
-[disk and tape setup guide](software/esp32_msx_emulator/README.md#disk-and-tape-images).
+The F12 Media menu attaches writable `.dsk` images to drives A/B and read-only `.cas` tapes, with ejection, tape rewind and optional saved boot defaults. Disk access requires a compatible user-supplied disk BIOS; see the [disk and tape setup guide](software/esp32_msx_emulator/README.md#disk-and-tape-images).
+
+## TK90X / TK95
+
+The Microdigital TK90X and TK95 brought the ZX Spectrum family of computers to Brazilian homes. The [TK firmware](software/esp32_tk95_emulator/README.md) emulates the TK95 and 48 KiB TK90X on the same shared ESP32-S3 board, using
+the cycle-stepped chips Z80 core.
+
+The firmware includes VGA output, USB keyboard input, beeper audio and two USB joystick ports with calibration and selectable Kempston, Sinclair 1/2 or Cursor interfaces. The F12 menu brings together machine and ROM selection, 50/60 Hz Microdigital ULA timing, Portuguese/Spanish ROM language selection, sound and volume, saved boot defaults, reset options and firmware updates.
+
+Media support includes read-only standard `.tap` playback and loading 48K `.sna` and `.z80` snapshots. Supply legally obtained, raw 16 KiB ROMs at `tk\bios\tk95.rom` and `tk\bios\tk90.rom` on the FAT32 card; the `tk` folder can sit alongside `msx` and `cp400`. No ROM bytes are embedded in the firmware.
+
+See the [SD card and ROM setup](software/esp32_tk95_emulator/README.md#sd-card-and-roms) and [keyboard guide](software/esp32_tk95_emulator/README.md#keyboard-and-joysticks) for the original TK keyword-entry conventions.
+
+The initial release does not include AY audio, Betadisk, TZX, tape recording or snapshot saving, and does not claim full cycle accuracy. 
 
 ## Repository layout
 
@@ -46,6 +57,7 @@ hardware/esp32_clones/libraries Local KiCad symbols and footprints
 hardware/esp32_clones/bom       Interactive BOM and BOM assets
 software/esp32_cp400_emulator/  PlatformIO firmware for the CP400 build
 software/esp32_msx_emulator/    MSX firmware and setup files
+software/esp32_tk95_emulator/   TK90X/TK95 firmware and setup files
 images/                         Generated images and project documentation assets
 ```
 
@@ -65,7 +77,7 @@ For the full component-by-component assembly view, open the [interactive BOM](ht
 
 The board is built around an ESP32-S3 DevKitC-style N16R8 module with 16 MB flash and 8 MB OPI PSRAM. It includes VGA output, a USB keyboard port, SD/MMC storage, a mono audio output, and a compact layout intended to behave more like a small computer than a bare dev board.
 
-The shared board is used by both firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32_msx_emulator/README.md#hardware).
+The shared board is used by all three firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32_msx_emulator/README.md#hardware) and the [TK hardware section](software/esp32_tk95_emulator/README.md#hardware).
 
 ## BOM and purchasing
 
@@ -93,28 +105,32 @@ This is the current BOM for the board as defined in the KiCad project. The table
 
 ## Firmware build notes
 
-Both firmware projects use PlatformIO with the Arduino framework and a pinned `espressif32@6.11.0` platform. From the project directory you want to use, run:
+All three firmware projects use PlatformIO with the Arduino framework and a pinned `espressif32@6.11.0` platform. From the project directory you want to use, run:
 
 ```powershell
 Set-Location .\software\esp32_cp400_emulator
 # or:
 # Set-Location .\software\esp32_msx_emulator
+# or:
+# Set-Location .\software\esp32_tk95_emulator
 
 make firmware
 ```
 
 The build produces FLH packages for each target; the project directories keep their own firmware images and configuration.
 Each firmware directory includes its own board definitions and required
-library sources and can be copied and compiled independently of the other.
-Both still require PlatformIO and the configured ESP32 toolchain.
+library sources and can be copied and compiled independently of the others.
+All three still require PlatformIO and the configured ESP32 toolchain.
 
 ## ROMs and original software
 
-Original CP400, CoCo, MSX, BASIC, cartridge, cassette, and floppy software may still be copyrighted. This repository is for original hardware, firmware, and project files. Use legally obtained ROMs and software images when needed.
+Original CP400, CoCo, MSX, TK90X/TK95, ZX Spectrum, BASIC, cartridge, cassette, and floppy software may still be copyrighted. This repository is for original hardware, firmware, and project files. Use legally obtained ROMs and software images when needed.
+
+The CP400 firmware loads its BIOS files from `software/esp32_cp400_emulator/sdcard/cp400/bios`. Copy the `cp400` folder to the root of the microSD card so the firmware can read the BASIC, Extended BASIC, and CP400 or CoCo disk controller ROM selected in the F12 menu.
 
 ## Historical notes
 
-The CP400 was part of the wider Brazilian TRS-Color ecosystem, and the MSX line later became one of the most important home computer families in Brazil. This project sits at the intersection of those histories: a practical board, a pair of emulator builds, and a small bit of preservation work for machines that still matter to a lot of people.
+The CP400 was part of the wider Brazilian TRS-Color ecosystem, the MSX line became one of the most important home computer families in Brazil, and Microdigital's TK90X and TK95 connected Brazilian users to the ZX Spectrum ecosystem. This project sits at the intersection of those histories: a practical board, three emulator builds, and a small bit of preservation work for machines that still matter to a lot of people.
 
 ## References
 
@@ -123,6 +139,10 @@ The CP400 was part of the wider Brazilian TRS-Color ecosystem, and the MSX line 
 - [TRS-80 Color Computer](https://en.wikipedia.org/wiki/TRS-80_Color_Computer)
 - [MSX](https://en.wikipedia.org/wiki/MSX)
 - [fMSX by Marat Fayzullin](https://fms.komkon.org/fMSX/)
+- [TK90X](https://en.wikipedia.org/wiki/TK90X)
+- [TK95](https://en.wikipedia.org/wiki/TK95)
+- [ESPectrum reference emulator](https://github.com/EremusOne/ESPectrum)
+- [chips Z80 core](https://github.com/floooh/chips)
 - [Prologica](https://pt.wikipedia.org/wiki/Prol%C3%B3gica)
 - [Datassette](https://datassette.org/)
 

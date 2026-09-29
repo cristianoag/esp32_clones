@@ -1,8 +1,7 @@
 .pio/
-dist/
 tests/*.exe
-sdcard/**/*.rom
-sdcard/**/*.ROM
-sdcard/**/*.tap
-sdcard/**/*.sna
-sdcard/**/*.z80
+sdcard/
+*.rom
+*.ROM
+*.bin
+*.BIN

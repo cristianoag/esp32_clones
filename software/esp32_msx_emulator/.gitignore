@@ -1,5 +1,4 @@
 .pio/
-dist/
 sdcard/
 *.rom
 *.ROM

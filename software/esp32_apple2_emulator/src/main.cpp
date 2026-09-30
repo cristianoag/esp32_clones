@@ -686,6 +686,10 @@ void setup()
         }
     }
     if (!AppleJoysticksStart()) error("Joystick host initialization failed; see UART.");
+    Serial.printf("APPLE memory: internal free %u, largest block %u, PSRAM free %u\n",
+                  heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                  heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     frame("Press F12 for setup. Automatic boot in 2.5s.");
     footer("");
     const uint32_t start = millis();
@@ -702,7 +706,8 @@ void setup()
 
 void loop()
 {
-    static uint32_t lastReport = 0, measuredFrames = 0;
+    static uint32_t lastReport = millis(), measuredFrames = 0, renderedFrames = 0;
+    static uint64_t cpuMicros = 0, videoMicros = 0, copyMicros = 0, audioMicros = 0;
     bool openMenu = !running || audioFailed;
     for (uint8_t value = AppleKeyboardMenuKey(); value; value = AppleKeyboardMenuKey())
         if (value == 69) openMenu = true;
@@ -713,6 +718,8 @@ void loop()
         present();
         lastReport = millis();
         measuredFrames = 0;
+        renderedFrames = 0;
+        cpuMicros = videoMicros = copyMicros = audioMicros = 0;
     }
     const uint32_t start = micros();
     uint8_t report[8];
@@ -728,13 +735,26 @@ void loop()
     int16_t samples[AppleCore::MaxSamples];
     unsigned count = 0;
     const bool draw = machine.frames % (settings.frameSkip + 1) == 0;
-    machine.runFrame(draw ? pixels : nullptr, samples, count, settings.monochrome);
-    if (draw) present();
+    const uint32_t cpuStart = micros();
+    machine.runFrame(nullptr, samples, count, settings.monochrome);
+    const uint32_t cpuEnd = micros();
+    cpuMicros += cpuEnd - cpuStart;
+    if (draw && machine.needsRender(settings.monochrome))
+    {
+        machine.render(pixels, settings.monochrome);
+        const uint32_t videoEnd = micros();
+        videoMicros += videoEnd - cpuEnd;
+        present();
+        copyMicros += micros() - videoEnd;
+        ++renderedFrames;
+    }
+    const uint32_t audioStart = micros();
     if (audioReady && settings.sound)
     {
         for (unsigned i = 0; i < count; ++i) samples[i] = samples[i] * settings.volume / 100;
         AppleAudioSubmit(samples, count);
     }
+    audioMicros += micros() - audioStart;
     const uint32_t target = AppleCore::FrameMicros;
     const uint32_t elapsed = micros() - start;
     if (elapsed < target)
@@ -751,7 +771,15 @@ void loop()
         Serial.printf("APPLE speed: %.2f emulated fps, target %.2f, rendering 1/%u\n",
                       measuredFrames * 1000.0 / (now - lastReport),
                       1000000.0 / target, settings.frameSkip + 1);
+        const double millisecondsPerFrame = 1000.0 * measuredFrames;
+        Serial.printf("APPLE timing: CPU %.2f ms, video %.2f ms, copy %.2f ms, audio %.2f ms; draws %u/%u; PC %04X, track %u, emulated %.1f s\n",
+                      cpuMicros / millisecondsPerFrame, videoMicros / millisecondsPerFrame,
+                      copyMicros / millisecondsPerFrame, audioMicros / millisecondsPerFrame,
+                      renderedFrames, measuredFrames, m6502_pc(&machine.cpu), machine.disks[0].track(),
+                      double(machine.cycles) / AppleCore::ClockRate);
         lastReport = now;
         measuredFrames = 0;
+        renderedFrames = 0;
+        cpuMicros = videoMicros = copyMicros = audioMicros = 0;
     }
 }

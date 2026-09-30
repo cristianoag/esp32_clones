@@ -255,6 +255,97 @@ static void videoAudioTests()
     assert(audio[0] > 0);
 }
 
+static void renderEquivalenceTests()
+{
+    std::vector<uint8_t> pixels(AppleCore::Width * AppleCore::Height);
+    uint32_t hash = 2166136261u;
+    for (unsigned model = 0; model < 2; ++model)
+    {
+        boot(AppleModel(model));
+        for (unsigned bank = 0; bank < 2; ++bank)
+            for (unsigned address = 0; address < 65536; ++address)
+                core.ram[bank][address] = (address * 37 + address / 17 + bank * 113) & 255;
+        for (unsigned mode = 0; mode < 8; ++mode)
+            for (unsigned option = 0; option < 32; ++option)
+            {
+                core.text = mode < 2;
+                core.hires = mode >= 4;
+                core.col80 = mode & 1;
+                core.doubleHires = mode & 1;
+                core.mixed = mode >= 6;
+                core.page2 = option & 1;
+                core.store80 = option & 2;
+                core.altCharset = option & 4;
+                core.frames = option & 16;
+                core.render(pixels.data(), option & 8);
+                for (uint8_t pixel : pixels) hash = (hash ^ pixel) * 16777619u;
+            }
+    }
+    assert(hash == 0x720f406du); // Pixel-for-pixel aggregate from the pre-optimization renderer.
+}
+
+static void renderInvalidationTests()
+{
+    boot();
+    std::vector<uint8_t> pixels(AppleCore::Width * AppleCore::Height);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    assert(!core.needsRender(false));
+    core.frames = 16;
+    assert(!core.needsRender(false)); // Inverse characters do not flash.
+    core.write(0x200, 1);
+    assert(!core.needsRender(false));
+    core.write(0x400, 0xc1);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    core.write(0x400, 0xc1);
+    assert(!core.needsRender(false));
+    core.write(0x400, 0x41);
+    core.render(pixels.data(), false);
+    core.frames = 31;
+    assert(!core.needsRender(false));
+    core.frames = 32;
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    assert(!core.needsRender(false) && core.needsRender(true));
+    core.render(pixels.data(), true);
+    assert(!core.needsRender(true));
+    core.write(0xc00f, 0);
+    assert(core.needsRender(true));
+    core.render(pixels.data(), true);
+    core.frames = 48;
+    assert(!core.needsRender(true)); // The alternate character set disables flashing.
+    core.write(0xc00d, 0);
+    core.render(pixels.data(), false);
+    core.write(0xc005, 0);
+    core.write(0x400, 0xc2);
+    assert(core.needsRender(false)); // AUX text writes also invalidate.
+    core.render(pixels.data(), false);
+    core.write(0x800, 1);
+    assert(core.needsRender(false)); // Both text pages are tracked.
+    core.render(pixels.data(), false);
+    core.write(0x2000, 1);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    core.write(0x4000, 1);
+    assert(core.needsRender(false)); // Both hi-res pages are tracked.
+    core.render(pixels.data(), false);
+    core.read(0xc055);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    core.read(0xc050); core.read(0xc057); core.read(0xc05e);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    core.read(0xc053);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    core.write(0xc001, 0);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    core.reset();
+    assert(core.needsRender(false));
+}
+
 static void inputSettingsTests()
 {
     assert(AppleAscii(4, 0, true) == 'A' && AppleAscii(4, 0, false) == 'a');
@@ -304,6 +395,8 @@ int main()
     diskTests();
     diskMotorTests();
     videoAudioTests();
+    renderEquivalenceTests();
+    renderInvalidationTests();
     inputSettingsTests();
     puts("Apple II+/IIe core, banking, CPU, media, video, audio, input and settings tests passed.");
 }

@@ -6,7 +6,7 @@ else
 PIO ?= pio
 endif
 
-FW_VERSION := 1.01
+FW_VERSION := 1.02
 PIO_ENV := esp32-s3-devkitc-1-n16r8
 OUTPUT_DIR ?= dist
 UPDATE_FILE ?= $(OUTPUT_DIR)/ESP32_APPLE2-$(FW_VERSION).FLH

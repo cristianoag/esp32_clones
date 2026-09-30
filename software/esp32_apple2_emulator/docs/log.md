@@ -3,6 +3,23 @@
 This log tracks user-visible changes to the ESP32 Apple II emulator firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.02 - Unreleased
+
+### Changed
+
+- Moved the 6502 decoder and memory-access hot path into internal instruction RAM to reduce flash-cache overhead during emulation.
+- Rendered display rows in internal RAM before copying them to PSRAM and stopped redrawing unchanged screens, while preserving 80-column output, flashing text and display-page changes.
+- Avoided calculating unused floating-bus values during keyboard, status and Disk II data-latch reads.
+
+### Added
+
+- Added CPU, video, framebuffer-copy and audio timing to UART diagnostics, alongside redraw counts, the CPU program counter, drive-1 track and elapsed emulated time.
+- Added a 512-configuration framebuffer-equivalence regression and checks for display invalidation, including auxiliary memory and flashing text.
+
+### Notes
+
+- Full-speed operation still required new on-board measurements; the previous firmware ran at roughly 20 fps with every-frame rendering and 30.6 fps with every-third-frame rendering on the reported board.
+
 ## 1.01 - Unreleased
 
 ### Fixed

@@ -22,15 +22,21 @@ unsigned textOffset(unsigned row)
 }
 }
 
-void AppleCore::render(uint8_t *pixels, bool monochrome) const
+void AppleCore::render(uint8_t *pixels, bool monochrome)
 {
-    memset(pixels, 0, Width * Height);
+    videoDirty_ = false;
+    renderedVideoState_ = videoState(monochrome);
+    renderedFlashPhase_ = (frames >> 4) & 1;
+    flashingText_ = false;
+    memset(pixels, 0, Width * 24);
+    memset(pixels + Width * 216, 0, Width * 24);
+    uint8_t scanline[Width] = {};
     const bool iie = model == AppleModel::IIe;
     const unsigned textBase = page2 && !store80 ? 0x800 : 0x400;
     const unsigned hiresBase = page2 && !store80 ? 0x4000 : 0x2000;
     for (unsigned y = 0; y < 192; ++y)
     {
-        uint8_t *line = pixels + (y + 24) * Width + 40;
+        uint8_t *line = scanline + 40;
         if (text || (mixed && y >= 160))
         {
             const bool wide = iie && col80;
@@ -47,7 +53,11 @@ void AppleCore::render(uint8_t *pixels, bool monochrome) const
                     else
                     {
                         character &= 63;
-                        if (code >= 0x40) inverse = (frames / 16) & 1;
+                        if (code >= 0x40)
+                        {
+                            flashingText_ = true;
+                            inverse = (frames / 16) & 1;
+                        }
                     }
                     if (character < 32) character += 64;
                 }
@@ -120,5 +130,6 @@ void AppleCore::render(uint8_t *pixels, bool monochrome) const
                 }
             }
         }
+        memcpy(pixels + (y + 24) * Width, scanline, Width);
     }
 }

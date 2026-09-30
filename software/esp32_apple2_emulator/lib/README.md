@@ -37,7 +37,11 @@ Its SDL UI, 65C02 core, ROMs and disk images are not part of this firmware.
 The IIe banking and platform-independent machine implementation live in
 `../src`, not in an imported desktop emulator.
 
-The chips CPU is unmodified, with the full notice in its header and
-[license](chips/LICENSE). Third-party licenses are not replaced by the
+The chips CPU retains its original execution logic, with the full notice
+in its header and [license](chips/LICENSE). The only local header change is
+an optional `M6502_TICK_ATTR` annotation on the tick declaration/definition.
+It defaults to empty for host tests; the ESP32 build uses it to place the
+hot decoder in internal instruction RAM rather than flash.
+Third-party licenses are not replaced by the
 repository license. ROMs used for local smoke tests are external inputs,
 not firmware or test fixtures distributed here.

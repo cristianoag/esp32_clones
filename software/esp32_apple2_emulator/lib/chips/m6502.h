@@ -351,7 +351,10 @@ typedef struct {
 /* initialize a new m6502 instance and return initial pin mask */
 uint64_t m6502_init(m6502_t* cpu, const m6502_desc_t* desc);
 /* execute one tick */
-uint64_t m6502_tick(m6502_t* cpu, uint64_t pins);
+#ifndef M6502_TICK_ATTR
+#define M6502_TICK_ATTR
+#endif
+M6502_TICK_ATTR uint64_t m6502_tick(m6502_t* cpu, uint64_t pins);
 /* perform m6510 port IO (only call this if M6510_CHECK_IO(pins) is true) */
 uint64_t m6510_iorq(m6502_t* cpu, uint64_t pins);
 // prepare m6502_t snapshot for saving
@@ -713,7 +716,7 @@ void m6502_snapshot_onload(m6502_t* snapshot, m6502_t* sys) {
 #pragma warning(disable:4244)   /* conversion from 'uint16_t' to 'uint8_t', possible loss of data */
 #endif
 
-uint64_t m6502_tick(m6502_t* c, uint64_t pins) {
+M6502_TICK_ATTR uint64_t m6502_tick(m6502_t* c, uint64_t pins) {
     if (pins & (M6502_SYNC|M6502_IRQ|M6502_NMI|M6502_RDY|M6502_RES)) {
         // interrupt detection also works in RDY phases, but only NMI is "sticky"
 

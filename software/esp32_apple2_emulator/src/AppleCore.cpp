@@ -88,6 +88,7 @@ bool AppleCore::boot(const uint8_t *image, size_t size, const uint8_t *slot,
 
 void AppleCore::reset()
 {
+    videoDirty_ = true;
     text = true;
     mixed = page2 = hires = col80 = altCharset = doubleHires = store80 = false;
     ramRead_ = ramWrite_ = altZp_ = intCxRom_ = slotC3Rom_ = intC8Rom_ = false;
@@ -139,7 +140,13 @@ uint8_t AppleCore::read(uint16_t address)
 
 void AppleCore::write(uint16_t address, uint8_t value)
 {
-    if (address < 0xc000) ram[bank(address, true)][address] = value;
+    if (address < 0xc000)
+    {
+        uint8_t &byte = ram[bank(address, true)][address];
+        if (byte != value && ((address >= 0x400 && address < 0xc00) ||
+                             (address >= 0x2000 && address < 0x6000))) videoDirty_ = true;
+        byte = value;
+    }
     else if (address < 0xc100) io(address, value, true);
     else if (address >= 0xd000 && lcWrite_) ram[bank(address, true)][languageAddress(address)] = value;
     else if (model == AppleModel::IIe)
@@ -164,7 +171,6 @@ uint8_t AppleCore::floatingBus() const
 
 uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
 {
-    const uint8_t bus = floatingBus();
     const bool iie = model == AppleModel::IIe;
     if (address < 0xc010)
     {
@@ -184,7 +190,7 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
             case 14: altCharset = on; break;
             }
         }
-        return bus;
+        return floatingBus();
     }
     if (address < 0xc020)
     {
@@ -214,6 +220,8 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
         }
         return (keyboard_ & 127) | (on ? 128 : 0);
     }
+    const bool diskLatch = address >= 0xc0e0 && address <= 0xc0ef && !(address & 1) && !writing;
+    const uint8_t bus = diskLatch ? 0 : floatingBus();
     if (address >= 0xc030 && address < 0xc040) speaker_ = !speaker_;
     if (address >= 0xc050 && address <= 0xc057)
     {

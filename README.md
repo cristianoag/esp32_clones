@@ -4,15 +4,16 @@ The Retro Hacker Clone Series brings together hardware designs and source-availa
 
  The board is designed to feel like a small retro computer rather than a bare dev board, and the firmwares are built to be practical, tweakable, and easy to build from a standard Git checkout.
 
-At the moment the series includes three emulator builds on the same ESP32-S3 board:
+At the moment the series includes four emulator builds on the same ESP32-S3 board:
 
 | Firmware | Covered machines | Project |
 | --- | --- | --- |
 | CP400 | Prologica CP400 / CoCo 2 | [Firmware](software/esp32_cp400_emulator/) and [change log](software/esp32_cp400_emulator/docs/log.md) |
 | MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32_msx_emulator/README.md) and [change log](software/esp32_msx_emulator/docs/log.md) |
 | TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32_tk95_emulator/README.md) and [change log](software/esp32_tk95_emulator/docs/log.md) |
+| Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32_apple2_emulator/README.md) and [change log](software/esp32_apple2_emulator/docs/log.md) |
 
-All three builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
+All four builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
 ## Why this exists
 
@@ -49,6 +50,27 @@ See the [SD card and ROM setup](software/esp32_tk95_emulator/README.md#sd-card-a
 
 The initial release does not include AY audio, Betadisk, TZX, tape recording or snapshot saving, and does not claim full cycle accuracy. 
 
+## Apple II
+
+The [Apple II firmware](software/esp32_apple2_emulator/README.md) adds generic
+Apple II+ (64 KiB with language card) and original Apple IIe (128 KiB)
+profiles. It follows the shared standalone PlatformIO, board-driver, F12
+configuration and FLH firmware-update conventions.
+
+The initial integration uses
+[codesafe/ESP32-VGA_AppleII_Emulator](https://github.com/codesafe/ESP32-VGA_AppleII_Emulator)
+as its starting reference, with a cycle-stepped NMOS 6502 and additional
+IIe banking and display support. VGA preserves the full width of
+80-column text; USB keyboard, calibrated joystick/paddle input, speaker
+audio and two read-only NIB Disk II drives are included.
+
+Supply machine and Disk II ROMs under `apple2/bios` on SD. No ROMs or games
+are distributed. Enhanced IIe/65C02 and Brazilian TK2000, TK3000/Compact,
+MC-4000/Exato and Exato IIe profiles are not claimed as supported without
+their required hardware and verified ROMs. See the
+[scope and limitations](software/esp32_apple2_emulator/README.md#supported-media-and-limitations).
+Physical-board validation is still pending.
+
 ## Repository layout
 
 ```text
@@ -58,6 +80,7 @@ hardware/esp32_clones/bom       Interactive BOM and BOM assets
 software/esp32_cp400_emulator/  PlatformIO firmware for the CP400 build
 software/esp32_msx_emulator/    MSX firmware and setup files
 software/esp32_tk95_emulator/   TK90X/TK95 firmware and setup files
+software/esp32_apple2_emulator/ Apple II+/original IIe firmware and setup files
 images/                         Generated images and project documentation assets
 ```
 
@@ -77,7 +100,7 @@ For the full component-by-component assembly view, open the [interactive BOM](ht
 
 The board is built around an ESP32-S3 DevKitC-style N16R8 module with 16 MB flash and 8 MB OPI PSRAM. It includes VGA output, a USB keyboard port, SD/MMC storage, a mono audio output, and a compact layout intended to behave more like a small computer than a bare dev board.
 
-The shared board is used by all three firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32_msx_emulator/README.md#hardware) and the [TK hardware section](software/esp32_tk95_emulator/README.md#hardware).
+The shared board is used by all four firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32_msx_emulator/README.md#hardware), the [TK hardware section](software/esp32_tk95_emulator/README.md#hardware) and the [Apple II hardware section](software/esp32_apple2_emulator/README.md#hardware).
 
 ## BOM and purchasing
 

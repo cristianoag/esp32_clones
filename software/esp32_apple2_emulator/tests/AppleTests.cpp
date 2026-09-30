@@ -114,6 +114,91 @@ static void cpuTests()
     assert(m6502_pc(&core.cpu) >= 0xd00e && m6502_pc(&core.cpu) <= 0xd011);
 }
 
+static void memoryMapTests()
+{
+    for (unsigned model = 0; model < 2; ++model)
+    {
+        boot(AppleModel(model));
+        for (unsigned flags = 0; flags < 64; ++flags)
+        {
+            core.write(0xc008 + (flags & 1), 0);
+            core.write(0xc002 + ((flags >> 1) & 1), 0);
+            core.write(0xc004 + ((flags >> 2) & 1), 0);
+            core.write(0xc000 + ((flags >> 3) & 1), 0);
+            core.read(0xc054 + ((flags >> 4) & 1));
+            core.read(0xc056 + ((flags >> 5) & 1));
+            for (unsigned page = 0; page < 0xc0; ++page)
+                for (unsigned offset : {0u, 17u, 255u})
+                {
+                    const uint16_t address = page * 256 + offset;
+                    unsigned readBank = model && (flags & 2) ? 1 : 0;
+                    unsigned writeBank = model && (flags & 4) ? 1 : 0;
+                    if (model && address < 0x200) readBank = writeBank = flags & 1;
+                    else if (model && (flags & 8) &&
+                             ((address >= 0x400 && address < 0x800) ||
+                              ((flags & 32) && address >= 0x2000 && address < 0x4000)))
+                        readBank = writeBank = (flags >> 4) & 1;
+                    core.ram[0][address] = 0x11;
+                    core.ram[1][address] = 0xee;
+                    assert(core.read(address) == (readBank ? 0xee : 0x11));
+                    core.write(address, 0x55);
+                    assert(core.ram[writeBank][address] == 0x55);
+                    assert(core.ram[!writeBank][address] == (writeBank ? 0x11 : 0xee));
+                }
+        }
+        core.reset();
+        for (unsigned auxiliary = 0; auxiliary < 2; ++auxiliary)
+        {
+            core.write(0xc008 + auxiliary, 0);
+            for (unsigned selection = 0; selection < 16; ++selection)
+            {
+                core.read(0xc082);
+                core.read(0xc080 + selection);
+                core.read(0xc080 + selection);
+                for (unsigned address : {0xd000u, 0xd017u, 0xdfffu, 0xe000u, 0xffffu})
+                {
+                    const unsigned bank = model ? auxiliary : 0;
+                    const unsigned location = address < 0xe000 && !(selection & 8) ? address - 0x1000 : address;
+                    core.ram[0][location] = 0x11;
+                    core.ram[1][location] = 0xee;
+                    const bool ramRead = (selection & 3) == 0 || (selection & 3) == 3;
+                    assert(core.read(address) == (ramRead ? (bank ? 0xee : 0x11) : core.rom[address - 0xc000]));
+                    core.write(address, 0x77);
+                    assert(core.ram[bank][location] == (selection & 1 ? 0x77 : bank ? 0xee : 0x11));
+                    assert(core.ram[!bank][location] == (bank ? 0x11 : 0xee));
+                }
+            }
+        }
+    }
+}
+
+static void frameStepTests()
+{
+    boot();
+    static AppleCore stepped;
+    assert(stepped.boot(rom, sizeof(rom), slot, sizeof(slot), AppleModel::IIe, error, sizeof(error)));
+    // Exercise reads, writes, bank changes and the speaker through both stepping APIs.
+    const uint8_t program[] = {
+        0xa9,0x01,0x8d,0x05,0xc0,0xee,0x00,0x04,0xad,0x30,0xc0,
+        0x8d,0x04,0xc0,0xee,0x01,0x04,0x4c,0x00,0xd0
+    };
+    memcpy(core.rom + 4096, program, sizeof(program));
+    memcpy(stepped.rom + 4096, program, sizeof(program));
+    int16_t audio[AppleCore::MaxSamples];
+    unsigned samples;
+    for (unsigned frame = 0; frame < 4; ++frame)
+    {
+        core.runFrame(nullptr, audio, samples, false);
+        for (unsigned i = 0; i < AppleCore::FrameCycles; ++i) stepped.tick();
+        assert(core.cycles == stepped.cycles);
+        assert(!memcmp(&core.cpu, &stepped.cpu, sizeof(core.cpu)));
+        assert(!memcmp(core.ram, stepped.ram, sizeof(core.ram)));
+        core.tick();
+        stepped.tick();
+        assert(!memcmp(&core.cpu, &stepped.cpu, sizeof(core.cpu)));
+    }
+}
+
 static void diskTests()
 {
     boot();
@@ -322,14 +407,19 @@ static void renderInvalidationTests()
     assert(core.needsRender(false)); // AUX text writes also invalidate.
     core.render(pixels.data(), false);
     core.write(0x800, 1);
-    assert(core.needsRender(false)); // Both text pages are tracked.
+    assert(!core.needsRender(false)); // Writes to the hidden page must not redraw.
     core.render(pixels.data(), false);
     core.write(0x2000, 1);
-    assert(core.needsRender(false));
+    assert(!core.needsRender(false)); // DOS loading hi-res RAM must not redraw a text screen.
     core.render(pixels.data(), false);
     core.write(0x4000, 1);
-    assert(core.needsRender(false)); // Both hi-res pages are tracked.
+    assert(!core.needsRender(false));
     core.render(pixels.data(), false);
+    core.read(0xc055);
+    assert(core.needsRender(false));
+    core.render(pixels.data(), false);
+    core.read(0xc054);
+    core.write(0x800, 2); // Modify the cached page while it is temporarily hidden.
     core.read(0xc055);
     assert(core.needsRender(false));
     core.render(pixels.data(), false);
@@ -391,7 +481,9 @@ int main()
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
     memoryTests();
+    memoryMapTests();
     cpuTests();
+    frameStepTests();
     diskTests();
     diskMotorTests();
     videoAudioTests();

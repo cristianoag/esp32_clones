@@ -64,6 +64,11 @@ uint8_t AppleDisk::read(uint64_t cycles)
     return value;
 }
 
+AppleCore::AppleCore()
+{
+    updateMemoryMap();
+}
+
 bool AppleCore::boot(const uint8_t *image, size_t size, const uint8_t *slot,
                      size_t slotSize, AppleModel selected, char *error, size_t capacity)
 {
@@ -99,6 +104,7 @@ void AppleCore::reset()
     keyboard_ = buttons_ = drive_ = 0;
     paddleStart_ = cycles;
     audioPhase_ = 0;
+    updateMemoryMap();
     const m6502_desc_t description = {};
     pins_ = m6502_init(&cpu, &description);
 }
@@ -118,12 +124,37 @@ unsigned AppleCore::languageAddress(uint16_t address) const
     return address < 0xe000 && lcBank2_ ? address - 0x1000 : address;
 }
 
+void AppleCore::updateMemoryMap()
+{
+    for (unsigned page = 0; page < 0xc0; ++page)
+    {
+        const uint16_t address = page << 8;
+        readPages_[page] = ram[bank(address, false)] + address;
+        writePages_[page] = ram[bank(address, true)] + address;
+    }
+    for (unsigned page = 0xd0; page < 0x100; ++page)
+    {
+        const uint16_t address = page << 8;
+        uint8_t *language = ram[bank(address, true)] + languageAddress(address);
+        readPages_[page] = lcRead_ ? language : rom + address - 0xc000;
+        writePages_[page] = lcWrite_ ? language : nullptr;
+    }
+}
+
+inline __attribute__((always_inline)) uint8_t AppleCore::readCycle(uint16_t address)
+{
+    const uint8_t *page = readPages_[address >> 8];
+    return page ? page[address & 255] : readPeripheral(address);
+}
+
 uint8_t AppleCore::read(uint16_t address)
 {
-    if (address < 0xc000) return ram[bank(address, false)][address];
+    return readCycle(address);
+}
+
+uint8_t AppleCore::readPeripheral(uint16_t address)
+{
     if (address < 0xc100) return io(address, 0, false);
-    if (address >= 0xd000)
-        return lcRead_ ? ram[bank(address, false)][languageAddress(address)] : rom[address - 0xc000];
     if (model == AppleModel::IIe)
     {
         if (address >= 0xc300 && address < 0xc400 && !slotC3Rom_) intC8Rom_ = true;
@@ -138,17 +169,43 @@ uint8_t AppleCore::read(uint16_t address)
     return address >= 0xc600 && address < 0xc700 ? diskRom[address & 255] : floatingBus();
 }
 
-void AppleCore::write(uint16_t address, uint8_t value)
+void AppleCore::touchVideo(bool auxiliary, uint16_t address)
 {
-    if (address < 0xc000)
+    // Track the cached picture, even if software temporarily switches away from it.
+    const unsigned state = renderedVideoState_;
+    const bool iie = state & 1, text = state & 2, mixed = state & 4, hires = state & 8;
+    const bool secondPage = (state & 16) && !(state & 32);
+    const bool wide = iie && (state & 64), doubled = wide && (state & 256);
+    const unsigned textBase = secondPage ? 0x800 : 0x400;
+    const unsigned hiresBase = secondPage ? 0x4000 : 0x2000;
+    if ((text || mixed || !hires) && address >= textBase && address < textBase + 1024 &&
+        (!auxiliary || (wide && (text || mixed || doubled)))) videoDirty_ = true;
+    if (!text && hires && address >= hiresBase && address < hiresBase + 8192 &&
+        (!auxiliary || doubled)) videoDirty_ = true;
+}
+
+inline __attribute__((always_inline)) void AppleCore::writeCycle(uint16_t address, uint8_t value)
+{
+    uint8_t *page = writePages_[address >> 8];
+    if (page)
     {
-        uint8_t &byte = ram[bank(address, true)][address];
-        if (byte != value && ((address >= 0x400 && address < 0xc00) ||
-                             (address >= 0x2000 && address < 0x6000))) videoDirty_ = true;
+        uint8_t &byte = page[address & 255];
+        if (!videoDirty_ && byte != value && ((address >= 0x400 && address < 0xc00) ||
+                                             (address >= 0x2000 && address < 0x6000)))
+            touchVideo(page == ram[1] + (address & 0xff00), address);
         byte = value;
     }
-    else if (address < 0xc100) io(address, value, true);
-    else if (address >= 0xd000 && lcWrite_) ram[bank(address, true)][languageAddress(address)] = value;
+    else writePeripheral(address, value);
+}
+
+void AppleCore::write(uint16_t address, uint8_t value)
+{
+    writeCycle(address, value);
+}
+
+void AppleCore::writePeripheral(uint16_t address, uint8_t value)
+{
+    if (address < 0xc100) io(address, value, true);
     else if (model == AppleModel::IIe)
     {
         if (address >= 0xc300 && address < 0xc400 && !slotC3Rom_) intC8Rom_ = true;
@@ -189,6 +246,7 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
             case 12: col80 = on; break;
             case 14: altCharset = on; break;
             }
+            if ((address & 14) <= 4 || (address & 14) == 8) updateMemoryMap();
         }
         return floatingBus();
     }
@@ -233,6 +291,7 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
         case 4: page2 = on; break;
         case 6: hires = on; break;
         }
+        if (iie && store80 && (address & 4)) updateMemoryMap();
     }
     if (iie && (address == 0xc05e || address == 0xc05f)) doubleHires = !(address & 1);
     if (address >= 0xc061 && address <= 0xc063)
@@ -250,6 +309,7 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
             if (!writing && lcPrewrite_) lcWrite_ = true;
             lcPrewrite_ = !writing;
         }
+        updateMemoryMap();
     }
     if (address >= 0xc0e0 && address <= 0xc0ef)
     {
@@ -295,28 +355,38 @@ void AppleCore::input(bool anyKey, uint8_t modifiers, uint16_t pads)
     }
 }
 
+inline __attribute__((always_inline)) uint64_t AppleCore::clockCpu(uint64_t pins)
+{
+    pins = m6502_tick(&cpu, pins);
+    const uint16_t address = M6502_GET_ADDR(pins);
+    if (pins & M6502_RW) { M6502_SET_DATA(pins, readCycle(address)); }
+    else writeCycle(address, M6502_GET_DATA(pins));
+    ++cycles;
+    return pins;
+}
+
 void AppleCore::tick()
 {
-    pins_ = m6502_tick(&cpu, pins_);
-    const uint16_t address = M6502_GET_ADDR(pins_);
-    if (pins_ & M6502_RW) { M6502_SET_DATA(pins_, read(address)); }
-    else write(address, M6502_GET_DATA(pins_));
-    ++cycles;
+    pins_ = clockCpu(pins_);
 }
 
 void AppleCore::runFrame(uint8_t *pixels, int16_t *audio, unsigned &samples, bool monochrome)
 {
     samples = 0;
+    uint64_t pins = pins_;
+    uint32_t phase = audioPhase_;
     for (unsigned i = 0; i < FrameCycles; ++i)
     {
-        tick();
-        audioPhase_ += AudioRate;
-        if (audioPhase_ >= ClockRate)
+        pins = clockCpu(pins);
+        phase += AudioRate;
+        if (phase >= ClockRate)
         {
-            audioPhase_ -= ClockRate;
+            phase -= ClockRate;
             audio[samples++] = speaker_ ? 10000 : -10000;
         }
     }
+    pins_ = pins;
+    audioPhase_ = phase;
     ++frames;
     if (pixels) render(pixels, monochrome);
 }

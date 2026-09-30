@@ -1,7 +1,7 @@
 # ESP32 Apple II+ / original Apple IIe
 
 Standalone firmware for the shared Retro Hacker Clone Series ESP32-S3 N16R8
-board. Firmware version: **1.02**. The CP400, MSX and TK firmware folders are
+board. Firmware version: **1.03**. The CP400, MSX and TK firmware folders are
 not needed to build or run it.
 
 The initial profiles are **generic Apple II+** (48 KiB RAM plus a 16 KiB
@@ -63,7 +63,7 @@ PlatformIO is pinned to `espressif32@6.11.0`. `make` finds PlatformIO's
 usual Windows virtual environment. Native tests require G++ and
 PowerShell on PATH. All libraries and the board definition are local.
 
-`make firmware` packages and verifies `dist\ESP32_APPLE2-1.02.FLH` using
+`make firmware` packages and verifies `dist\ESP32_APPLE2-1.03.FLH` using
 the shared decimal checksum + `-~` + ESP32-S3 application format.
 Install over UART first to install the dual 4 MiB OTA partition layout.
 Later updates use **F12 > Firmware update** and an
@@ -206,19 +206,32 @@ The CPU targets about 60 emulated frames per second. A disk that takes
 20 fps rendering every frame and 30.6 fps rendering every third frame.
 Those rates are slow emulation, not evidence that the CPU has frozen.
 
-Version 1.02 places the 6502 decoder and memory-access hot path in
+Version 1.02 placed the 6502 decoder and memory-access hot path in
 internal instruction RAM, avoids unused floating-bus calculations during
 disk reads, renders scanlines in internal RAM before copying to PSRAM,
 and skips unchanged display frames. Flashing text, video-mode/page
 changes and writes to either display bank still trigger redraws. It keeps
 the 640x240 framebuffer and full-width 80-column output.
 
+On-board 1.02 measurements then isolated about 20.6 ms of CPU work per
+emulated frame, plus about 7.3 ms of averaged video/copy work at 1/3
+rendering. Resolution alone cannot meet a 16.6 ms frame budget while CPU
+work exceeds it.
+
+Version 1.03 uses precomputed RAM/ROM page mappings and an inlined bus
+loop, preserving the same cycle and soft-switch behavior. It streams
+internal-RAM scanlines straight into the VGA DMA framebuffer, eliminating
+the extra 150 KiB PSRAM framebuffer and its copy. Writes to memory that
+does not contribute to the cached screen no longer force a redraw; this
+avoids repainting text while DOS loads graphics into unrelated RAM.
+Resolution and 80-column support are unchanged.
+
 UART logs now split average time per emulated frame into **CPU**, **video**,
 **copy** and **audio** milliseconds, and include actual redraw count,
 CPU PC, drive-1 track and elapsed emulated time. Video/copy averages include
 skipped frames, not just rendered ones. Startup also reports internal
 heap headroom. Capture several steady-state lines; the initial boot phase
-is not representative of game speed. The new optimizations require fresh
+is not representative of game speed. Version 1.03 still requires fresh
 on-board measurements before claiming full-speed operation.
 
 ## Validation

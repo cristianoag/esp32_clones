@@ -24,13 +24,20 @@ unsigned textOffset(unsigned row)
 
 void AppleCore::render(uint8_t *pixels, bool monochrome)
 {
+    render([](unsigned y, const uint8_t *line, void *context)
+    {
+        memcpy(static_cast<uint8_t *>(context) + y * Width, line, Width);
+    }, pixels, monochrome);
+}
+
+void AppleCore::render(ScanlineSink sink, void *context, bool monochrome)
+{
     videoDirty_ = false;
     renderedVideoState_ = videoState(monochrome);
     renderedFlashPhase_ = (frames >> 4) & 1;
     flashingText_ = false;
-    memset(pixels, 0, Width * 24);
-    memset(pixels + Width * 216, 0, Width * 24);
     uint8_t scanline[Width] = {};
+    for (unsigned y = 0; y < 24; ++y) sink(y, scanline, context);
     const bool iie = model == AppleModel::IIe;
     const unsigned textBase = page2 && !store80 ? 0x800 : 0x400;
     const unsigned hiresBase = page2 && !store80 ? 0x4000 : 0x2000;
@@ -130,6 +137,8 @@ void AppleCore::render(uint8_t *pixels, bool monochrome)
                 }
             }
         }
-        memcpy(pixels + (y + 24) * Width, scanline, Width);
+        sink(y + 24, scanline, context);
     }
+    memset(scanline, 0, sizeof(scanline));
+    for (unsigned y = 216; y < Height; ++y) sink(y, scanline, context);
 }

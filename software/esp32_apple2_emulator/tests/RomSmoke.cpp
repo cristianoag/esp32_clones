@@ -25,6 +25,13 @@ static std::vector<uint8_t> load(const char *path, size_t size)
 
 static void run(unsigned cycles)
 {
+    int16_t audio[AppleCore::MaxSamples];
+    unsigned samples;
+    while (cycles >= AppleCore::FrameCycles)
+    {
+        core.runFrame(nullptr, audio, samples, false);
+        cycles -= AppleCore::FrameCycles;
+    }
     for (unsigned i = 0; i < cycles; ++i) core.tick();
 }
 

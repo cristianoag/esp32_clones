@@ -38,12 +38,17 @@ public:
     static constexpr unsigned ClockRate = 1023000, FrameCycles = 65 * 262;
     static constexpr unsigned FrameMicros = 16647, AudioRate = 22050;
     static constexpr unsigned MaxSamples = 368;
+    AppleCore();
+    AppleCore(const AppleCore &) = delete;
+    AppleCore &operator=(const AppleCore &) = delete;
+    using ScanlineSink = void (*)(unsigned y, const uint8_t *line, void *context);
     bool boot(const uint8_t *rom, size_t size, const uint8_t *diskRom,
               size_t diskSize, AppleModel model, char *error, size_t capacity);
     void reset();
     APPLE_IRAM void tick();
     APPLE_IRAM void runFrame(uint8_t *pixels, int16_t *audio, unsigned &samples, bool monochrome);
     void render(uint8_t *pixels, bool monochrome);
+    void render(ScanlineSink sink, void *context, bool monochrome);
     bool needsRender(bool monochrome) const
     {
         return videoDirty_ || renderedVideoState_ != videoState(monochrome) ||
@@ -68,6 +73,13 @@ public:
 private:
     unsigned bank(uint16_t address, bool write) const;
     unsigned languageAddress(uint16_t address) const;
+    void updateMemoryMap();
+    uint8_t readCycle(uint16_t address);
+    void writeCycle(uint16_t address, uint8_t value);
+    uint64_t clockCpu(uint64_t pins);
+    APPLE_IRAM uint8_t readPeripheral(uint16_t address);
+    APPLE_IRAM void writePeripheral(uint16_t address, uint8_t value);
+    APPLE_IRAM void touchVideo(bool auxiliary, uint16_t address);
     APPLE_IRAM uint8_t io(uint16_t address, uint8_t value, bool write);
     unsigned videoState(bool monochrome) const
     {
@@ -86,4 +98,6 @@ private:
     bool intCxRom_ = false, slotC3Rom_ = false, intC8Rom_ = false;
     bool lcRead_ = false, lcWrite_ = true, lcBank2_ = true, lcPrewrite_ = false;
     bool speaker_ = false, anyKey_ = false, motor_ = false, q6_ = false, q7_ = false;
+    const uint8_t *readPages_[256] = {};
+    uint8_t *writePages_[256] = {};
 };

@@ -22,7 +22,6 @@ static VGA video;
 static AppleCore machine;
 static AppleSettings settings;
 static Preferences preferences;
-static uint8_t *pixels;
 static std::unique_ptr<uint8_t[]> diskData[2];
 static bool running = false, audioReady = false, sdReady = false, nvsReady = false;
 static bool wantResume = false, audioFailed = false;
@@ -320,7 +319,6 @@ static bool boot(bool save, bool onlySave = false)
     }
     running = true;
     status[0] = 0;
-    memset(pixels, 0, AppleCore::Width * AppleCore::Height);
     return true;
 }
 
@@ -631,13 +629,17 @@ static void menu()
     AppleAudioEnable(audioReady && settings.sound && !audioFailed);
 }
 
-static void present()
+static uint32_t present()
 {
-    for (unsigned y = 0; y < AppleCore::Height; ++y)
+    uint32_t copyTime = 0;
+    machine.render([](unsigned y, const uint8_t *line, void *context)
     {
-        memcpy(video.dmaBuffer->getLineAddr8(y), pixels + y * AppleCore::Width, AppleCore::Width);
+        const uint32_t start = micros();
+        memcpy(video.dmaBuffer->getLineAddr8(y), line, AppleCore::Width);
         video.dmaBuffer->flush(0, y);
-    }
+        *static_cast<uint32_t *>(context) += micros() - start;
+    }, &copyTime, settings.monochrome);
+    return copyTime;
 }
 
 static void fatal(const char *message, bool visible)
@@ -662,8 +664,6 @@ void setup()
     if (!video.start()) fatal("VGA start failed.", false);
     frame("Starting shared board hardware...");
     video.show();
-    pixels = static_cast<uint8_t *>(heap_caps_calloc(AppleCore::Width * AppleCore::Height, 1, MALLOC_CAP_SPIRAM));
-    if (!pixels) fatal("Emulator framebuffer allocation failed.", true);
     if (!AppleKeyboardStart()) fatal("USB keyboard host failed; see UART.", true);
     audioReady = AppleAudioStart();
     if (!audioReady) error("Audio initialization failed; see UART.");
@@ -741,11 +741,9 @@ void loop()
     cpuMicros += cpuEnd - cpuStart;
     if (draw && machine.needsRender(settings.monochrome))
     {
-        machine.render(pixels, settings.monochrome);
-        const uint32_t videoEnd = micros();
-        videoMicros += videoEnd - cpuEnd;
-        present();
-        copyMicros += micros() - videoEnd;
+        const uint32_t copied = present();
+        videoMicros += (micros() - cpuEnd) - copied;
+        copyMicros += copied;
         ++renderedFrames;
     }
     const uint32_t audioStart = micros();

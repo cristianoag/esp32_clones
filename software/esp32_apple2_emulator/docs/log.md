@@ -3,6 +3,22 @@
 This log tracks user-visible changes to the ESP32 Apple II emulator firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.03 - Unreleased
+
+### Changed
+
+- Reduced CPU memory-access overhead with precomputed RAM/ROM page mappings and an inlined cycle loop, while retaining the original CPU clock and bank-switch behavior.
+- Sent rendered scanlines directly to the VGA framebuffer, removing the intermediate 150 KiB PSRAM framebuffer and its extra copy without reducing resolution.
+- Stopped repainting text screens when DOS loaded unrelated graphics memory, while still refreshing modified visible pages and auxiliary display memory.
+
+### Added
+
+- Added checks for all RAM-bank flag combinations, language-card aliases and equivalence between individual CPU ticks and complete frame execution.
+
+### Notes
+
+- On-board measurements of the previous firmware showed about 20.6 ms of CPU work per emulated frame, already above the 16.6 ms budget for 60 fps; the new optimizations still required fresh hardware measurements.
+
 ## 1.02 - Unreleased
 
 ### Changed

@@ -77,6 +77,7 @@ Physical-board validation is still pending.
 hardware/esp32_clones/          KiCad PCB and shared board files
 hardware/esp32_clones/libraries Local KiCad symbols and footprints
 hardware/esp32_clones/bom       Interactive BOM and BOM assets
+hardware/cases/standard/       Parametric printed base, acrylic lid and manufacturing exports
 software/esp32_cp400_emulator/  PlatformIO firmware for the CP400 build
 software/esp32_msx_emulator/    MSX firmware and setup files
 software/esp32_tk95_emulator/   TK90X/TK95 firmware and setup files
@@ -85,6 +86,12 @@ images/                         Generated images and project documentation asset
 ```
 
 ## Board renderings
+
+For the first enclosure prototype, see the
+[standard case manufacturing files and engineering report](hardware/cases/standard/README.md).
+It combines a printed base with side-loading M3 PCB nut traps, a snap-fit upper
+shell, and a plain 3 mm acrylic lid seated in a recess. The report documents the
+remaining physical-fit checks for components missing from the board STEP.
 
 The PCB below is the current KiCad board layout for the shared ESP32 clone board. The front and back views are generated directly from the project PCB.
 

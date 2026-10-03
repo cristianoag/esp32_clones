@@ -1,2 +1,8 @@
 /.github/
 .venv/
+
+# Only STL models and PNG previews under hardware/cases belong in Git.
+/hardware/cases/**
+!/hardware/cases/**/
+!/hardware/cases/**/*.stl
+!/hardware/cases/**/*.png

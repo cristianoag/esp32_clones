@@ -93,6 +93,19 @@ It combines a printed base with side-loading M3 PCB nut traps, a snap-fit upper
 shell, and a plain 3 mm acrylic lid seated in a recess. The report documents the
 remaining physical-fit checks for components missing from the board STEP.
 
+The Hotbit-inspired **Compact Classic C2** fits the same PCB in a
+**124 x 74 x 39.1 mm** case, reducing the earlier Classic footprint by 26.9%.
+It retains the miniature keyboard, photo-inspired colours and closed decorative
+grille, with underside M3 cover screws. Use the matching
+[base STL](hardware/cases/hb-8000/classic_base.stl) and
+[upper STL](hardware/cases/hb-8000/classic_upper.stl); do not mix these with older
+Classic or Wasteland halves. See the
+[assembled/exploded preview](hardware/cases/hb-8000/classic_preview.png).
+Print both STLs at 100%; the upper needs removable interior supports.
+PCB screws remain M3 x 8 with 1 mm nylon washers; cover screws are M3 x 16,
+with four M3 hex nuts for each set. Physical plug-fit and thermal tests are
+still required; the decorative grille is not a ventilation opening.
+
 The PCB below is the current KiCad board layout for the shared ESP32 clone board. The front and back views are generated directly from the project PCB.
 
 <div align="center">

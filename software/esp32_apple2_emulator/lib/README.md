@@ -14,7 +14,8 @@ preserving original notices and licenses.
 | NMOS 6502 | `chips/m6502.h` | floooh/chips `9e88298ce56319953ac7a43213a1120359f7a3a6`, zlib license |
 
 The `Apple*` board adapters retain their original non-commercial notices.
-They use Apple-specific NVS, diagnostics and OTA product names. The USB
+They use Apple-specific NVS and diagnostics; OTA accepts compatible
+FLH packages from all four emulators. The USB
 transport library retains its upstream-facing `MsxSoftUsb` API. Keyboard
 input adds an ASCII queue/repeat path alongside the inherited raw-report
 transport. Audio, joystick and firmware-package regression tests are

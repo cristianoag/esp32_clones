@@ -138,7 +138,7 @@ bool Equal(const char *a, const char *b, size_t count)
 }
 }
 
-bool IsMsxPath(const char *path)
+bool IsFirmwarePath(const char *path)
 {
     if (!path || path[0] != '/') return false;
     size_t length = 0;
@@ -156,8 +156,7 @@ bool IsMsxPath(const char *path)
                 (count == 2 && component[0] == '.' && component[1] == '.'))
                 return false;
             if (!c)
-                return count > 14 && Equal(component, "ESP32_MSX-", 10) &&
-                       Equal(p - 4, ".FLH", 4);
+                return count > 4 && Equal(p - 4, ".FLH", 4);
             component = p + 1;
         }
     }

@@ -1,10 +1,9 @@
 /******************************************************************************
  * Project      : esp32_cp400_emulator
  * File         : FirmwareUpdater.cpp
- * Last Updated : 2026-08-17
+ * Last Updated : 2026-10-05
  *
- * Description  : OTA firmware update helpers for flashing the CP400 emulator
- *                firmware from the SD card
+ * Description  : Validated SD firmware updates for the shared clone-series board
  *
  * Original work copyright (c) 2026 Cedric Beaudoin
  * CP400 code and modifications copyright (c) 2026 The Retro Hacker
@@ -17,353 +16,193 @@
  * All rights reserved.
  ******************************************************************************/
 
-
-#include "CP400Emulator.h"
 #include "FirmwareUpdater.h"
-#include <Update.h>
-#include "esp_ota_ops.h"
-#include "esp_heap_caps.h"
-#define FORMAT_SPIFFS_IF_FAILED true
+#include "Cp400Flh.h"
+#include <Arduino.h>
+#include <SD_MMC.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
+#include <driver/timer.h>
+#include <stdio.h>
 
-
-bool filesystemOK = false;
-void InitFilesystem(void)
+namespace
 {
-  // Initialize LittleFS
-  if (!LittleFS.begin(false /* false: Do not format if mount failed */)) 
-  {
-    debugln("LittleFS mount fail");
-    if (!LittleFS.begin(true /* true: format */)) 
-    {
-      debugln("Failed to format LittleFS");
-    } 
-    else 
-    {
-      debugln("LittleFS formatted successfully");
-      filesystemOK = true;
-    }
-  } 
-  else 
-  { // Initial mount success
-
-    filesystemOK = true;
-    debugln("File System OK");
-}
+bool Fail(char *error, size_t capacity, const char *message)
+{
+    if (error && capacity) snprintf(error, capacity, "%s", message);
+    Serial.printf("[Firmware update] %s\n", message);
+    return false;
 }
 
-void flashFromSD(const char* filename)
+const esp_partition_t *CheckLayout()
 {
-    if (!SD_MMC.exists(filename)) 
+    struct Expected
     {
-        debugln("Firmware file not found on SD!");
-        return;
-    }
-
-    debugln(filename);
-
-    File firmwareFile = SD_MMC.open(filename, FILE_READ);
-    if (!firmwareFile) 
+        const char *label;
+        esp_partition_type_t type;
+        esp_partition_subtype_t subtype;
+        uint32_t address;
+        uint32_t size;
+    };
+    const Expected expected[] = {
+        {"nvs", ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, 0x9000, 0x5000},
+        {"otadata", ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, 0xe000, 0x2000},
+        {"app0", ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, 0x10000, 0x400000},
+        {"app1", ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, 0x410000, 0x400000}
+    };
+    size_t count = 0;
+    for (esp_partition_iterator_t it = esp_partition_find(
+             ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, nullptr);
+         it; it = esp_partition_next(it))
+        ++count;
+    if (count != sizeof(expected) / sizeof(expected[0])) return nullptr;
+    for (const auto &entry : expected)
     {
-        debugln("Failed to open firmware file!");
-        return;
+        const esp_partition_t *partition = esp_partition_find_first(
+            entry.type, entry.subtype, entry.label);
+        if (!partition || partition->address != entry.address ||
+            partition->size != entry.size || partition->encrypted)
+            return nullptr;
     }
-    size_t firmwareSize = firmwareFile.size();
-    debugf("Firmware size: %u bytes\n", firmwareSize);
-    // Vérifie si ça rentre dans la partition OTA
-    if (!Update.begin(firmwareSize)) {
-        debugln("Not enough space for OTA!");
-        firmwareFile.close();
-        return;
-    }
-    debugln("Starting OTA update from SD...");
-
-    size_t written = Update.writeStream(firmwareFile);
-    firmwareFile.close();
-
-    if (written != firmwareSize) 
-    {
-        debugf("Written only %u/%u bytes\n", written, firmwareSize);
-        debugln("Update failed!");
-        return;
-    }
-
-    if (Update.end(true)) 
-    {
-        debugln("OTA Update successful! Deleting firmware file...");
-
-        // Supprime le fichier passé en paramètre
-        if (SD_MMC.remove(filename)) 
-        {
-            debugln("Firmware file deleted from SD.");
-        } 
-        else 
-        {
-            debugln("Failed to delete firmware file!");
-        }
-
-        
-        esp_restart();
-    } 
-    else 
-    {
-        debugln("OTA Update failed!");
-    }
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *boot = esp_ota_get_boot_partition();
+    if (!running || !boot || boot->address != running->address ||
+        running->type != ESP_PARTITION_TYPE_APP ||
+        (running->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_0 &&
+         running->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_1))
+        return nullptr;
+    const esp_partition_t *target = esp_ota_get_next_update_partition(running);
+    if (!target || target->address == running->address ||
+        target->size != Cp400Flh::MaxImageSize ||
+        (target->address != 0x10000 && target->address != 0x410000))
+        return nullptr;
+    return target;
 }
 
-bool copyFile(const char* srcFilename, const char* destFilename, FirmwareProgressFn progress)
+class SdReader : public Cp400Flh::Reader
 {
-    // Check if source file exists
-    if (!SD_MMC.exists(srcFilename))
+public:
+    explicit SdReader(File &file) : file_(file) {}
+    size_t size() override { return file_.size(); }
+    bool seek(size_t offset) override { return file_.seek(offset); }
+    size_t read(uint8_t *buffer, size_t length) override
     {
-        debugln("Source file not found!");
-        return false;
+        const size_t count = file_.read(buffer, length);
+        if (length >= 128) delay(1);
+        return count <= length ? count : 0;
     }
+private:
+    File &file_;
+};
 
-    // Open source file for reading
-    File srcFile = SD_MMC.open(srcFilename, FILE_READ);
-    if (!srcFile)
+class OtaFlash : public Cp400Flh::Flash
+{
+public:
+    explicit OtaFlash(const esp_partition_t *target)
+        : target_(target), previousBoot_(esp_ota_get_boot_partition()) {}
+    ~OtaFlash() override { abort(); }
+    bool begin(size_t imageSize) override
     {
-        debugln("Failed to open source file!");
-        return false;
+        const esp_err_t result = esp_ota_begin(target_, imageSize, &handle_);
+        active_ = result == ESP_OK;
+        return Check(result, "OTA begin");
     }
-
-    if (SD_MMC.exists(destFilename) && !SD_MMC.remove(destFilename))
+    bool write(const uint8_t *buffer, size_t length) override
     {
-        debugln("Failed to remove previous firmware staging file!");
-        srcFile.close();
-        return false;
+        const bool ok = Check(esp_ota_write(handle_, buffer, length), "OTA write");
+        delay(1);
+        return ok;
     }
-
-    File destFile = SD_MMC.open(destFilename, FILE_WRITE);
-    if (!destFile)
+    bool finish() override
     {
-        debugln("Failed to open destination file!");
-        srcFile.close();
-        return false;
+        const esp_err_t result = esp_ota_end(handle_);
+        // esp_ota_end releases its handle even when image verification fails.
+        active_ = false;
+        return Check(result, "OTA image verification");
     }
-
-    uint8_t buf[512]; // Temporary buffer
-    size_t bytesRead;
-    size_t bytesWritten = 0;
-    bool foundSeparator = false;
-    const size_t totalSize = srcFile.size();
-    size_t bytesProcessed = 0;
-    uint8_t lastPercent = 255;
-
-    // Copy the file chunk by chunk
-    while ((bytesRead = srcFile.read(buf, sizeof(buf))) > 0)
+    bool commit() override
     {
-        size_t startIndex = 0;
-
-        bytesProcessed += bytesRead;
-        if (progress != nullptr && totalSize > 0)
+        if (Check(esp_ota_set_boot_partition(target_), "OTA boot selection")) return true;
+        // A partial otadata write must not silently lose the previous boot choice.
+        const esp_err_t restored = previousBoot_
+            ? esp_ota_set_boot_partition(previousBoot_) : ESP_ERR_INVALID_STATE;
+        if (restored != ESP_OK)
         {
-            const uint8_t percent = (uint8_t)((uint64_t)bytesProcessed * 100 / totalSize);
-            if (percent != lastPercent)
-            {
-                lastPercent = percent;
-                progress(percent);
-            }
+            snprintf(error_, sizeof(error_),
+                     "OTA boot selection failed; restoring old boot also failed: %s",
+                     esp_err_to_name(restored));
+            Serial.printf("[Firmware update] %s\n", error_);
         }
-
-        if (!foundSeparator)
-        {
-            // Look for first '~'
-            for (size_t i = 0; i < bytesRead; i++)
-            {
-                if (buf[i] == '~')
-                {
-                    startIndex = i + 1; // Start after '~'
-                    foundSeparator = true;
-                    break;
-                }
-            }
-
-            if (!foundSeparator)
-                continue;
-        }
-
-        const size_t bytesToWrite = bytesRead - startIndex;
-        if (bytesToWrite > 0 && destFile.write(buf + startIndex, bytesToWrite) != bytesToWrite)
-        {
-            debugln("Write error!");
-            srcFile.close();
-            destFile.close();
-            SD_MMC.remove(destFilename);
-            return false;
-        }
-        bytesWritten += bytesToWrite;
-    }
-
-    srcFile.close();
-    destFile.close();
-
-    if (!foundSeparator || bytesWritten == 0)
-    {
-        debugln("Firmware separator or payload not found!");
-        SD_MMC.remove(destFilename);
         return false;
     }
-
-    File stagedFile = SD_MMC.open(destFilename, FILE_READ);
-    const bool validSize = stagedFile && stagedFile.size() == bytesWritten;
-    if (stagedFile)
+    void abort() override
     {
-        stagedFile.close();
+        if (active_)
+        {
+            const esp_err_t result = esp_ota_abort(handle_);
+            active_ = false;
+            if (result != ESP_OK)
+                Serial.printf("[Firmware update] OTA abort: %s\n", esp_err_to_name(result));
+        }
     }
-    if (!validSize)
+    const char *error() const override { return error_; }
+private:
+    bool Check(esp_err_t result, const char *stage)
     {
-        debugln("Firmware staging file size mismatch!");
-        SD_MMC.remove(destFilename);
+        if (result == ESP_OK) return true;
+        snprintf(error_, sizeof(error_), "%s failed: %s", stage, esp_err_to_name(result));
+        Serial.printf("[Firmware update] %s\n", error_);
         return false;
     }
-
-    debugln("Firmware staged successfully!");
-    return true;
+    const esp_partition_t *target_;
+    const esp_partition_t *previousBoot_;
+    esp_ota_handle_t handle_ = 0;
+    bool active_ = false;
+    char error_[128] = {};
+};
 }
 
-
-bool copyFile1(const char* srcFilename, const char* destFilename)
+bool Cp400InstallFirmware(const char *sdPath, void (*progress)(const char *, uint8_t),
+                          char *error, size_t errorSize)
 {
-    // Check if source file exists
-    if (!SD_MMC.exists(srcFilename))
+    if (error && errorSize) error[0] = '\0';
+    if (!Cp400Flh::IsFirmwarePath(sdPath))
+        return Fail(error, errorSize, "Select a .FLH firmware file on the SD card.");
+    const esp_partition_t *target = CheckLayout();
+    if (!target)
+        return Fail(error, errorSize, "OTA layout mismatch or pending boot update. Install shared layout via UART.");
+    File file = SD_MMC.open(sdPath, FILE_READ);
+    if (!file || file.isDirectory())
     {
-        debugln("Source file not found!");
-        return false;
+        file.close();
+        return Fail(error, errorSize, "Cannot open firmware file on SD card.");
     }
-
-    // Open source file for reading
-    File srcFile = SD_MMC.open(srcFilename, FILE_READ);
-    if (!srcFile)
+    Serial.printf("[Firmware update] Validating %s for %s\n", sdPath, target->label);
+    SdReader reader(file);
+    OtaFlash flash(target);
+    char detail[160] = {};
+    // CP400's CPU/software-USB ISR calls flash code even while emulation is
+    // halted in the menu. It cannot run while OTA disables the flash cache.
+    const esp_err_t paused = timer_disable_intr(TIMER_GROUP_0, TIMER_0);
+    if (paused != ESP_OK)
     {
-        debugln("Failed to open source file!");
-        return false;
+        file.close();
+        snprintf(detail, sizeof(detail), "Cannot pause CPU/joystick timer: %s",
+                 esp_err_to_name(paused));
+        return Fail(error, errorSize, detail);
     }
-
-    // Open or create destination file for writing
-    File destFile = SD_MMC.open(destFilename, FILE_WRITE);
-    if (!destFile)
-    {
-        debugln("Failed to open destination file!");
-        srcFile.close();
-        return false;
-    }
-
-    uint8_t buf[512]; // Temporary buffer
-    size_t bytesRead;
-
-    // Copy the file chunk by chunk
-    while ((bytesRead = srcFile.read(buf, sizeof(buf))) > 0)
-    {
-        if (destFile.write(buf, bytesRead) != bytesRead)
-        {
-            debugln("Write error!");
-            srcFile.close();
-            destFile.close();
-            return false;
-        }
-    }
-
-    srcFile.close();
-    destFile.close();
-
-    debugln("File copied successfully!");
-    return true;
-}
-
-// Function to read a file byte by byte
-// Calls user code on each byte
-bool ValidFirmwareFile(const char* filename, FirmwareProgressFn progress)
-{
-    uint8_t ValidateSource[15];
-    uint32_t ValidateSourceConverted;
-    uint32_t ValidateCalculated = 0;
-    bool FirmwareValide = false;
-    // Check if file exists
-    if (!SD_MMC.exists(filename))
-    {
-        debugln("File not found!");
-        return false;
-    }
-
-    // Open file for reading
-    File file = SD_MMC.open(filename, FILE_READ);
-    if (!file)
-    {
-        debugln("Failed to open file!");
-        return false;
-    }
-
-    uint8_t byteValue;
-    uint8_t StateMachine = 0;
-    uint32_t loop1 = 0;
-    const size_t totalSize = file.size();
-    size_t bytesProcessed = 0;
-    uint8_t lastPercent = 255;
-    // Read the file byte by byte
-    while (file.available())
-    {
-        byteValue = file.read(); // Read one byte
-
-        bytesProcessed++;
-        if (progress != nullptr && totalSize > 0)
-        {
-            const uint8_t percent = (uint8_t)((uint64_t)bytesProcessed * 100 / totalSize);
-            if (percent != lastPercent)
-            {
-                lastPercent = percent;
-                progress(percent);
-            }
-        }
-        if (byteValue== '-' && StateMachine == 0)
-        {
-            StateMachine = 1;
-            ValidateSource[loop1] = 0;
-            ValidateSourceConverted = asciiToUint32((char*)ValidateSource);
-            debugln(ValidateCalculated);
-        }
-        if (StateMachine == 0)
-        {
-            if (byteValue > 47 && byteValue < 58)
-            {
-                ValidateSource[loop1++] = byteValue;
-            }
-            else
-            {
-                return false;
-            }
-            if (loop1 > 14)
-            {
-                return false;
-            }
-        }
-        else if (StateMachine == 1)
-        {
-            ValidateCalculated+=byteValue;
-        }
-    }
-    debug(ValidateCalculated);
-    debug(" ");
-    debugln(ValidateSourceConverted);
-    if (ValidateCalculated == ValidateSourceConverted)
-    {
-        FirmwareValide = true;
-    }
+    const bool ok = Cp400Flh::Install(reader, flash, target->size, progress, detail, sizeof(detail));
+    const esp_err_t resumed = timer_enable_intr(TIMER_GROUP_0, TIMER_0);
     file.close();
-    debugln("File reading finished!");
-    return FirmwareValide;
-}
-
-uint32_t asciiToUint32(const char* str)
-{
-    uint32_t result = 0;
-    size_t i = 0;
-
-    while (str[i] != '\0')
+    if (!ok) Fail(error, errorSize, detail);
+    if (resumed != ESP_OK)
     {
-        result = result * 10 + (str[i] - '0');
-        i++;
+        snprintf(detail, sizeof(detail), "CPU/joystick timer restart failed: %s. Reboot board.",
+                 esp_err_to_name(resumed));
+        return Fail(error, errorSize, detail);
     }
-
-    return result;
+    if (!ok) return false;
+    Serial.printf("[Firmware update] %s selected for next boot; source FLH preserved.\n",
+                  target->label);
+    return true;
 }

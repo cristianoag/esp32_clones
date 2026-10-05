@@ -66,11 +66,17 @@ PowerShell on PATH. All libraries and the board definition are local.
 `make firmware` packages and verifies `dist\ESP32_APPLE2-1.03.FLH` using
 the shared decimal checksum + `-~` + ESP32-S3 application format.
 Install over UART first to install the dual 4 MiB OTA partition layout.
-Later updates use **F12 > Firmware update** and an
-`ESP32_APPLE2-*.FLH` file on SD. Other emulator filenames are rejected.
-The checksum is **not a signature**; use only trusted Apple firmware.
-Renaming a different firmware does not make it compatible. Keep power
-connected throughout the update.
+Later updates use **F12 > Firmware update** and any compatible `.FLH`
+package for CP400, MSX, TK95 or Apple II on SD, without renaming. Prepare
+the destination emulator's ROMs before switching and put packages at the
+card root so CP400's file picker can also find them. After restart, use
+the destination's Firmware update menu to switch again.
+The checksum is **not a signature**; use only trusted firmware for this
+board. Keep power connected throughout; the original FLH is preserved.
+An older Apple updater must first install the current Apple package to
+remove its filename restriction. Older CP400 layouts require a one-time
+UART upload of a current build; FLH cannot change the partition table.
+Use current destination builds to retain cross-emulator updates.
 
 ## SD card and ROMs
 

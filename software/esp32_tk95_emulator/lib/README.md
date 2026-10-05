@@ -16,14 +16,14 @@ on 2026-09-26, preserving notices, licenses and board adaptations:
 The board support files in `../src` use `Tk*` filenames and identifiers,
 including their test references and TK diagnostic labels. The TK copy adds an atomic
 raw keyboard report for its matrix mapper, uses `tk-joystick` NVS instead of
-MSX's namespace, routes audio failures to the TK platform, and filters OTA
-filenames for `ESP32_TK95`. The unchanged `MsxSoftUsb` library keeps its
+MSX's namespace and routes audio failures to the TK platform. OTA updates
+accept compatible FLH packages from all four emulators. The unchanged `MsxSoftUsb` library keeps its
 upstream-facing filenames and transport API names; these are dependency
 references, not TK application modules. Original attribution and
 non-commercial notices continue to apply. No fMSX CPU or machine code is used.
 
 Board regression tests and their stubs were also copied locally; the
-firmware-update filename tests were adapted to the TK product.
+firmware-update tests cover cross-emulator filenames and package installation.
 
 The reference is [EremusOne/ESPectrum](https://github.com/EremusOne/ESPectrum),
 revision `2a2c3350eb2b26dd871fc1f98cbf4f6c93c41948`, specifically its documented

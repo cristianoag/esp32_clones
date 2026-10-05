@@ -149,11 +149,11 @@ bool MsxInstallFirmware(const char *sdPath, void (*progress)(const char *, uint8
                         char *error, size_t errorSize)
 {
     if (error && errorSize) error[0] = '\0';
-    if (!MsxFlh::IsMsxPath(sdPath))
-        return Fail(error, errorSize, "Select an ESP32_MSX-*.FLH file on the SD card.");
+    if (!MsxFlh::IsFirmwarePath(sdPath))
+        return Fail(error, errorSize, "Select a .FLH firmware file on the SD card.");
     const esp_partition_t *target = CheckLayout();
     if (!target)
-        return Fail(error, errorSize, "MSX OTA layout mismatch or pending boot update.");
+        return Fail(error, errorSize, "OTA layout mismatch or pending boot update. Install shared layout via UART.");
     File file = SD_MMC.open(sdPath, FILE_READ);
     if (!file || file.isDirectory())
     {

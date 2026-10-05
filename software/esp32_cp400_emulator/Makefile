@@ -17,7 +17,7 @@ export FW_VERSION
 
 RAW_FIRMWARE := .pio/build/$(PIO_ENV)/firmware.bin
 
-.PHONY: all firmware build upload package verify clean help
+.PHONY: all firmware build upload package verify test clean help
 
 all: firmware
 
@@ -33,7 +33,10 @@ package: build
 	$(PYTHON) -c "from pathlib import Path; source = Path(r'$(RAW_FIRMWARE)'); output = Path(r'$(UPDATE_FILE)'); firmware = source.read_bytes(); body = b'-~' + firmware; output.parent.mkdir(parents=True, exist_ok=True); output.write_bytes(str(sum(body)).encode('ascii') + body); print(f'Created {output} ({output.stat().st_size} bytes)')"
 
 verify: package
-	$(PYTHON) -c "from pathlib import Path; package = Path(r'$(UPDATE_FILE)').read_bytes(); checksum, payload = package.split(b'-', 1); assert checksum.isdigit(), 'Invalid checksum header'; assert payload[:1] == b'~', 'Missing firmware separator'; assert int(checksum) == sum(b'-' + payload), 'Checksum verification failed'; assert payload[1:2] == b'\xe9', 'Payload is not an ESP32 application image'; print('Firmware package verified: $(UPDATE_FILE)')"
+	$(PYTHON) -c "from pathlib import Path; package = Path(r'$(UPDATE_FILE)').read_bytes(); checksum, payload = package.split(b'-', 1); assert checksum.isdigit() and len(checksum) <= 10, 'Invalid checksum header'; assert payload[:1] == b'~', 'Missing firmware separator'; assert int(checksum) == sum(b'-' + payload), 'Checksum verification failed'; image = payload[1:]; assert 24 <= len(image) <= 0x400000, 'Invalid OTA image size'; assert image[0] == 0xe9 and 1 <= image[1] <= 16 and image[12:14] == b'\x09\x00', 'Payload is not an ESP32-S3 application image'; assert image == Path(r'$(RAW_FIRMWARE)').read_bytes(), 'Payload differs from build'; print('Firmware package verified: $(UPDATE_FILE)')"
+
+test:
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools/Test-FirmwareUpdate.ps1
 
 clean:
 	$(PIO) run -e "$(PIO_ENV)" -t clean
@@ -42,6 +45,7 @@ clean:
 help:
 	@echo make firmware  - Build and create the F12 update package
 	@echo make upload    - Build and upload through the configured PC USB port
+	@echo make test      - Run firmware-update host regression tests
 	@echo make clean     - Clean PlatformIO output and the update package
 	@echo PlatformIO: $(PIO)
 	@echo Firmware version: $(FW_VERSION)

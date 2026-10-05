@@ -16,6 +16,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Allowed Firmware update to install compatible CP400, MSX and Apple II FLH packages as well as TK95 packages without renaming, while retaining image, checksum and OTA layout validation.
+- Extended firmware-update host tests to install all four emulator packages into mock OTA storage and compare the written payloads.
 - Moved the default SD ROM layout under the tk folder so TK and MSX files could share a card without mixing their BIOS directories.
 - Migrated saved default ROM paths to the new TK layout while preserving custom ROM selections, tape paths and other settings.
 - Changed keyboard and joystick UART diagnostic labels to identify the TK firmware instead of MSX.

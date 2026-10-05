@@ -335,7 +335,6 @@ constexpr uint8_t RGB332ToVGAPacked(uint8_t color)
 static_assert(RGB332ToVGAPacked(0b00011100) == 0b00111000,
               "RGB332 green must map to the VGA green bits");
 
-void CheckFirmwareUpdate(void);
 
 void InitSD_Card(void);
 void InitSD_Card1(void);

@@ -497,7 +497,7 @@ static void progress(const char *stage, uint8_t percent)
 static void firmwareUpdate()
 {
     char path[TkPathSize] = {};
-    if (!browse("Select ESP32_TK95-*.FLH", ".flh", path) || !confirm("Install firmware and restart board?")) return;
+    if (!browse("Select firmware .FLH", ".flh", path) || !confirm("Install firmware and restart board?")) return;
     if (!TkJoystickHostPause()) { error("Cannot pause joystick host for firmware update."); return; }
     const bool installed = TkInstallFirmware(path, progress, status, sizeof(status));
     TkJoystickHostResume();

@@ -41,7 +41,7 @@ struct Package
     uint64_t fingerprint;
 };
 
-bool IsMsxPath(const char *path);
+bool IsFirmwarePath(const char *path);
 bool Validate(Reader &reader, size_t imageLimit, Package &package,
               Progress progress, char *error, size_t errorSize);
 bool Install(Reader &reader, Flash &flash, size_t imageLimit,

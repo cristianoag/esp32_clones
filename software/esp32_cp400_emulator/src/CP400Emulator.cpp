@@ -682,18 +682,6 @@ void InitSD_Card1(void)
 
   }
 }
-extern void flashFromSD(const char* filename);
-void CheckFirmwareUpdate(void)
-{
-  if (!SD_Card_Mounted)
-  {
-    return;
-  }
-
-  debugln("Before flash");
-  flashFromSD("/qprcx.rty");  //Random name for flash file (Created from the Flash menu).  Will be ereased after flash.
-}
-
 
 void InitSD_Card(void)
 {
@@ -746,9 +734,6 @@ void InitPeripherals_and_Others(void)
   delay(10);
   
   InitSD_Card();
-  
-  CheckFirmwareUpdate();
-  
   
   InitDisks();
 
@@ -1280,7 +1265,7 @@ void setup()
   (
     VideoCore,        // Fonction
     "SystemCore",      // Name
-    6048,              // stack
+    12288,             // Menu updates stream 4 KiB chunks through the OTA stack.
     NULL,              // Parameter
     2,                 // Priority
     NULL,              // Handle 

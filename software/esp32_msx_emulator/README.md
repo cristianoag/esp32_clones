@@ -42,6 +42,24 @@ normally removes obsolete dependencies during the next build. If local
 cache metadata still points to the old project, delete this firmware's
 generated `.pio` directory and rebuild; no CP400 files need to be changed.
 
+## Firmware updates and switching emulators
+
+With the shared dual 4 MiB OTA layout installed, **F12 > Firmware update**
+accepts `.FLH` packages for CP400, MSX, TK95 and Apple II without renaming.
+Copy a trusted package to the FAT32 card root, prepare the destination's
+ROMs, select the file, confirm and keep power connected until restart.
+Use the destination's Firmware update menu to switch again.
+
+The updater validates the package, ESP32-S3 image and size before writing,
+checks a second pass and selects the inactive slot only after ESP-IDF
+image verification. The original FLH remains on SD. The checksum is not
+a signature; unrelated ESP32-S3 firmware is not necessarily compatible.
+
+An older MSX updater must first install the current MSX package to remove
+its filename restriction. Old CP400 partition layouts require a one-time
+UART upload of a current build; FLH does not replace the partition table.
+Always use current destination builds to retain cross-emulator updates.
+
 ## Prepare the SD card
 
 Use a FAT32 card. BIOS files are supplied by the user and loaded from SD rather than being built into the firmware. From this firmware directory:

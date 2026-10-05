@@ -7,6 +7,11 @@ Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
 ### Changed
 
+- Allowed Firmware update to install compatible CP400, MSX, TK95 and Apple II FLH packages without renaming, preserving the source file on SD.
+- Replaced reboot-time staging with validated inactive-slot installation, progress and explicit errors before restarting into the selected emulator.
+- Paused CPU and software-joystick interrupts during installation and reserved additional menu stack space for buffered OTA updates.
+- Adopted the shared dual 4 MiB OTA layout, requiring one UART upload for boards using the older CP400 partition table.
+- Added a setup guide and firmware-update host tests covering cross-emulator packages and failure handling.
 - Loaded the CP400 BASIC, Extended BASIC, and selected CP400 or CoCo disk controller ROM from `cp400/bios` on the microSD card instead of embedding them in the firmware. Startup now stops with a serial error when a required ROM is missing, unreadable, or the wrong size.
 - Drove the sound output on GPIO47 only, matching the board revision that removes the second audio channel. On this module GPIO48 is the data line of the onboard RGB LED, so audio could not share it. The machine's sound is mono, so nothing is lost.
 - Raised the audio carrier well above the audible range, so the board's audio filter now removes almost all of it instead of leaving an ultrasonic tone on the jack.

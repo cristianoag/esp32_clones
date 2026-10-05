@@ -257,16 +257,21 @@ void FailureTests()
 
 void PathTests()
 {
-    CHECK(TkFlh::IsTkPath("/ESP32_TK95-1.00.FLH"));
-    CHECK(TkFlh::IsTkPath("/updates/esp32_tk95-1.00.flh"));
-    for (const char *path : {"/ESP32_CP400-1.13.FLH", "/ESP32_MSX-1.00.FLH", "/ESP32_TK95-.FLH",
-                             "/ESP32_TK95-1.00.bin", "/ESP32_TK95-1.00.FLH.bak",
-                             "ESP32_TK95-1.00.FLH", "/../ESP32_TK95-1.FLH",
-                             "/a//ESP32_TK95-1.FLH", "/./ESP32_TK95-1.FLH",
-                             "/a\\ESP32_TK95-1.FLH", "/C:/ESP32_TK95-1.FLH", "/"})
-        CHECK(!TkFlh::IsTkPath(path));
-    CHECK(!TkFlh::IsTkPath(nullptr));
-    CHECK(!TkFlh::IsTkPath(("/" + std::string(512, 'a') + "/ESP32_TK95-1.FLH").c_str()));
+    for (const char *name : {"ESP32_CP400-1.13.FLH", "ESP32_MSX-1.01.FLH",
+                             "ESP32_TK95-1.00.FLH", "ESP32_APPLE2-1.03.FLH",
+                             "firmware.flh", "esp32_cp400-1.13.flh"})
+    {
+        CHECK(TkFlh::IsFirmwarePath(("/" + std::string(name)).c_str()));
+        CHECK(TkFlh::IsFirmwarePath(("/updates/" + std::string(name)).c_str()));
+    }
+    for (const char *path : {"/.FLH", "", "/bad\nname.FLH",
+                             "/ESP32_MSX-1.00.bin", "/ESP32_MSX-1.00.FLH.bak",
+                             "ESP32_MSX-1.00.FLH", "/../ESP32_MSX-1.FLH",
+                             "/a//ESP32_MSX-1.FLH", "/./ESP32_MSX-1.FLH",
+                             "/a\\ESP32_MSX-1.FLH", "/C:/ESP32_MSX-1.FLH", "/"})
+        CHECK(!TkFlh::IsFirmwarePath(path));
+    CHECK(!TkFlh::IsFirmwarePath(nullptr));
+    CHECK(!TkFlh::IsFirmwarePath(("/" + std::string(512, 'a') + "/ESP32_MSX-1.FLH").c_str()));
 }
 
 class FileReader : public TkFlh::Reader
@@ -298,14 +303,25 @@ int main(int argc, char **argv)
     {
         std::FILE *file = std::fopen(argv[i], "rb");
         CHECK(file != nullptr);
+        const char *name = argv[i];
+        for (const char *p = name; *p; ++p)
+            if (*p == '/' || *p == '\\') name = p + 1;
+        CHECK(TkFlh::IsFirmwarePath(("/" + std::string(name)).c_str()));
         FileReader reader(file);
         TkFlh::Package package;
         char error[160] = {};
         const bool ok = TkFlh::Validate(reader, TkFlh::MaxImageSize, package, nullptr, error, sizeof(error));
-        std::fclose(file);
         if (!ok) std::fprintf(stderr, "%s: %s\n", argv[i], error);
         CHECK(ok);
-        std::printf("Validated real FLH: %s (%zu image bytes)\n", argv[i], package.imageSize);
+        CHECK(reader.seek(package.payloadOffset));
+        std::vector<uint8_t> expected(package.imageSize);
+        CHECK(reader.read(expected.data(), expected.size()) == expected.size());
+        MockFlash flash;
+        CHECK(TkFlh::Install(reader, flash, TkFlh::MaxImageSize, nullptr, error, sizeof(error)));
+        CHECK(flash.output == expected);
+        CHECK(flash.begins == 1 && flash.finishes == 1 && flash.commits == 1 && flash.aborts == 0);
+        std::fclose(file);
+        std::printf("Installed real FLH to mock OTA: %s (%zu image bytes)\n", argv[i], package.imageSize);
     }
     std::printf("Firmware update tests passed (%zu checks).\n", checks);
     return 0;

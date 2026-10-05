@@ -16,6 +16,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Allowed Firmware update to install compatible CP400, TK95 and Apple II FLH packages as well as MSX packages without renaming, while retaining image, checksum and OTA layout validation.
+- Extended firmware-update host tests to install all four emulator packages into mock OTA storage and compare the written payloads.
 - Removed the extra PSRAM frame copy, scaled each VGA row in internal memory and wrote back its cache immediately to reduce frame-presentation overhead without changing the picture.
 - Moved the main Z80 interpreter and memory read/write dispatch into ESP32-S3 instruction RAM while retaining the existing driver-memory reserve.
 - Reduced ordinary Z80 memory-access overhead by bypassing peripheral-state checks for normal reads and mapped-RAM writes.

@@ -21,16 +21,12 @@
 #include "CP400Emulator.h"
 #include "CP400Input.h"
 #include "CP400Roms.h"
+#include "FirmwareUpdater.h"
 
 extern uint8_t *MENU_Backup;
 extern uint8_t *MENU_BackupPage2;
 extern SpecialFunctionStruct sf;
 extern DriveStruct Disk_Drive;
-
-extern void flashFromSD(const char* filename);
-extern void InitFilesystem(void);
-extern bool copyFile(const char* srcFilename, const char* destFilename, void (*progress)(uint8_t));
-extern bool ValidFirmwareFile(const char* filename, void (*progress)(uint8_t));
 
 void WaitForMenuKeyRelease(void);
 
@@ -173,8 +169,14 @@ void DrawProgressScreen(const char *message, uint8_t percent)
 }
 
 //Only the gauge changes during an operation, so the frame is left untouched.
-static void FirmwareProgressUpdate(uint8_t percent)
+static void FirmwareProgressUpdate(const char *stage, uint8_t percent)
 {
+    if (strcmp(ProgressMessage, stage) != 0)
+    {
+        ProgressMessage = stage;
+        DrawProgressScreen(stage, percent);
+        return;
+    }
     for (uint8_t buffer = 0; buffer < 2; buffer++)
     {
         DrawProgressValue(percent);
@@ -582,31 +584,23 @@ void RunFirmwareUpdateFlow(void)
         switch (sf.DIRECT_Key_Code)
         {
         case MENU_Y:
-            ProgressMessage = "Checking firmware...";
-            DrawProgressScreen(ProgressMessage, 0);
-
-            if (!ValidFirmwareFile(file, FirmwareProgressUpdate))
+        {
+            ProgressMessage = "";
+            char error[160] = {};
+            if (!Cp400InstallFirmware(file, FirmwareProgressUpdate, error, sizeof(error)))
             {
-                ShowMenuError("Invalid firmware file.");
-                return;
-            }
-
-            ProgressMessage = "Copying update file...";
-            DrawProgressScreen(ProgressMessage, 0);
-
-            if (!copyFile(file, "/qprcx.rty", FirmwareProgressUpdate))
-            {
-                ShowMenuError("Unable to copy firmware.");
+                ShowMenuError(error);
                 return;
             }
 
             DrawScreenFrame("Firmware update", "Do not switch off the CP400.", nullptr);
-            DrawText("Rebooting to install firmware...", 0, MENU_CONTENT_ROW, 0, 0,
+            DrawText("Update complete. Rebooting...", 0, MENU_CONTENT_ROW, 0, 0,
                      MENU_TEXT_COLOR, 0);
             vga->show();
             vTaskDelay(2000);
             esp_restart();
             return;
+        }
 
         case MENU_N:
         case MENU_ESC:

@@ -8,12 +8,37 @@ At the moment the series includes four emulator builds on the same ESP32-S3 boar
 
 | Firmware | Covered machines | Project |
 | --- | --- | --- |
-| CP400 | Prologica CP400 / CoCo 2 | [Firmware](software/esp32_cp400_emulator/) and [change log](software/esp32_cp400_emulator/docs/log.md) |
+| CP400 | Prologica CP400 / CoCo 2 | [Setup guide](software/esp32_cp400_emulator/README.md) and [change log](software/esp32_cp400_emulator/docs/log.md) |
 | MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32_msx_emulator/README.md) and [change log](software/esp32_msx_emulator/docs/log.md) |
 | TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32_tk95_emulator/README.md) and [change log](software/esp32_tk95_emulator/docs/log.md) |
 | Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32_apple2_emulator/README.md) and [change log](software/esp32_apple2_emulator/docs/log.md) |
 
 All four builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
+
+### Switching emulators
+
+With the current updater and shared dual 4 MiB OTA layout installed, open
+**F12 > Firmware update** in any emulator and select another emulator's
+`.FLH` package. For example, MSX can install CP400, and CP400 can then
+install Apple II. No renaming is needed. Copy the packages to the FAT32
+card root (required by CP400's file picker), prepare the destination
+emulator's ROMs using its setup guide, confirm the update and keep power
+connected until the board restarts. The original FLH stays on the card.
+
+Build packages with `make firmware` in each firmware folder. Older MSX,
+TK and Apple updaters reject other emulator filenames: first update to
+the current build of the **same** emulator. Older CP400 installations use
+a smaller partition layout and require a **one-time UART upload** of a
+current build before switching via SD. FLH updates replace only the
+application, not the bootloader or partition table. Use current builds
+for every destination so switching remains available after reboot.
+Checksums detect corruption, not authenticity; install only trusted
+firmware built for this board.
+
+After building all four packages, run
+`powershell -ExecutionPolicy Bypass -File .\software\Test-FirmwareCompatibility.ps1`
+to check the shared layout and all 16 source/destination combinations
+against mock OTA storage. Physical-board switching still needs validation.
 
 ## Why this exists
 
@@ -25,7 +50,7 @@ The project sits between hardware design, emulator work, and preservation. It ke
 
 The Prologica CP400 was one of the more recognizable Brazilian home computers of the 1980s. It was compatible with the Tandy/Radio Shack TRS-80 Color Computer 2, but it had its own industrial design, Brazilian-language software ecosystem, and local hardware expectations.
 
-The [CP400 firmware](software/esp32_cp400_emulator/) recreates that environment on ESP32-S3 hardware, including MC6809 emulation, VGA output, native USB keyboard support, joystick inputs, SD storage, virtual floppy handling, and the F12 configuration/update menu.
+The [CP400 firmware](software/esp32_cp400_emulator/README.md) recreates that environment on ESP32-S3 hardware, including MC6809 emulation, VGA output, native USB keyboard support, joystick inputs, SD storage, virtual floppy handling, and the F12 configuration/update menu.
 
 ## MSX
 
@@ -109,8 +134,8 @@ still required; the decorative grille is not a ventilation opening.
 The PCB below is the current KiCad board layout for the shared ESP32 clone board. The front and back views are generated directly from the project PCB.
 
 <div align="center">
-  <img src="images/board-front.png" width="48%" alt="ESP32 clone board front" />
-  <img src="images/board-back.png" width="48%" alt="ESP32 clone board back" />
+  <img src="images/2026-10-05_15-47.png" width="48%" alt="ESP32 clone board front" />
+  <img src="images/2026-10-05_15-47_1.png" width="48%" alt="ESP32 clone board back" />
 </div>
 
 For the full component-by-component assembly view, open the [interactive BOM](https://htmlpreview.github.io/?https://raw.githubusercontent.com/cristianoag/esp32_clones/blob/main/hardware/esp32_clones/bom/ibom.html).

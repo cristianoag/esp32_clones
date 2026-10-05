@@ -257,16 +257,21 @@ void FailureTests()
 
 void PathTests()
 {
-    CHECK(MsxFlh::IsMsxPath("/ESP32_MSX-1.00.FLH"));
-    CHECK(MsxFlh::IsMsxPath("/updates/esp32_msx-1.00.flh"));
-    for (const char *path : {"/ESP32_CP400-1.13.FLH", "/ESP32_MSX-.FLH",
+    for (const char *name : {"ESP32_CP400-1.13.FLH", "ESP32_MSX-1.01.FLH",
+                             "ESP32_TK95-1.00.FLH", "ESP32_APPLE2-1.03.FLH",
+                             "firmware.flh", "esp32_cp400-1.13.flh"})
+    {
+        CHECK(MsxFlh::IsFirmwarePath(("/" + std::string(name)).c_str()));
+        CHECK(MsxFlh::IsFirmwarePath(("/updates/" + std::string(name)).c_str()));
+    }
+    for (const char *path : {"/.FLH", "", "/bad\nname.FLH",
                              "/ESP32_MSX-1.00.bin", "/ESP32_MSX-1.00.FLH.bak",
                              "ESP32_MSX-1.00.FLH", "/../ESP32_MSX-1.FLH",
                              "/a//ESP32_MSX-1.FLH", "/./ESP32_MSX-1.FLH",
                              "/a\\ESP32_MSX-1.FLH", "/C:/ESP32_MSX-1.FLH", "/"})
-        CHECK(!MsxFlh::IsMsxPath(path));
-    CHECK(!MsxFlh::IsMsxPath(nullptr));
-    CHECK(!MsxFlh::IsMsxPath(("/" + std::string(512, 'a') + "/ESP32_MSX-1.FLH").c_str()));
+        CHECK(!MsxFlh::IsFirmwarePath(path));
+    CHECK(!MsxFlh::IsFirmwarePath(nullptr));
+    CHECK(!MsxFlh::IsFirmwarePath(("/" + std::string(512, 'a') + "/ESP32_MSX-1.FLH").c_str()));
 }
 
 class FileReader : public MsxFlh::Reader
@@ -298,14 +303,25 @@ int main(int argc, char **argv)
     {
         std::FILE *file = std::fopen(argv[i], "rb");
         CHECK(file != nullptr);
+        const char *name = argv[i];
+        for (const char *p = name; *p; ++p)
+            if (*p == '/' || *p == '\\') name = p + 1;
+        CHECK(MsxFlh::IsFirmwarePath(("/" + std::string(name)).c_str()));
         FileReader reader(file);
         MsxFlh::Package package;
         char error[160] = {};
         const bool ok = MsxFlh::Validate(reader, MsxFlh::MaxImageSize, package, nullptr, error, sizeof(error));
-        std::fclose(file);
         if (!ok) std::fprintf(stderr, "%s: %s\n", argv[i], error);
         CHECK(ok);
-        std::printf("Validated real FLH: %s (%zu image bytes)\n", argv[i], package.imageSize);
+        CHECK(reader.seek(package.payloadOffset));
+        std::vector<uint8_t> expected(package.imageSize);
+        CHECK(reader.read(expected.data(), expected.size()) == expected.size());
+        MockFlash flash;
+        CHECK(MsxFlh::Install(reader, flash, MsxFlh::MaxImageSize, nullptr, error, sizeof(error)));
+        CHECK(flash.output == expected);
+        CHECK(flash.begins == 1 && flash.finishes == 1 && flash.commits == 1 && flash.aborts == 0);
+        std::fclose(file);
+        std::printf("Installed real FLH to mock OTA: %s (%zu image bytes)\n", argv[i], package.imageSize);
     }
     std::printf("Firmware update tests passed (%zu checks).\n", checks);
     return 0;

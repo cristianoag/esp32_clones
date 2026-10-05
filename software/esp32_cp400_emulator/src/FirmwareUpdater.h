@@ -21,21 +21,11 @@
 #ifndef FIRMWARE_UPDATER_H
 #define FIRMWARE_UPDATER_H
 
-#include <Arduino.h>
-#include "LittleFS.h"
+#include <stddef.h>
+#include <stdint.h>
 
-
-
-
-typedef void (*FirmwareProgressFn)(uint8_t percent);
-
-void InitFilesystem(void);
-bool copyFile(const char* srcFilename, const char* destFilename, FirmwareProgressFn progress);
-void flashFromSD(const char* filename);
-bool ValidFirmwareFile(const char* filename, FirmwareProgressFn progress);
-uint32_t asciiToUint32(const char* str);
-
-
-
+// sdPath is an SD_MMC path ("/firmware.FLH", without "/sdcard").
+bool Cp400InstallFirmware(const char *sdPath, void (*progress)(const char *, uint8_t),
+                          char *error, size_t errorSize);
 
 #endif

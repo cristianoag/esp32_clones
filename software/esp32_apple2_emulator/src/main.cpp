@@ -488,7 +488,7 @@ static void progress(const char *stage, uint8_t percent)
 static void firmwareUpdate()
 {
     char path[ApplePathSize] = {};
-    if (!browse("Select ESP32_APPLE2-*.FLH", ".flh", path) || !confirm("Install firmware and restart board?")) return;
+    if (!browse("Select firmware .FLH", ".flh", path) || !confirm("Install firmware and restart board?")) return;
     if (!AppleJoystickHostPause()) { error("Cannot pause joystick host for firmware update."); return; }
     const bool installed = AppleInstallFirmware(path, progress, status, sizeof(status));
     AppleJoystickHostResume();

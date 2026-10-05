@@ -1,3 +1,5 @@
+param([string[]]$PackagePaths = @())
+
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 $command = Get-Command g++ -ErrorAction SilentlyContinue
@@ -13,8 +15,11 @@ try {
     & $compiler -std=c++11 -Wall -Wextra -Werror "-I$(Join-Path $project 'src')" `
         (Join-Path $project 'src\MsxFlh.cpp') (Join-Path $project 'tests\FirmwareUpdateTests.cpp') -o $output
     if ($LASTEXITCODE -ne 0) { throw 'Firmware update test compilation failed.' }
-    $packages = @(Get-ChildItem -LiteralPath (Join-Path $project 'dist') -Filter 'ESP32_MSX-*.FLH' `
-        -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $packages = $PackagePaths
+    if ($packages.Count -eq 0 -and (Test-Path -LiteralPath (Join-Path $project 'dist'))) {
+        $packages = @(Get-ChildItem -LiteralPath (Join-Path $project 'dist') -Filter '*.FLH' `
+            -File | ForEach-Object { $_.FullName })
+    }
     & $output @packages
     if ($LASTEXITCODE -ne 0) { throw 'Firmware update regression failed.' }
 }

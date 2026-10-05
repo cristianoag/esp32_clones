@@ -57,14 +57,20 @@ to `espressif32@6.11.0`, as in the MSX firmware.
 `make firmware` builds and verifies `dist\ESP32_TK95-1.00.FLH`: the shared
 decimal checksum + `-~` + raw ESP32-S3 application format. First installation
 must use UART so the bootloader and dual 4 MiB OTA partition layout are
-installed. Subsequent updates use **F12 > Firmware update** and an
-`ESP32_TK95-*.FLH` file on SD.
+installed. Subsequent updates use **F12 > Firmware update** and any
+compatible `.FLH` package for CP400, MSX, TK95 or Apple II on SD, without
+renaming. Prepare the destination emulator's ROMs before switching.
+Put packages at the card root so CP400's file picker can also find them.
+After restart, use the destination's Firmware update menu to switch again.
 
 The updater validates the package before writing, verifies a second pass,
 and selects the inactive OTA slot only after ESP-IDF image verification.
 Keep power connected throughout. A filename/checksum is **not a signature**;
-only install trusted TK firmware. CP400/MSX filenames are rejected, but
-renaming an unrelated image does not make it compatible.
+only install trusted firmware for this board. The original FLH is preserved.
+An older TK updater must first install the current TK package to remove
+its filename restriction. Older CP400 layouts need a one-time UART upload
+of a current build; FLH cannot change the partition table. Use current
+builds for every destination to retain cross-emulator updates.
 
 ## SD card and ROMs
 

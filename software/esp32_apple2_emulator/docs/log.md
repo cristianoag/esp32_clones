@@ -7,6 +7,8 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
+- Allowed Firmware update to install compatible CP400, MSX and TK95 FLH packages as well as Apple II packages without renaming, while retaining image, checksum and OTA layout validation.
+- Extended firmware-update host tests to install all four emulator packages into mock OTA storage and compare the written payloads.
 - Reduced CPU memory-access overhead with precomputed RAM/ROM page mappings and an inlined cycle loop, while retaining the original CPU clock and bank-switch behavior.
 - Sent rendered scanlines directly to the VGA framebuffer, removing the intermediate 150 KiB PSRAM framebuffer and its extra copy without reducing resolution.
 - Stopped repainting text screens when DOS loaded unrelated graphics memory, while still refreshing modified visible pages and auxiliary display memory.

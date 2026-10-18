@@ -1,0 +1,29 @@
+{
+  "name": "A1ST-blueMSX",
+  "version": "1.0.0",
+  "description": "Embedded FS-A1ST subset of blueMSX-libretro e3086eb5d36d77fa11704cf53dc176686e70127d",
+  "build": {
+    "srcDir": ".",
+    "includeDir": "include",
+    "srcFilter": ["+<Src/>", "+<port/>"],
+    "flags": [
+      "-DZ80_CUSTOM_CONFIGURATION",
+      "-DVIDEO_COLOR_TYPE_RGB565",
+      "-include A1stAllocator.h",
+      "-ISrc/Arch",
+      "-ISrc/Board",
+      "-ISrc/Common",
+      "-ISrc/Debugger",
+      "-ISrc/Emulator",
+      "-ISrc/Input",
+      "-ISrc/IoDevice",
+      "-ISrc/Language",
+      "-ISrc/Media",
+      "-ISrc/Memory",
+      "-ISrc/SoundChips",
+      "-ISrc/Utils",
+      "-ISrc/VideoChips",
+      "-ISrc/Z80"
+    ]
+  }
+}

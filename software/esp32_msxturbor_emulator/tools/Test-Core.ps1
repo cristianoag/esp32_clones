@@ -1,0 +1,46 @@
+param(
+    [string]$Firmware,
+    [string]$Kanji,
+    [switch]$Rebuild
+)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+$core = Join-Path $root 'lib\bluemsx'
+$build = Join-Path $root 'tests\build'
+New-Item -ItemType Directory -Path $build -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $build 'original-state'),(Join-Path $build 'synthetic-state') -Force | Out-Null
+$includes = @("-I$(Join-Path $core 'include')", "-I$(Join-Path $core 'port')")
+Get-ChildItem -LiteralPath (Join-Path $core 'Src') -Directory | ForEach-Object {
+    $includes += "-I$($_.FullName)"
+}
+$flags = @('-O2', '-g', '-ffunction-sections', '-fdata-sections',
+           '-DZ80_CUSTOM_CONFIGURATION', '-DVIDEO_COLOR_TYPE_RGB565',
+           '-include', (Join-Path $core 'include\A1stAllocator.h'))
+$objects = @()
+$sources = @(Get-ChildItem -LiteralPath (Join-Path $core 'Src'),(Join-Path $core 'port') -Recurse -File |
+    Where-Object { $_.Extension -eq '.c' -or $_.Extension -eq '.cpp' })
+$headers = Get-ChildItem -LiteralPath $core -Filter '*.h' -Recurse -File |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+foreach ($source in $sources) {
+    $object = Join-Path $build ($source.Name + '.o')
+    $objects += $object
+    if ($Rebuild -or !(Test-Path -LiteralPath $object) -or
+        $source.LastWriteTime -gt (Get-Item -LiteralPath $object).LastWriteTime -or
+        $headers.LastWriteTime -gt (Get-Item -LiteralPath $object).LastWriteTime) {
+        $compiler = 'gcc'
+        $compatibility = @('-Wno-incompatible-pointer-types')
+        if ($source.Extension -eq '.cpp') { $compiler = 'g++'; $compatibility = @() }
+        & $compiler @flags @compatibility @includes -c $source.FullName -o $object
+        if ($LASTEXITCODE -ne 0) { throw "Compilation failed: $($source.Name)" }
+    }
+}
+$test = Join-Path $root 'tests\CoreTests.cpp'
+$executable = Join-Path $build 'a1st-tests.exe'
+& g++ '-O2' '-g' '-Wl,--gc-sections' @includes $test @objects '-o' $executable
+if ($LASTEXITCODE -ne 0) { throw 'Host core link failed.' }
+Push-Location $build
+try {
+    if ($Firmware -and $Kanji) { & $executable $Firmware $Kanji }
+    else { & $executable }
+    if ($LASTEXITCODE -ne 0) { throw "Core tests failed ($LASTEXITCODE)." }
+} finally { Pop-Location }

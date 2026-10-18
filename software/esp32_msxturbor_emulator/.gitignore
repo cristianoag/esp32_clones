@@ -1,0 +1,10 @@
+.pio/
+.vscode/
+tests/build/
+sdcard/
+*.rom
+*.ROM
+*.dsk
+*.DSK
+*.sram
+*.cmos

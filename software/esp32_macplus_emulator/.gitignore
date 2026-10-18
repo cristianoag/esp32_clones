@@ -1,0 +1,9 @@
+.pio/
+.vscode/
+sdcard/
+*.rom
+*.ROM
+*.bin
+*.BIN
+*.img
+*.IMG

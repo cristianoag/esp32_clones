@@ -4,16 +4,17 @@ The Retro Hacker Clone Series brings together hardware designs and source-availa
 
  The board is designed to feel like a small retro computer rather than a bare dev board, and the firmwares are built to be practical, tweakable, and easy to build from a standard Git checkout.
 
-At the moment the series includes four emulator builds on the same ESP32-S3 board:
+At the moment the series includes five emulator builds on the same ESP32-S3 board:
 
 | Firmware | Covered machines | Project |
 | --- | --- | --- |
 | CP400 | Prologica CP400 / CoCo 2 | [Setup guide](software/esp32_cp400_emulator/README.md) and [change log](software/esp32_cp400_emulator/docs/log.md) |
 | MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32_msx_emulator/README.md) and [change log](software/esp32_msx_emulator/docs/log.md) |
+| MSX TurboR (experimental) | Panasonic FS-A1ST | [Setup guide](software/esp32_msxturbor_emulator/README.md), [license report](software/esp32_msxturbor_emulator/docs/licenses.md) and [change log](software/esp32_msxturbor_emulator/docs/log.md) |
 | TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32_tk95_emulator/README.md) and [change log](software/esp32_tk95_emulator/docs/log.md) |
 | Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32_apple2_emulator/README.md) and [change log](software/esp32_apple2_emulator/docs/log.md) |
 
-All four builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
+All five builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
 ### Switching emulators
 
@@ -35,9 +36,9 @@ for every destination so switching remains available after reboot.
 Checksums detect corruption, not authenticity; install only trusted
 firmware built for this board.
 
-After building all four packages, run
+After building all five packages, run
 `powershell -ExecutionPolicy Bypass -File .\software\Test-FirmwareCompatibility.ps1`
-to check the shared layout and all 16 source/destination combinations
+to check the shared layout and all 25 source/destination combinations
 against mock OTA storage. Physical-board switching still needs validation.
 
 ## Why this exists

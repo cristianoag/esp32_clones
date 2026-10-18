@@ -3,7 +3,9 @@ $projects = @(
     @{ Folder = 'esp32_cp400_emulator'; Prefix = 'ESP32_CP400' },
     @{ Folder = 'esp32_msx_emulator'; Prefix = 'ESP32_MSX' },
     @{ Folder = 'esp32_tk95_emulator'; Prefix = 'ESP32_TK95' },
-    @{ Folder = 'esp32_apple2_emulator'; Prefix = 'ESP32_APPLE2' }
+    @{ Folder = 'esp32_apple2_emulator'; Prefix = 'ESP32_APPLE2' },
+    @{ Folder = 'esp32_msxturbor_emulator'; Prefix = 'ESP32_MSXTURBOR' },
+    @{ Folder = 'esp32_macplus_emulator'; Prefix = 'ESP32_MACPLUS' }
 )
 $expectedLayout = @(
     'nvs,data,nvs,0x9000,0x5000,',
@@ -27,12 +29,12 @@ $packages = foreach ($entry in $projects) {
     }
     $package = Join-Path $project ('dist\' + $entry.Prefix + '-' + $Matches[1] + '.FLH')
     if (-not (Test-Path -LiteralPath $package -PathType Leaf)) {
-        throw "Build all four projects with make firmware first. Missing: $package"
+        throw "Build all $($projects.Count) projects with make firmware first. Missing: $package"
     }
     $package
 }
 foreach ($entry in $projects) {
-    Write-Host "Testing $($entry.Prefix) updater against all four destination packages"
+    Write-Host "Testing $($entry.Prefix) updater against all $($projects.Count) destination packages"
     & (Join-Path $PSScriptRoot ($entry.Folder + '\tools\Test-FirmwareUpdate.ps1')) -PackagePaths $packages
 }
-Write-Host 'Shared OTA layout and all 16 firmware installation combinations passed (mock OTA).'
+Write-Host "Shared OTA layout and all $($projects.Count * $projects.Count) firmware installation combinations passed (mock OTA)."

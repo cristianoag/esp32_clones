@@ -1,10 +1,10 @@
 ﻿# The Retro Hacker Clone Series
 
-The Retro Hacker Clone Series brings together hardware designs and source-available firmware to recreate and emulate classic Brazilian computers from the 80s using modern ESP32-S3 based hardware.
+The Retro Hacker Clone Series brings together hardware designs and source-available firmware to recreate and emulate classic computers from the 1980s and 1990s using modern ESP32-S3 based hardware.
 
  The board is designed to feel like a small retro computer rather than a bare dev board, and the firmwares are built to be practical, tweakable, and easy to build from a standard Git checkout.
 
-At the moment the series includes five emulator builds on the same ESP32-S3 board:
+At the moment the series includes six emulator builds on the same ESP32-S3 board:
 
 | Firmware | Covered machines | Project |
 | --- | --- | --- |
@@ -13,8 +13,9 @@ At the moment the series includes five emulator builds on the same ESP32-S3 boar
 | MSX TurboR (experimental) | Panasonic FS-A1ST | [Setup guide](software/esp32_msxturbor_emulator/README.md), [license report](software/esp32_msxturbor_emulator/docs/licenses.md) and [change log](software/esp32_msxturbor_emulator/docs/log.md) |
 | TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32_tk95_emulator/README.md) and [change log](software/esp32_tk95_emulator/docs/log.md) |
 | Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32_apple2_emulator/README.md) and [change log](software/esp32_apple2_emulator/docs/log.md) |
+| Macintosh Plus | Apple Macintosh Plus | [Setup guide](software/esp32_macplus_emulator/README.md) and [change log](software/esp32_macplus_emulator/docs/log.md) |
 
-All five builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
+All six builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
 ### Switching emulators
 
@@ -36,14 +37,14 @@ for every destination so switching remains available after reboot.
 Checksums detect corruption, not authenticity; install only trusted
 firmware built for this board.
 
-After building all five packages, run
+After building all six packages, run
 `powershell -ExecutionPolicy Bypass -File .\software\Test-FirmwareCompatibility.ps1`
-to check the shared layout and all 25 source/destination combinations
+to check the shared layout and all 36 source/destination combinations
 against mock OTA storage. Physical-board switching still needs validation.
 
 ## Why this exists
 
-The goal is not to produce a display piece. This is meant to be a useful, buildable retro-computing emulation based platform: something that captures the character of a Brazilian 80s machine without needing a pile of original hardware on the bench.
+The goal is not to produce a display piece. This is meant to be a useful, buildable retro-computing emulation based platform: something that captures the character of a classic computer without needing a pile of original hardware on the bench.
 
 The project sits between hardware design, emulator work, and preservation. It keeps the board layout, software, and documentation together in one place so someone can build, test, and modify it without digging through a dozen disconnected repos.
 
@@ -62,6 +63,23 @@ The [MSX firmware](software/esp32_msx_emulator/README.md) runs the original fMSX
 The software supports the core MSX experience with USB keyboard input, graphics, sound, cartridge booting, and firmware updates through the on-screen menu. and... USB joystick support, of course.
 
 The F12 Media menu attaches writable `.dsk` images to drives A/B and read-only `.cas` tapes, with ejection, tape rewind and optional saved boot defaults. Disk access requires a compatible user-supplied disk BIOS; see the [disk and tape setup guide](software/esp32_msx_emulator/README.md#disk-and-tape-images).
+
+## MSX TurboR / Panasonic FS-A1ST
+
+The experimental [MSX TurboR firmware](software/esp32_msxturbor_emulator/README.md)
+recreates the Panasonic FS-A1ST using a source subset of blueMSX, separate
+from the ordinary fMSX-based MSX build. It includes Z80/R800 switching,
+DRAM mode, V9958 graphics, PSG, MSX-MUSIC, PCM output and writable
+360/720 KiB `.dsk` images through the original disk interface.
+
+Supply your own FS-A1ST firmware and Kanji ROMs under
+`msxturbor/bios/fs-a1st` on the FAT32 card. See the
+[SD card and ROM setup](software/esp32_msxturbor_emulator/README.md#prepare-the-sd-card),
+[scope and limitations](software/esp32_msxturbor_emulator/README.md#implementation-scope-and-limitations)
+and [licenses and provenance](software/esp32_msxturbor_emulator/docs/licenses.md).
+The original BIOS boots into MSX BASIC in host tests; physical-board
+performance, VGA/audio quality and firmware switching still require
+validation. A1GT/MIDI and full-speed emulation are not claimed.
 
 ## TK90X / TK95
 
@@ -97,6 +115,24 @@ their required hardware and verified ROMs. See the
 [scope and limitations](software/esp32_apple2_emulator/README.md#supported-media-and-limitations).
 Physical-board validation is still pending.
 
+## Macintosh Plus
+
+The [Macintosh Plus firmware](software/esp32_macplus_emulator/README.md)
+integrates a Musashi 68000 and Macintosh peripheral core with 4 MiB of
+emulated RAM, a native 512x342 monochrome image centered on 640x480 VGA,
+USB keyboard input, mono audio and the shared F12 menu and FLH updater.
+A direct low-speed HID boot mouse connects to **joystick port 2**;
+full-speed-only mice and USB hubs are unsupported.
+
+Supply an unmodified 128 KiB Macintosh Plus ROM and a bootable whole
+SCSI disk image under `macplus/bios` and `macplus/disks` on the FAT32 card.
+No Apple ROM, operating system or disk image is bundled. See the
+[SD card, ROM and disk setup](software/esp32_macplus_emulator/README.md#sd-card-and-rom),
+[mouse compatibility](software/esp32_macplus_emulator/README.md#mouse-compatibility)
+and [scope and validation](software/esp32_macplus_emulator/README.md#scope-and-validation).
+This is an initial integration, not a claim of full-speed or cycle-accurate
+emulation; floppy-media support is not implemented.
+
 ## Repository layout
 
 ```text
@@ -106,8 +142,10 @@ hardware/esp32_clones/bom       Interactive BOM and BOM assets
 hardware/cases/standard/       Parametric printed base, acrylic lid and manufacturing exports
 software/esp32_cp400_emulator/  PlatformIO firmware for the CP400 build
 software/esp32_msx_emulator/    MSX firmware and setup files
+software/esp32_msxturbor_emulator/ MSX TurboR / Panasonic FS-A1ST firmware and setup files
 software/esp32_tk95_emulator/   TK90X/TK95 firmware and setup files
 software/esp32_apple2_emulator/ Apple II+/original IIe firmware and setup files
+software/esp32_macplus_emulator/ Macintosh Plus firmware and setup files
 images/                         Generated images and project documentation assets
 ```
 
@@ -146,7 +184,7 @@ For the full component-by-component assembly view, open the [interactive BOM](ht
 
 The board is built around an ESP32-S3 DevKitC-style N16R8 module with 16 MB flash and 8 MB OPI PSRAM. It includes VGA output, a USB keyboard port, SD/MMC storage, a mono audio output, and a compact layout intended to behave more like a small computer than a bare dev board.
 
-The shared board is used by all four firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32_msx_emulator/README.md#hardware), the [TK hardware section](software/esp32_tk95_emulator/README.md#hardware) and the [Apple II hardware section](software/esp32_apple2_emulator/README.md#hardware).
+The shared board is used by all six firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32_msx_emulator/README.md#hardware), the [MSX TurboR hardware section](software/esp32_msxturbor_emulator/README.md#hardware-and-dependencies), the [TK hardware section](software/esp32_tk95_emulator/README.md#hardware), the [Apple II hardware section](software/esp32_apple2_emulator/README.md#hardware) and the [Macintosh Plus hardware section](software/esp32_macplus_emulator/README.md#hardware).
 
 ## BOM and purchasing
 
@@ -174,14 +212,20 @@ This is the current BOM for the board as defined in the KiCad project. The table
 
 ## Firmware build notes
 
-All three firmware projects use PlatformIO with the Arduino framework and a pinned `espressif32@6.11.0` platform. From the project directory you want to use, run:
+All six firmware projects use PlatformIO with the Arduino framework and a pinned `espressif32@6.11.0` platform. From the project directory you want to use, run:
 
 ```powershell
 Set-Location .\software\esp32_cp400_emulator
 # or:
 # Set-Location .\software\esp32_msx_emulator
 # or:
+# Set-Location .\software\esp32_msxturbor_emulator
+# or:
 # Set-Location .\software\esp32_tk95_emulator
+# or:
+# Set-Location .\software\esp32_apple2_emulator
+# or:
+# Set-Location .\software\esp32_macplus_emulator
 
 make firmware
 ```
@@ -189,17 +233,17 @@ make firmware
 The build produces FLH packages for each target; the project directories keep their own firmware images and configuration.
 Each firmware directory includes its own board definitions and required
 library sources and can be copied and compiled independently of the others.
-All three still require PlatformIO and the configured ESP32 toolchain.
+All six still require PlatformIO and the configured ESP32 toolchain.
 
 ## ROMs and original software
 
-Original CP400, CoCo, MSX, TK90X/TK95, ZX Spectrum, BASIC, cartridge, cassette, and floppy software may still be copyrighted. This repository is for original hardware, firmware, and project files. Use legally obtained ROMs and software images when needed.
+Original CP400, CoCo, MSX, MSX TurboR, TK90X/TK95, ZX Spectrum, Apple II, Macintosh Plus, BASIC, cartridge, cassette, floppy and hard-disk software may still be copyrighted. This repository is for original hardware, firmware, and project files. Use legally obtained ROMs and software images when needed.
 
 The CP400 firmware loads its BIOS files from `software/esp32_cp400_emulator/sdcard/cp400/bios`. Copy the `cp400` folder to the root of the microSD card so the firmware can read the BASIC, Extended BASIC, and CP400 or CoCo disk controller ROM selected in the F12 menu.
 
 ## Historical notes
 
-The CP400 was part of the wider Brazilian TRS-Color ecosystem, the MSX line became one of the most important home computer families in Brazil, and Microdigital's TK90X and TK95 connected Brazilian users to the ZX Spectrum ecosystem. This project sits at the intersection of those histories: a practical board, three emulator builds, and a small bit of preservation work for machines that still matter to a lot of people.
+The CP400 was part of the wider Brazilian TRS-Color ecosystem, the MSX line became one of the most important home computer families in Brazil, and Microdigital's TK90X and TK95 connected Brazilian users to the ZX Spectrum ecosystem. This project sits at the intersection of those histories: a practical board, six emulator builds, and a small bit of preservation work for machines that still matter to a lot of people.
 
 ## References
 

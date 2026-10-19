@@ -2,6 +2,7 @@
 #include "Disk.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 #ifdef _WIN32
 #include <io.h>
@@ -9,10 +10,11 @@
 #include <unistd.h>
 #endif
 
-static FILE* image;
-static int sides;
-static int changed;
-static int writeFailed;
+static FILE* images[2];
+static int sides[2];
+static int changed[2];
+static int writeFailed[2];
+static char paths[2][512];
 int diskOffset;
 
 static void ioError(const char* stage)
@@ -24,9 +26,29 @@ static void ioError(const char* stage)
 
 bool a1stMountDisk(const char* path, char* error, size_t capacity)
 {
+    return a1stAttachDisk(0, path, error, capacity);
+}
+
+bool a1stAttachDisk(unsigned drive, const char* path, char* error, size_t capacity)
+{
     FILE* candidate;
     long size;
-    if (!path || !*path) { a1stDiskClose(); changed = 1; return true; }
+    if (drive >= 2 || (path && strlen(path) >= sizeof(paths[0]))) {
+        snprintf(error, capacity, "Invalid disk drive or overlong DSK path.");
+        a1stLog(error); return false;
+    }
+    if (!path || !*path) {
+        if (images[drive] && fclose(images[drive])) ioError("close");
+        images[drive] = NULL;
+        paths[drive][0] = 0;
+        changed[drive] = 1;
+        error[0] = 0;
+        return true;
+    }
+    if (images[1 - drive] && !strcasecmp(paths[1 - drive], path)) {
+        snprintf(error, capacity, "DSK is already attached to the other drive; eject it there first.");
+        a1stLog(error); return false;
+    }
     candidate = fopen(path, "r+b");
     if (!candidate) {
         snprintf(error, capacity, "Cannot open writable disk: %s.", strerror(errno));
@@ -38,30 +60,35 @@ bool a1stMountDisk(const char* path, char* error, size_t capacity)
         snprintf(error, capacity, "Disk must be a raw 360 or 720 KiB DSK.");
         a1stLog(error); return false;
     }
-    a1stDiskClose();
-    image = candidate;
-    sides = size == 737280 ? 2 : 1;
-    changed = 1;
-    writeFailed = 0;
+    if (images[drive] && fclose(images[drive])) ioError("close");
+    images[drive] = candidate;
+    strcpy(paths[drive], path);
+    sides[drive] = size == 737280 ? 2 : 1;
+    changed[drive] = 1;
+    writeFailed[drive] = 0;
     if (capacity) error[0] = 0;
     return true;
 }
 
 void a1stDiskClose(void)
 {
-    if (image && fclose(image)) ioError("close");
-    image = NULL;
+    unsigned drive;
+    for (drive = 0; drive < 2; ++drive) {
+        if (images[drive] && fclose(images[drive])) ioError("close");
+        images[drive] = NULL;
+        paths[drive][0] = 0;
+    }
 }
-UInt8 diskEnabled(int drive) { return drive == 0; }
-UInt8 diskPresent(int drive) { return drive == 0 && image != NULL; }
-UInt8 diskReadOnly(int drive) { return drive != 0 || writeFailed; }
+UInt8 diskEnabled(int drive) { return drive >= 0 && drive < 2; }
+UInt8 diskPresent(int drive) { return diskEnabled(drive) && images[drive] != NULL; }
+UInt8 diskReadOnly(int drive) { return !diskEnabled(drive) || writeFailed[drive]; }
 int diskChanged(int drive)
 {
-    int value = drive == 0 && changed;
-    if (drive == 0) changed = 0;
+    int value = diskEnabled(drive) && changed[drive];
+    if (diskEnabled(drive)) changed[drive] = 0;
     return value;
 }
-int diskGetSides(int drive) { return diskPresent(drive) ? sides : 2; }
+int diskGetSides(int drive) { return diskPresent(drive) ? sides[drive] : 2; }
 int diskGetSectorsPerTrack(int drive) { (void)drive; return 9; }
 int diskGetSectorSize(int drive, int side, int track, int density)
 { (void)drive; (void)side; (void)track; (void)density; return 512; }
@@ -69,14 +96,14 @@ int diskGetSectorSize(int drive, int side, int track, int density)
 static int sectorIndex(int drive, int sector, int side, int track)
 {
     if (!diskPresent(drive) || sector < 1 || sector > 9 ||
-        side < 0 || side >= sides || track < 0 || track >= 80) return -1;
-    return (track * sides + side) * 9 + sector - 1;
+        side < 0 || side >= sides[drive] || track < 0 || track >= 80) return -1;
+    return (track * sides[drive] + side) * 9 + sector - 1;
 }
 DSKE diskRead(int drive, UInt8* buffer, int sector)
 {
-    if (!diskPresent(drive) || sector < 0 || sector >= 80 * sides * 9)
+    if (!diskPresent(drive) || sector < 0 || sector >= 80 * sides[drive] * 9)
         return DSKE_NO_DATA;
-    if (fseek(image, sector * 512L, SEEK_SET) || fread(buffer, 1, 512, image) != 512) {
+    if (fseek(images[drive], sector * 512L, SEEK_SET) || fread(buffer, 1, 512, images[drive]) != 512) {
         ioError("read"); return DSKE_NO_DATA;
     }
     return DSKE_OK;
@@ -93,15 +120,15 @@ UInt8 diskWrite(int drive, UInt8* buffer, int sector)
 {
     bool ok;
     if (!diskPresent(drive) || diskReadOnly(drive) ||
-        sector < 0 || sector >= 80 * sides * 9) return 0;
-    ok = !fseek(image, sector * 512L, SEEK_SET) &&
-         fwrite(buffer, 1, 512, image) == 512 && !fflush(image);
+        sector < 0 || sector >= 80 * sides[drive] * 9) return 0;
+    ok = !fseek(images[drive], sector * 512L, SEEK_SET) &&
+         fwrite(buffer, 1, 512, images[drive]) == 512 && !fflush(images[drive]);
 #ifdef _WIN32
-    if (ok) ok = !_commit(_fileno(image));
+    if (ok) ok = !_commit(_fileno(images[drive]));
 #else
-    if (ok) ok = !fsync(fileno(image));
+    if (ok) ok = !fsync(fileno(images[drive]));
 #endif
-    if (!ok) { writeFailed = 1; ioError("write/sync; further writes blocked"); }
+    if (!ok) { writeFailed[drive] = 1; ioError("write/sync; further writes blocked"); }
     return ok;
 }
 UInt8 diskWriteSector(int drive, UInt8* buffer, int sector, int side, int track, int density)

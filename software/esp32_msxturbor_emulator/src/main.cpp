@@ -22,12 +22,26 @@ Preferences preferences;
 A1stSettings settings;
 bool videoReady, audioReady, sdReady, nvsReady, running;
 uint8_t* backup;
+uint8_t* menuPixels;
 char status[160] = {};
 const char* const BiosDirectory = "/sdcard/msxturbor/bios/fs-a1st";
 int64_t wallAnchor, reportStart, lastYield;
 uint64_t tickAnchor, reportTicks;
 uint32_t presented;
 bool pacingReady;
+static_assert(static_cast<int>(MsxMapperAuto) == A1ST_MAPPER_AUTO &&
+              static_cast<int>(MsxFmPac) == A1ST_FMPAC, "Keep frontend and core mapper IDs aligned.");
+
+enum MenuItem : unsigned
+{
+    Resume, Machine, Media, Sound, Firmware, AutoBoot, DrawEvery, VgaFit,
+    Save, Boot, Rescan, Update, MenuCount
+};
+enum MediaItem : unsigned
+{
+    Slot1, Mapper1, Slot2, Mapper2, DiskA, DiskB,
+    MediaSaveBoot, MediaBoot, MediaCount
+};
 
 class MenuDisplay : public Adafruit_GFX
 {
@@ -35,9 +49,23 @@ public:
     MenuDisplay() : Adafruit_GFX(320, 240) {}
     void drawPixel(int16_t x, int16_t y, uint16_t color) override
     {
-        if (x >= 0 && y >= 0 && x < width() && y < height()) video.dot(x, y, color & 255);
+        if (x >= 0 && y >= 0 && x < width() && y < height()) menuPixels[y * 320 + x] = color & 255;
     }
 } display;
+
+void showMenu()
+{
+    const A1stViewport viewport(settings.vgaFit);
+    uint8_t row[A1stVideoWidth];
+    for (unsigned y = 0; y < A1stVideoHeight; ++y) {
+        if (!viewport.containsRow(y)) memset(row, 0, sizeof(row));
+        else A1stFitMenuRow(row, menuPixels + viewport.sourceRow(y) * 320, viewport);
+        uint8_t* destination = video.dmaBuffer->getLineAddr8(y);
+        memcpy(destination, row, sizeof(row));
+        Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(destination), sizeof(row));
+    }
+    video.show();
+}
 
 void text(int x, int y, const char* value, uint8_t color = 255)
 {
@@ -47,7 +75,7 @@ void text(int x, int y, const char* value, uint8_t color = 255)
 }
 void frame(const char* title)
 {
-    video.clear(0);
+    memset(menuPixels, 0, A1stVideoWidth * A1stVideoHeight);
     display.setTextSize(1);
     display.setTextWrap(false);
     text(8, 8, "ESP32 Clone Series - MSX TurboR");
@@ -69,12 +97,12 @@ void messageLines(const char* message)
 }
 void reportError(const char* message)
 {
-    snprintf(status, sizeof(status), "%s", message);
+    if (message != status) snprintf(status, sizeof(status), "%s", message);
     Serial.printf("A1ST: %s\n", message);
-    if (videoReady) {
+    if (videoReady && menuPixels) {
         frame("A1ST message");
         messageLines(message);
-        video.show();
+        showMenu();
     }
 }
 [[noreturn]] void fatal(const char* message)
@@ -105,9 +133,12 @@ bool mountSd()
         reportError("Stop the machine before remounting SD. Do not remove a mounted card.");
         return false;
     }
+    char error[160];
+    for (unsigned drive = 0; drive < 2; ++drive) a1stAttachDisk(drive, "", error, sizeof(error));
     SD_MMC.end();
+    // Match the working Clone Series clock; the library defaults to 40 MHz.
     if (!SD_MMC.setPins(MsxBoard::SdClk, MsxBoard::SdCmd, MsxBoard::SdData) ||
-        !SD_MMC.begin("/sdcard", true)) {
+        !SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 8)) {
         sdReady = false;
         reportError("SD/MMC mount failed. Check FAT32 card, seating and power.");
         return false;
@@ -152,7 +183,7 @@ bool chooseFile(const char* title, const char* extension, bool eject,
             if (selected == first + row)
                 display.fillRect(6, MsxMenuRowY(row), 308, 8, 0x48);
             const MsxFileEntry& entry = entries[row];
-            const char* name = entry.kind == MsxFileKind::Eject ? "<Eject disk>" : entry.name;
+            const char* name = entry.kind == MsxFileKind::Eject ? "<Eject media>" : entry.name;
             snprintf(line, sizeof(line), "%s%.47s",
                      entry.kind == MsxFileKind::Directory ? "> " : "  ", name);
             text(8, MsxMenuRowY(row), line);
@@ -165,7 +196,7 @@ bool chooseFile(const char* title, const char* extension, bool eject,
         text(8, 188, "Enter: select  Left: up  PgUp/Dn  Esc: back");
         if (*warning) messageLines(warning);
         else if (count) messageLines(entries[selected - first].name);
-        video.show();
+        showMenu();
         const uint8_t key = waitKey();
         if (key == 41 || key == 69) return false;
         if (key == 76 && eject) { selection[0] = 0; return true; }
@@ -206,16 +237,25 @@ bool coldBoot()
     frame("BOOTING PANASONIC FS-A1ST");
     text(8, 53, "Loading BIOS, firmware and Kanji from SD...");
     text(8, 69, "256 KiB RAM / 128 KiB VRAM / Z80 + R800");
-    video.show();
+    showMenu();
     const A1stHost host = { reportError, MsxAudioSubmit };
     char firmware[160], kanji[160];
     snprintf(firmware, sizeof(firmware), "%s/fs-a1st_firmware.rom", BiosDirectory);
     snprintf(kanji, sizeof(kanji), "%s/fs-a1st_kanjifont.rom", BiosDirectory);
     if (!a1stCreate(firmware, kanji, BiosDirectory, &host, status, sizeof(status))) return false;
     a1stSetFirmwareEnabled(settings.firmware);
-    char path[MsxSdPathCapacity + 8] = {};
-    if (settings.disk[0]) snprintf(path, sizeof(path), "/sdcard%s", settings.disk);
-    if (!a1stMountDisk(path, status, sizeof(status))) { a1stDestroy(); return false; }
+    for (unsigned slot = 0; slot < 2; ++slot) {
+        char path[MsxSdPathCapacity + 8] = {};
+        if (settings.cartridges[slot][0]) snprintf(path, sizeof(path), "/sdcard%s", settings.cartridges[slot]);
+        if (!a1stAttachCartridge(slot, path, settings.mappers[slot], status, sizeof(status))) {
+            a1stDestroy(); return false;
+        }
+    }
+    for (unsigned drive = 0; drive < 2; ++drive) {
+        char path[MsxSdPathCapacity + 8] = {};
+        if (settings.disks[drive][0]) snprintf(path, sizeof(path), "/sdcard%s", settings.disks[drive]);
+        if (!a1stAttachDisk(drive, path, status, sizeof(status))) { a1stDestroy(); return false; }
+    }
     running = true;
     pacingReady = false;
     status[0] = 0;
@@ -234,7 +274,7 @@ bool confirmUpdate(const char* path)
         text(8, 97, "N  No  - cancel");
         text(8, 188, "Y/N or arrows + Enter. Esc/F12 cancels.");
         messageLines(path);
-        video.show();
+        showMenu();
         const uint8_t key = waitKey();
         if (key == 41 || key == 69 || key == 17 || (key == 40 && !yes)) return false;
         if (key == 28 || (key == 40 && yes)) return true;
@@ -248,7 +288,7 @@ void firmwareProgress(const char* stage, uint8_t percent)
     display.drawRect(8, 77, 304, 12, 255);
     display.fillRect(10, 79, 300 * percent / 100, 8, 0x1c);
     text(8, 188, "Do not power off or remove the SD card.");
-    video.show();
+    showMenu();
 }
 void firmwareUpdate()
 {
@@ -259,23 +299,95 @@ void firmwareUpdate()
     if (!MsxInstallFirmware(path, firmwareProgress, status, sizeof(status))) return;
     frame("Firmware update complete");
     text(8, 53, "Verified. Rebooting into selected firmware...");
-    video.show();
+    showMenu();
     delay(1500);
     ESP.restart();
 }
-void selectDisk()
+const char* baseName(const char* path)
 {
-    char candidate[MsxSdPathCapacity], path[MsxSdPathCapacity + 8] = {};
-    strcpy(candidate, settings.disk);
-    if (!chooseFile("Drive A - raw .DSK", ".dsk", true, candidate)) return;
-    if (candidate[0]) snprintf(path, sizeof(path), "/sdcard%s", candidate);
-    if (!a1stMountDisk(path, status, sizeof(status))) return;
-    strcpy(settings.disk, candidate);
-    snprintf(status, sizeof(status), "Drive A %s. Disk writes persist immediately.",
-             candidate[0] ? "attached" : "ejected");
+    const char* slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
 }
+void selectMedia(unsigned item, bool eject)
+{
+    if (!sdReady) { reportError("Mount the SD card before selecting media."); return; }
+    char* selection = item < DiskA ? settings.cartridges[item / 2] : settings.disks[item - DiskA];
+    const char* extension = item < DiskA ? ".rom" : ".dsk";
+    char candidate[MsxSdPathCapacity], path[MsxSdPathCapacity + 8] = {}, title[48];
+    strcpy(candidate, selection);
+    snprintf(title, sizeof(title), "%s %u - choose %s", item < DiskA ? "Cartridge slot" : "Disk drive",
+             item < DiskA ? item / 2 + 1 : item - DiskA + 1, extension);
+    if (eject) candidate[0] = 0;
+    else if (!chooseFile(title, extension, true, candidate)) return;
+    if (candidate[0]) snprintf(path, sizeof(path), "/sdcard%s", candidate);
+    if (item < DiskA) {
+        if (candidate[0]) {
+            frame("INSPECTING CARTRIDGE ROM");
+            text(8, 53, "Checking ROM header and automatic mapper...");
+            messageLines(candidate);
+            showMenu();
+            int detected;
+            if (!a1stInspectCartridge(path, &detected, status, sizeof(status))) return;
+        }
+        if (!candidate[0] || strcmp(candidate, selection)) settings.mappers[item / 2] = MsxMapperAuto;
+    }
+    else {
+        if (!a1stAttachDisk(item - DiskA, path, status, sizeof(status))) return;
+    }
+    strcpy(selection, candidate);
+    snprintf(status, sizeof(status), "%s %s. %s", item < DiskA ? "ROM" : "Disk", candidate[0] ? "selected" : "ejected",
+             item < DiskA ? "Cold boot to apply; save to retain." : "Save to retain the selection.");
+}
+bool mediaMenu()
+{
+    unsigned selected = 0;
+    for (;;) {
+        frame("MEDIA - PANASONIC FS-A1ST");
+        for (unsigned row = 0; row < MediaCount; ++row) {
+            char label[64];
+            if (row < DiskA) {
+                unsigned slot = row / 2;
+                if (!(row & 1)) snprintf(label, sizeof(label), "Slot %u: %.40s", slot + 1,
+                    settings.cartridges[slot][0] ? baseName(settings.cartridges[slot]) : "<empty>");
+                else snprintf(label, sizeof(label), "  Mapper: %s", MsxMapperName(settings.mappers[slot]));
+            }
+            else if (row <= DiskB) snprintf(label, sizeof(label), "Drive %c: %.39s", 'A' + row - DiskA,
+                settings.disks[row - DiskA][0] ? baseName(settings.disks[row - DiskA]) : "<empty>");
+            else snprintf(label, sizeof(label), "%s",
+                row == MediaSaveBoot ? "Reboot and save configuration" : "Reboot without saving");
+            if (row == selected) display.fillRect(6, MsxMenuRowY(row), 308, 8, 0x48);
+            text(8, MsxMenuRowY(row), label);
+        }
+        text(8, 140, "ROM: cold boot. Disks: apply now.");
+        text(8, 150, "Tape: use the normal MSX firmware.");
+        text(8, 178, "Enter: choose  L/R: mapper  Del: eject/Auto");
+        text(8, 188, "Esc/F12: back  Save includes all media.");
+        messageLines(status);
+        showMenu();
+        const uint8_t key = waitKey();
+        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return false; }
+        if (key == 81 || key == 82) selected = MsxMoveSelection(selected, key == 82 ? -1 : 1, MediaCount);
+        else if (selected < DiskA && (selected & 1) &&
+                 (key == 40 || key == 79 || key == 80 || key == 76)) {
+            unsigned slot = selected / 2;
+            if (!settings.cartridges[slot][0]) reportError("Select a cartridge ROM first.");
+            else {
+                settings.mappers[slot] = key == 76 ? static_cast<uint8_t>(MsxMapperAuto) :
+                    MsxMoveSelection(settings.mappers[slot], key == 80 ? -1 : 1, MsxMapperAuto + 1);
+                snprintf(status, sizeof(status), "Mapper changed. Cold boot to apply; save to retain.");
+            }
+        }
+        else if ((key == 40 || key == 76) && selected <= DiskB) selectMedia(selected, key == 76);
+        else if (key == 40 && (selected == MediaSaveBoot || selected == MediaBoot)) {
+            if (selected == MediaSaveBoot && !saveSettings()) continue;
+            if (coldBoot()) return true;
+        }
+    }
+}
+void present();
 bool menu()
 {
+    const uint8_t previousFit = settings.vgaFit;
     if (running) {
         backupScreen(false);
         flushState();
@@ -286,44 +398,49 @@ bool menu()
     bool booted = false;
     for (;;) {
         frame("F12 CONFIGURATION - PANASONIC FS-A1ST");
-        char labels[11][64];
-        snprintf(labels[0], 64, "Resume emulation%s", running ? "" : " (not booted)");
-        snprintf(labels[1], 64, "Machine: FS-A1ST / 256 KiB / V9958");
-        snprintf(labels[2], 64, "Drive A: %.39s", settings.disk[0] ? settings.disk : "<empty>");
-        snprintf(labels[3], 64, "Sound: %s (PSG + MSX-MUSIC + PCM)", settings.sound ? "On" : "Off");
-        snprintf(labels[4], 64, "Built-in firmware: %s (cold boot)", settings.firmware ? "On" : "Off");
-        snprintf(labels[5], 64, "Auto boot: %s", settings.autoBoot ? "On" : "Off");
-        snprintf(labels[6], 64, "Present every %u frame(s)", settings.drawEvery);
-        snprintf(labels[7], 64, "Save boot configuration");
-        snprintf(labels[8], 64, "Cold boot with selected configuration");
-        snprintf(labels[9], 64, "Rescan SD (stopped machine only)");
-        snprintf(labels[10], 64, "Firmware update / switch emulator");
-        for (unsigned row = 0; row < 11; ++row) {
-            if (selected == row) display.fillRect(6, 48 + row * 11, 308, 10, 0x48);
-            text(8, 48 + row * 11, labels[row]);
+        char labels[MenuCount][64];
+        snprintf(labels[Resume], 64, "Resume emulation%s", running ? "" : " (not booted)");
+        snprintf(labels[Machine], 64, "Machine: FS-A1ST / 256 KiB / V9958");
+        snprintf(labels[Media], 64, "Media: ROM slots 1/2 and drives A/B");
+        snprintf(labels[Sound], 64, "Sound: %s (PSG + MSX-MUSIC + PCM + SCC)", settings.sound ? "On" : "Off");
+        snprintf(labels[Firmware], 64, "Built-in firmware: %s (cold boot)", settings.firmware ? "On" : "Off");
+        snprintf(labels[AutoBoot], 64, "Auto boot: %s", settings.autoBoot ? "On" : "Off");
+        snprintf(labels[DrawEvery], 64, "Present every %u frame(s)", settings.drawEvery);
+        snprintf(labels[VgaFit], 64, "VGA fit: %u%% (both picture and menus)", settings.vgaFit);
+        snprintf(labels[Save], 64, "Save boot configuration");
+        snprintf(labels[Boot], 64, "Cold boot with selected configuration");
+        snprintf(labels[Rescan], 64, "Rescan SD (stopped machine only)");
+        snprintf(labels[Update], 64, "Firmware update / switch emulator");
+        for (unsigned row = 0; row < MenuCount; ++row) {
+            if (selected == row) display.fillRect(6, 48 + row * 10, 308, 9, 0x48);
+            text(8, 48 + row * 10, labels[row]);
         }
-        text(8, 176, "Disk: Enter browse / Delete eject");
+        text(8, 176, "Media: Enter  VGA fit: Left/Right");
         text(8, 188, "Arrows: choose  Enter: apply  Esc/F12: resume");
         messageLines(status);
-        video.show();
+        showMenu();
         const uint8_t key = waitKey();
-        if ((key == 41 || key == 69 || (key == 40 && selected == 0)) && running) break;
-        if (key == 82 || key == 81) selected = MsxMoveSelection(selected, key == 82 ? -1 : 1, 11);
-        else if ((key == 40 || key == 79 || key == 80) && selected >= 3 && selected <= 6) {
-            if (selected == 3) settings.sound = !settings.sound;
-            if (selected == 4) settings.firmware = !settings.firmware;
-            if (selected == 5) settings.autoBoot = !settings.autoBoot;
-            if (selected == 6) settings.drawEvery = key == 80 ?
+        if ((key == 41 || key == 69 || (key == 40 && selected == Resume)) && running) break;
+        if (key == 82 || key == 81) selected = MsxMoveSelection(selected, key == 82 ? -1 : 1, MenuCount);
+        else if ((key == 40 || key == 79 || key == 80) && selected >= Sound && selected <= VgaFit) {
+            if (selected == Sound) settings.sound = !settings.sound;
+            if (selected == Firmware) settings.firmware = !settings.firmware;
+            if (selected == AutoBoot) settings.autoBoot = !settings.autoBoot;
+            if (selected == DrawEvery) settings.drawEvery = key == 80 ?
                 (settings.drawEvery == 1 ? 6 : settings.drawEvery - 1) : settings.drawEvery % 6 + 1;
-        } else if (key == 40 && selected == 2) selectDisk();
-        else if (key == 76 && selected == 2) {
-            if (a1stMountDisk("", status, sizeof(status))) settings.disk[0] = 0;
-        } else if (key == 40 && selected == 7) saveSettings();
-        else if (key == 40 && selected == 8 && coldBoot()) { booted = true; break; }
-        else if (key == 40 && selected == 9) mountSd();
-        else if (key == 40 && selected == 10) firmwareUpdate();
+            if (selected == VgaFit) settings.vgaFit = key == 80 ?
+                (settings.vgaFit == 80 ? 100 : settings.vgaFit - 5) :
+                (settings.vgaFit == 100 ? 80 : settings.vgaFit + 5);
+        } else if (key == 40 && selected == Media && mediaMenu()) { booted = true; break; }
+        else if (key == 40 && selected == Save) saveSettings();
+        else if (key == 40 && selected == Boot && coldBoot()) { booted = true; break; }
+        else if (key == 40 && selected == Rescan) mountSd();
+        else if (key == 40 && selected == Update) firmwareUpdate();
     }
-    if (running && !booted) backupScreen(true);
+    if (running && !booted) {
+        if (settings.vgaFit != previousFit) present();
+        else backupScreen(true);
+    }
     MsxKeyboardClearEvents();
     MsxAudioEnable(audioReady && settings.sound);
     pacingReady = false;
@@ -332,9 +449,14 @@ bool menu()
 void present()
 {
     const uint16_t* pixels = a1stPixels();
+    const A1stViewport viewport(settings.vgaFit);
     uint8_t row[320];
     for (unsigned y = 0; y < 240; ++y) {
-        A1stScaleVideoRow(row, pixels + y * A1ST_FRAME_WIDTH, a1stLineWidth(y));
+        if (!viewport.containsRow(y)) memset(row, 0, sizeof(row));
+        else {
+            unsigned sourceY = viewport.sourceRow(y);
+            A1stScaleVideoRow(row, pixels + sourceY * A1ST_FRAME_WIDTH, a1stLineWidth(sourceY), settings.vgaFit);
+        }
         uint8_t* destination = video.dmaBuffer->getLineAddr8(y);
         memcpy(destination, row, sizeof(row));
         Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(destination), sizeof(row));
@@ -378,7 +500,8 @@ void setup()
                          -1, -1, -1, -1, MsxBoard::GreenLow, MsxBoard::GreenHigh,
                          -1, -1, -1, MsxBoard::BlueLow, MsxBoard::BlueHigh,
                          MsxBoard::HSync, MsxBoard::VSync);
-    const Mode timing(8, 48, 24, 320, 10, 2, 33, 240, 12587500, 0, 0, 2);
+    const Mode timing(8, 48, 24, A1stVideoWidth, 10, 2, 33, A1stVideoHeight,
+                      12587500, 0, 0, A1stVideoLineRepeat);
     if (!video.init(pins, timing, 8)) fatal("VGA framebuffer allocation failed.");
     pinMode(MsxBoard::RgbLed, INPUT);
     neopixelWrite(MsxBoard::RgbLed, 0, 0, 0);
@@ -387,9 +510,11 @@ void setup()
     if (!videoReady) fatal("VGA output could not start.");
     backup = static_cast<uint8_t*>(heap_caps_malloc(320 * 240, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!backup) fatal("Cannot allocate F12 screen backup.");
+    menuPixels = static_cast<uint8_t*>(heap_caps_malloc(320 * 240, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!menuPixels) fatal("Cannot allocate F12 menu framebuffer.");
     frame("INITIALIZING PANASONIC FS-A1ST");
     text(8, 53, "Starting keyboard, audio and SD/MMC...");
-    video.show();
+    showMenu();
     if (!MsxKeyboardStart()) fatal("USB keyboard initialization failed. See UART.");
     audioReady = MsxAudioStart();
     if (!audioReady) reportError("Audio unavailable; emulation can continue without sound.");
@@ -399,17 +524,17 @@ void setup()
     else {
         const size_t length = preferences.getBytesLength("boot");
         if (length) {
-            A1stSettings saved;
-            if (length != sizeof(saved) ||
-                preferences.getBytes("boot", &saved, sizeof(saved)) != sizeof(saved) ||
-                !A1stDecodeSettings(&saved, sizeof(saved), settings))
+            uint8_t saved[sizeof(A1stSettings)];
+            if (length > sizeof(saved) ||
+                preferences.getBytes("boot", saved, length) != length ||
+                !A1stDecodeSettings(saved, length, settings))
                 reportError("Invalid saved A1ST settings; using defaults without overwriting NVS.");
         }
     }
     frame("PANASONIC FS-A1ST READY");
     text(8, 53, "Press F12 for configuration and firmware updates.");
     messageLines(status);
-    video.show();
+    showMenu();
     bool interrupted = false;
     const uint32_t start = millis();
     while (millis() - start < 2500) {

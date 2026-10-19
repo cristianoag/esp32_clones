@@ -30,6 +30,8 @@ see [licenses and provenance](docs/licenses.md).
 
 Use the UART port for upload/diagnostics. Native USB is the keyboard host,
 not a serial console. An 8 MiB OPI PSRAM module is required.
+SD/MMC uses one-bit mode at 20 MHz, matching the other Clone Series firmwares
+rather than the SD library's 40 MHz default. A failed mount never formats the card.
 
 ## Prepare the SD card
 
@@ -53,6 +55,7 @@ Required files on the card:
 msxturbor/bios/fs-a1st/fs-a1st_firmware.rom   4194304 bytes
 msxturbor/bios/fs-a1st/fs-a1st_kanjifont.rom   262144 bytes
 msxturbor/disks/                            optional .dsk images
+msxturbor/roms/                             optional cartridge .rom files
 ```
 
 The importer accepts both known ST firmware revisions; select the alternate
@@ -62,8 +65,12 @@ Keep the full 4 MiB dump. The emulated ST firmware mapper exposes its first
 BIOS, opening, disk, Kanji BASIC and MSX-MUSIC regions are mapped from that
 image; no additional disk BIOS or extracted sidecar ROMs are needed.
 The GT firmware is intentionally rejected.
-ROM loading stages 4 KiB at a time through aligned internal stack memory
-before copying into PSRAM, yielding between reads to service board tasks.
+ROM loading checks the opened file's size without seeking through the dump,
+then reads sequentially in chunks of at most 4 KiB through aligned internal
+stack memory before copying into PSRAM. It avoids heap-backed stdio buffers,
+handles short/interrupted reads and yields between reads to service board tasks.
+Failures report the operation, byte offset and OS error rather than just the
+file size; the full path is included in the UART diagnostic.
 
 No BIOS or software images are distributed or embedded in the application.
 
@@ -75,7 +82,7 @@ make firmware
 make upload
 ```
 
-`make firmware` builds and verifies `dist\ESP32_MSXTURBOR-1.00.FLH`.
+`make firmware` builds and verifies `dist\ESP32_MSXTURBOR-1.01.FLH`.
 `make upload` is a UART upload, including the shared partition table.
 The Makefile uses PlatformIO's standard Windows virtual environment.
 
@@ -85,16 +92,28 @@ F12 pauses the emulated machine and sound, backs up the VGA picture, and
 opens the same 320x240-style configuration interface used by the other
 firmwares. Use arrows and Enter; Esc or F12 resumes a booted machine.
 
-- **Drive A:** browse raw 360/720 KiB `.dsk` files; Delete ejects. Changes
-  are live while paused. A failed attachment preserves the old image.
-- **Sound:** PSG, built-in MSX-MUSIC and TurboR PCM output.
+- **Media:** choose ROMs for **Slot 1** and **Slot 2**, select their mappers,
+  and attach/eject raw 360/720 KiB `.dsk` files in **Drive A** and **Drive B**.
+  Enter browses; Delete ejects. ROM and mapper changes apply on cold boot;
+  disk changes are live while paused. A failed disk attachment retains the
+  old image. One writable image cannot be attached to both drives.
+- **Sound:** PSG, built-in MSX-MUSIC, TurboR PCM and cartridge SCC output.
 - **Built-in firmware:** controls the original firmware switch; cold-boot
   to apply it. Off is the default for normal BASIC/DOS startup.
 - **Auto boot** and **Present every N frames:** independent host settings.
   Presentation skipping does not accelerate the guest CPU or skip VDP
   state/sprite evaluation.
-- **Save boot configuration:** saves settings and the disk path in its own
-  NVS namespace, separate from the ordinary MSX emulator.
+- **VGA fit:** Left/Right or Enter selects 80%, 85%, 90%, 95% or 100%.
+  The default 90% centers the entire picture and every menu inside a safe
+  area, keeping the 4:3 aspect ratio on monitors that clip the edges.
+  100% restores the full 320x240 area. VGA timings, pixel clock and line
+  doubling remain identical to normal MSX.
+- **Save boot configuration:** saves both ROM paths, mapper choices, both
+  disk paths, VGA fit and other preferences in its own NVS namespace,
+  separate from ordinary MSX. Existing A1ST settings migrate automatically,
+  retaining Drive A, sound and boot preferences; new slots start empty.
+- **Media > Reboot and save configuration** and **Reboot without saving**:
+  apply cartridge changes immediately, with or without persisting selections.
 - **Cold boot:** discards the emulated machine state and applies pending
   firmware-switch settings.
 - **Rescan SD:** only remounts while no machine is running.
@@ -107,7 +126,29 @@ Keep the SD card inserted while the machine is running. Formatting and
 nonstandard/protected floppy formats are not validated; use existing raw
 360/720 KiB images.
 
-Entering F12 flushes firmware SRAM and CMOS. These are separate
+Cartridges use physical primary slots 1 and 2, as on the A1ST. ROMs must
+contain an `AB` cartridge header and use 8 KiB multiples, from 8 KiB to 2 MiB.
+They can be selected from any folder on the card, including the normal
+MSX firmware's ROM folders; files are not copied or modified.
+The mapper choices match normal MSX: **Auto**, **Generic 8 KiB**,
+**Generic 16 KiB**, **Konami SCC**, **Konami**, **ASCII8**, **ASCII16**,
+**GameMaster2** and **FM-PAC**. Auto handles plain/mirrored ROMs and uses
+bank-write heuristics for common MegaROMs; it does not read fMSX mapper
+databases. Use a manual override for ambiguous ROMs and GameMaster2/FM-PAC
+images not recognized automatically. GameMaster2 requires 128 KiB and
+FM-PAC requires 64 KiB. FM-PAC register writes use the built-in YM2413.
+Special mappers beyond this list are not supported.
+
+GameMaster2 and FM-PAC SRAM is saved beside the cartridge as
+`<filename>.slot1.sram` or `<filename>.slot2.sram`, independently of the
+normal MSX firmware's save files. Enter F12 before powering off to flush it.
+
+**Tape remains unsupported in this A1ST firmware.** The real turboR removed
+the cassette interface, and A1ST BASIC 4.0 does not expose the normal MSX
+`CAS:` device. Use the normal MSX firmware for CAS tapes. No virtual tape
+BIOS patches are installed.
+
+Entering F12 also flushes firmware SRAM and CMOS. These are separate
 `fs-a1st.sram` and `fs-a1st.cmos` files in the BIOS directory. Use F12 before
 powering off after changing persistent emulated settings.
 
@@ -146,7 +187,7 @@ banking and DRAM aliases, Kanji ROM, PPI keyboard, PSG, MSX-MUSIC, RTC,
 non-inverted reset status, E6/E7 timer, PCM output, pause/LED registers and
 the original banked TC8566AF disk interface.
 
-Not claimed: A1GT/MIDI, cartridge or cassette selection, USB joystick
+Not claimed: A1GT/MIDI, cassette selection, USB joystick
 support, microphone recording, printer output, save states, reverse
 execution, cycle-perfect R800/VDP timing or complete application
 compatibility. The upstream CPU timing model is retained; openMSX is a
@@ -154,7 +195,8 @@ reference, not the linked desktop CPU core. PCM input reads a neutral
 signal because this board has no microphone path. Mechanical disk noise
 is omitted.
 
-VGA reuses the existing 320x240, line-doubled driver. High-resolution and
+VGA reuses the existing 320x240, line-doubled driver, with a saved centered
+safe-area setting for menus and emulation. High-resolution and
 80-column output are downsampled; interlaced fields are not woven into a
 480-line image. UART reports **emulated speed percentage**, presented FPS,
 active CPU/DRAM mode and free PSRAM every five active seconds. Menu time
@@ -175,5 +217,13 @@ Host tests use native GCC/G++. They cover ROM/DRAM/SRAM mapping, S1990,
 R800 multiplication, E6 timer phase, keyboard matrix, original TC8566AF
 sector reads/writes, persistence, framebuffer bounds, VGA geometry,
 settings validation, ROM importing and the shared FLH updater.
+Media regressions cover both external cartridge slots, all mapper choices,
+SCC wave RAM, SRAM persistence, both disk drives and failed-attachment
+preservation. Frontend tests cover old-settings migration, full media
+settings round trips, and centered, bounded 4:3 scaling at every VGA fit.
+Original-ROM tests also verify both cartridge initializers and Disk BASIC
+directory listings from both drives.
+ROM-loading regressions also cover exact dump sizes, fragmented/interrupted
+reads, unexpected EOF and I/O errors with a correct advertised size.
 ROM-backed boot tests read your originals in place and keep generated
 state only under the ignored `tests\build` directory.

@@ -24,19 +24,28 @@ $headers = Get-ChildItem -LiteralPath $core -Filter '*.h' -Recurse -File |
 foreach ($source in $sources) {
     $object = Join-Path $build ($source.Name + '.o')
     $objects += $object
+    $sourceFlags = @()
+    $hooksChanged = $false
+    if ($source.Name -eq 'A1stCore.c') {
+        $hooks = Join-Path $root 'tests\RomIoHooks.h'
+        $sourceFlags = @('-include', $hooks)
+        $hooksChanged = !(Test-Path -LiteralPath $object) -or
+            (Get-Item -LiteralPath $hooks).LastWriteTime -gt (Get-Item -LiteralPath $object).LastWriteTime
+    }
     if ($Rebuild -or !(Test-Path -LiteralPath $object) -or
+        $hooksChanged -or
         $source.LastWriteTime -gt (Get-Item -LiteralPath $object).LastWriteTime -or
         $headers.LastWriteTime -gt (Get-Item -LiteralPath $object).LastWriteTime) {
         $compiler = 'gcc'
         $compatibility = @('-Wno-incompatible-pointer-types')
         if ($source.Extension -eq '.cpp') { $compiler = 'g++'; $compatibility = @() }
-        & $compiler @flags @compatibility @includes -c $source.FullName -o $object
+        & $compiler @flags @sourceFlags @compatibility @includes -c $source.FullName -o $object
         if ($LASTEXITCODE -ne 0) { throw "Compilation failed: $($source.Name)" }
     }
 }
 $test = Join-Path $root 'tests\CoreTests.cpp'
 $executable = Join-Path $build 'a1st-tests.exe'
-& g++ '-O2' '-g' '-Wl,--gc-sections' @includes $test @objects '-o' $executable
+& g++ '-O2' '-g' '-Wl,--gc-sections' @includes $test (Join-Path $root 'tests\MediaTests.cpp') @objects '-o' $executable
 if ($LASTEXITCODE -ne 0) { throw 'Host core link failed.' }
 Push-Location $build
 try {

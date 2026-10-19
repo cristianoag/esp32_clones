@@ -15,6 +15,11 @@ enum {
     A1ST_FRAME_HEIGHT = 240
 };
 
+typedef enum {
+    A1ST_GENERIC8, A1ST_GENERIC16, A1ST_KONAMI_SCC, A1ST_KONAMI,
+    A1ST_ASCII8, A1ST_ASCII16, A1ST_GAMEMASTER2, A1ST_FMPAC, A1ST_MAPPER_AUTO
+} A1stMapper;
+
 typedef struct {
     void (*message)(const char* message);
     void (*audio)(const int16_t* samples, unsigned count);
@@ -41,6 +46,12 @@ const uint16_t* a1stPixels(void);
 unsigned a1stLineWidth(unsigned line);
 void a1stGetStats(A1stStats* stats);
 bool a1stMountDisk(const char* path, char* error, size_t errorSize);
+// Drives and slots use zero-based indices. Empty paths eject.
+bool a1stAttachDisk(unsigned drive, const char* path, char* error, size_t errorSize);
+bool a1stInspectCartridge(const char* path, int* detected, char* error, size_t errorSize);
+// Attach ROMs after a1stCreate, while the CPU is paused.
+bool a1stAttachCartridge(unsigned slot, const char* path, unsigned mapper,
+                         char* error, size_t errorSize);
 bool a1stFlushState(char* error, size_t errorSize);
 uint8_t a1stReadMemory(uint16_t address);
 void a1stWriteMemory(uint16_t address, uint8_t value);

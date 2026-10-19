@@ -28,6 +28,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 #ifdef ESP_PLATFORM
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -247,37 +254,76 @@ void RefreshScreen(int mode)
     r800StopExecution(cpu);
 }
 
-static bool readRom(const char* path, size_t expected, UInt8* buffer,
+bool a1stReadRom(const char* path, size_t expected, UInt8* buffer,
                      size_t count, char* error, size_t capacity)
 {
-    FILE* file = fopen(path, "rb");
+    int flags = O_RDONLY;
+#ifdef _WIN32
+    flags |= O_BINARY;
+#endif
+    int file = open(path, flags);
+    struct stat info;
     long length = -1;
-    bool ok = false;
+    size_t position = 0;
+    const char* stage = NULL;
+    int savedErrno = 0;
     UInt8 chunk[4096] __attribute__((aligned(4)));
-    if (file) {
-        if (!fseek(file, 0, SEEK_END)) length = ftell(file);
-        if (length == (long)expected && !fseek(file, 0, SEEK_SET)) {
-            size_t position = 0;
+    if (file < 0) {
+        stage = "open";
+        savedErrno = errno;
+    }
+    else {
+        if (fstat(file, &info)) {
+            stage = "stat";
+            savedErrno = errno;
+        }
+        else if ((length = info.st_size) != (long)expected) stage = "size";
+        else {
+            /* Read sequentially without FAT seeks or heap-backed stdio buffers. */
             while (position < count) {
                 size_t bytes = count - position;
+                long received;
                 if (bytes > sizeof(chunk)) bytes = sizeof(chunk);
-                if (fread(chunk, 1, bytes, file) != bytes) break;
-                memcpy(buffer + position, chunk, bytes);
-                position += bytes;
+                received = read(file, chunk, bytes);
+                if (received < 0) {
+                    if (errno == EINTR) continue;
+                    stage = "read";
+                    savedErrno = errno;
+                    break;
+                }
+                if (!received) { stage = "EOF"; break; }
+                memcpy(buffer + position, chunk, (size_t)received);
+                position += (size_t)received;
 #ifdef ESP_PLATFORM
                 vTaskDelay(1);
 #endif
             }
-            ok = position == count;
         }
-        if (fclose(file)) ok = false;
+        if (close(file) && !stage) {
+            stage = "close";
+            savedErrno = errno;
+        }
     }
-    if (!ok) {
-        snprintf(error, capacity, "Cannot read %s (expected %u bytes; found %ld).",
-                 path, (unsigned)expected, length);
-        a1stLog(error);
+    if (stage) {
+        char message[512];
+        if (!strcmp(stage, "size"))
+            snprintf(message, sizeof(message),
+                     "ROM size mismatch: expected %u bytes; found %ld. %s",
+                     (unsigned)expected, length, path);
+        else if (!strcmp(stage, "EOF"))
+            snprintf(message, sizeof(message),
+                     "ROM ended after %u/%u bytes. %s",
+                     (unsigned)position, (unsigned)count, path);
+        else
+            snprintf(message, sizeof(message),
+                     "ROM %s failed at %u/%u bytes: %s (errno %d). %s",
+                     stage, (unsigned)position, (unsigned)count,
+                     strerror(savedErrno), savedErrno, path);
+        a1stLog(message);
+        snprintf(error, capacity, "%s", message);
+        return false;
     }
-    return ok;
+    return true;
 }
 
 bool a1stCreate(const char* firmware, const char* kanji, const char* directory,
@@ -306,8 +352,8 @@ bool a1stCreate(const char* firmware, const char* kanji, const char* directory,
     /* The ST maps 256 8 KiB banks, even when its dump contains 4 MiB. */
     rom = malloc(0x200000);
     font = malloc(A1ST_KANJI_BYTES);
-    if (!readRom(firmware, A1ST_FIRMWARE_BYTES, rom, 0x200000, error, capacity) ||
-        !readRom(kanji, A1ST_KANJI_BYTES, font, A1ST_KANJI_BYTES, error, capacity)) {
+    if (!a1stReadRom(firmware, A1ST_FIRMWARE_BYTES, rom, 0x200000, error, capacity) ||
+        !a1stReadRom(kanji, A1ST_KANJI_BYTES, font, A1ST_KANJI_BYTES, error, capacity)) {
         free(rom); free(font); return false;
     }
     frames = switches = interrupts = lastTime = 0;
@@ -421,6 +467,7 @@ void a1stGetStats(A1stStats* stats)
 
 bool a1stFlushState(char* error, size_t capacity)
 {
+    if (!a1stCartridgeFlush(error, capacity)) return false;
     if (!a1stSaveSram(error, capacity)) return false;
     if (rtc && !rtcFlush(rtc)) {
         snprintf(error, capacity, "Cannot persist A1ST CMOS: %s.", strerror(errno));
@@ -434,6 +481,7 @@ void a1stDestroy(void)
 {
     unsigned i;
     if (!cpu) return;
+    a1stCartridgeClose();
     a1stDiskClose();
     rtcDestroy(rtc);
     ay8910Destroy(psg);

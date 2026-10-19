@@ -15,6 +15,8 @@ At the moment the series includes six emulator builds on the same ESP32-S3 board
 | Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32_apple2_emulator/README.md) and [change log](software/esp32_apple2_emulator/docs/log.md) |
 | Macintosh Plus | Apple Macintosh Plus | [Setup guide](software/esp32_macplus_emulator/README.md) and [change log](software/esp32_macplus_emulator/docs/log.md) |
 
+> **Development status:** all firmwares are under active development and at different maturity stages. The CP400 and MSX firmwares are the most mature; the others (including the experimental MSX TurboR) are earlier-stage and may be incomplete or change significantly.
+
 All six builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
 ### Switching emulators
@@ -153,11 +155,14 @@ images/                         Generated images and project documentation asset
 
 For the first enclosure prototype, see the
 [standard case manufacturing files and engineering report](hardware/cases/standard/README.md).
-It combines a printed base with side-loading M3 PCB nut traps, a snap-fit upper
-shell, and a plain 3 mm acrylic lid seated in a recess. The report documents the
-remaining physical-fit checks for components missing from the board STEP.
+P4 combines a printed base with easy-loading PCB nut traps, a screw-fastened
+upper and a drilled 3 mm acrylic lid. Four M3 x 25 nylon screws pass down through
+the acrylic into base nuts. Its vented alternative uses a separate matching
+base with recessed bottom-entry screws and upper nuts. The acrylic cutting
+pattern is [lid.dxf](hardware/cases/standard/lid.dxf); do not reuse the old
+plain panel. See the report for dimensions and remaining physical-fit checks.
 
-The Hotbit-inspired **Compact Classic C2** fits the same PCB in a
+The Hotbit-inspired **Compact Classic C6** fits the same PCB in a
 **124 x 74 x 39.1 mm** case, reducing the earlier Classic footprint by 26.9%.
 It retains the miniature keyboard, photo-inspired colours and closed decorative
 grille, with underside M3 cover screws. Use the matching
@@ -166,9 +171,28 @@ grille, with underside M3 cover screws. Use the matching
 Classic or Wasteland halves. See the
 [assembled/exploded preview](hardware/cases/hb-8000/classic_preview.png).
 Print both STLs at 100%; the upper needs removable interior supports.
-PCB screws remain M3 x 8 with 1 mm nylon washers; cover screws are M3 x 16,
+PCB screws remain M3 x 8 with 1 mm nylon washers; cover screws are M3 x 25 nylon,
 with four M3 hex nuts for each set. Physical plug-fit and thermal tests are
 still required; the decorative grille is not a ventilation opening.
+
+The [Sony S2](hardware/cases/sony/README.md),
+[Panasonic P2](hardware/cases/panasonic/README.md) and
+[Apple II A3](hardware/cases/apple2/README.md) now share the C6 base and its
+bottom-entry shell fastening. Their matching uppers replace the old clip joints.
+
+The [Mac Plus-inspired M1](hardware/cases/mac/README.md) uses the same C6 base
+under a **124 x 74 x 146.1 mm upright tower**, with a separate dark decorative
+screen and miniature keyboard. Its blind floppy-slot detail, top grilles and
+handle-shaped recess follow the supplied visual reference; no working display,
+keyboard electronics or load-bearing handle is included. See the
+[assembly and print-layout preview](hardware/cases/mac/mac_preview.png).
+
+The [CP400-inspired CP1](hardware/cases/cp400/README.md) also reuses the C6
+base in the compact **124 x 74 x 39.1 mm** envelope. Its left keyboard, raised
+right panel and horizontal rear grilles follow the supplied photograph.
+Integral and separate-keyboard upper options are available; red/green/cyan
+accents in the [preview](hardware/cases/cp400/cp400_preview.png) are a painting
+guide, not separate key pieces.
 
 The PCB below is the current KiCad board layout for the shared ESP32 clone board. The front and back views are generated directly from the project PCB.
 

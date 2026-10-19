@@ -3,6 +3,21 @@
 This log tracks user-visible changes to the ESP32 MSX TurboR / FS-A1ST firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.01 - Unreleased
+
+### Added
+
+- Added a Media menu with two cartridge ROM slots, the same Auto/manual mapper choices as normal MSX, SCC sound, and persistent GameMaster2/FM-PAC SRAM.
+- Added a second writable floppy drive and independent attachment/ejection for drives A and B, while retaining an existing disk if its replacement failed to open.
+- Added a saved VGA fit setting from 80% to 100%, defaulting to a centered 90% safe area for both menus and the emulated picture on monitors that clipped the edges.
+- Migrated existing saved A1ST boot settings while preserving Drive A, sound and other boot preferences.
+
+### Fixed
+
+- Changed the microSD clock from the library's 40 MHz default to the same 20 MHz used by the other Clone Series firmwares to avoid card initialization and read failures.
+- Removed unnecessary ROM-file seeks and buffered reads during A1ST startup, and handled short and interrupted reads while loading into PSRAM.
+- Replaced misleading ROM-size errors on read failures with the failed operation, byte offset and OS error in the startup message and UART diagnostic.
+
 ## 1.00 - Unreleased
 
 ### Added

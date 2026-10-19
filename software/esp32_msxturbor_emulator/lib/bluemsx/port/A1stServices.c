@@ -174,6 +174,7 @@ void fdcAudioSetReadWrite(FdcAudio* audio) { (void)audio; }
 
 #define LABEL(function, text) char* function(void) { static char label[] = text; return label; }
 LABEL(langDbgDevAy8910, "PSG")
+LABEL(langDbgMemScc, "SCC")
 LABEL(langDbgDevKanji, "Kanji")
 LABEL(langDbgDevF4Device, "Reset status")
 LABEL(langDbgDevMsxMusic, "MSX-MUSIC")

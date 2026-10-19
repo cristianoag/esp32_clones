@@ -1,6 +1,6 @@
 WINDOWS_USERPROFILE := $(subst \,/,$(USERPROFILE))
 PIO ?= $(WINDOWS_USERPROFILE)/.platformio/penv/Scripts/pio.exe
-FW_VERSION := 1.00
+FW_VERSION := 1.01
 PIO_ENV := esp32-s3-devkitc-1-n16r8
 
 .PHONY: all firmware build upload test clean help

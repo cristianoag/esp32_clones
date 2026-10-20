@@ -5,7 +5,9 @@ $projects = @(
     @{ Folder = 'esp32_tk95_emulator'; Prefix = 'ESP32_TK95' },
     @{ Folder = 'esp32_apple2_emulator'; Prefix = 'ESP32_APPLE2' },
     @{ Folder = 'esp32_msxturbor_emulator'; Prefix = 'ESP32_MSXTURBOR' },
-    @{ Folder = 'esp32_macplus_emulator'; Prefix = 'ESP32_MACPLUS' }
+    @{ Folder = 'esp32_macplus_emulator'; Prefix = 'ESP32_MACPLUS' },
+    @{ Folder = 'esp32_sms_emulator'; Prefix = 'ESP32_SMS' },
+    @{ Folder = 'esp32_c64_emulator'; Prefix = 'ESP32_C64' }
 )
 $expectedLayout = @(
     'nvs,data,nvs,0x9000,0x5000,',

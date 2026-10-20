@@ -1,0 +1,10 @@
+.pio/
+dist/
+tests/*.exe
+tests/*.o
+*.sms
+*.SMS
+*.rom
+*.ROM
+*.sav
+*.SAV

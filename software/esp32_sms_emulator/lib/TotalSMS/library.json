@@ -1,0 +1,7 @@
+{
+  "name": "TotalSMS",
+  "version": "0.1.1",
+  "description": "Pinned TotalSMS core, SN76489 and scheduler with local loader fixes",
+  "license": "MIT",
+  "build": { "srcDir": "src" }
+}

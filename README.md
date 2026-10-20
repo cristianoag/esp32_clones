@@ -4,7 +4,7 @@ The Retro Hacker Clone Series brings together hardware designs and source-availa
 
  The board is designed to feel like a small retro computer rather than a bare dev board, and the firmwares are built to be practical, tweakable, and easy to build from a standard Git checkout.
 
-At the moment the series includes six emulator builds on the same ESP32-S3 board:
+At the moment the series includes eight emulator builds on the same ESP32-S3 board:
 
 | Firmware | Covered machines | Project |
 | --- | --- | --- |
@@ -14,10 +14,12 @@ At the moment the series includes six emulator builds on the same ESP32-S3 board
 | TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32_tk95_emulator/README.md) and [change log](software/esp32_tk95_emulator/docs/log.md) |
 | Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32_apple2_emulator/README.md) and [change log](software/esp32_apple2_emulator/docs/log.md) |
 | Macintosh Plus | Apple Macintosh Plus | [Setup guide](software/esp32_macplus_emulator/README.md) and [change log](software/esp32_macplus_emulator/docs/log.md) |
+| Sega Master System | Sega Master System (NTSC / PAL) | [Setup guide](software/esp32_sms_emulator/README.md) and [change log](software/esp32_sms_emulator/docs/log.md) |
+| Commodore 64 | Commodore 64 (PAL) | [Setup guide](software/esp32_c64_emulator/README.md), [licenses](software/esp32_c64_emulator/docs/licenses.md) and [change log](software/esp32_c64_emulator/docs/log.md) |
 
 > **Development status:** all firmwares are under active development and at different maturity stages. The CP400 and MSX firmwares are the most mature; the others (including the experimental MSX TurboR) are earlier-stage and may be incomplete or change significantly.
 
-All six builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
+All eight builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
 ### Switching emulators
 
@@ -39,10 +41,22 @@ for every destination so switching remains available after reboot.
 Checksums detect corruption, not authenticity; install only trusted
 firmware built for this board.
 
-After building all six packages, run
+After building all eight packages, run
 `powershell -ExecutionPolicy Bypass -File .\software\Test-FirmwareCompatibility.ps1`
-to check the shared layout and all 36 source/destination combinations
+to check the shared layout and all 64 source/destination combinations
 against mock OTA storage. Physical-board switching still needs validation.
+
+## Commodore 64
+
+The [C64 firmware](software/esp32_c64_emulator/README.md) adapts the
+CPU, CIA, VIC-II and SID from
+[retroelec/T-HMI-C64](https://github.com/retroelec/T-HMI-C64) to the shared
+VGA board. It includes a USB C64 keyboard matrix, two calibrated USB
+joysticks with port swapping, PWM sound, PRG loading, read-only D64 program
+extraction, the F12 configuration menu and interchangeable FLH firmware.
+Supply your own BASIC, KERNAL and character ROMs. The initial version
+does not emulate a 1541 drive, cartridges or tapes, and does not claim
+cycle accuracy or verified physical-board performance.
 
 ## Why this exists
 
@@ -193,6 +207,13 @@ right panel and horizontal rear grilles follow the supplied photograph.
 Integral and separate-keyboard upper options are available; red/green/cyan
 accents in the [preview](hardware/cases/cp400/cp400_preview.png) are a painting
 guide, not separate key pieces.
+
+The [Master System-inspired SMS1](hardware/cases/sms/README.md) uses the same
+C6 base and **124 x 74 x 39.1 mm** envelope, with an angular black console
+shell and one separately printed red top-panel/front-stripe insert.
+Cartridge/card slots and control shapes are decorative; no joystick or
+controller is modelled. See the
+[assembly and print-layout preview](hardware/cases/sms/sms_preview.png).
 
 The PCB below is the current KiCad board layout for the shared ESP32 clone board. The front and back views are generated directly from the project PCB.
 

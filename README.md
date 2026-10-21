@@ -21,6 +21,13 @@ At the moment the series includes eight emulator builds on the same ESP32-S3 boa
 
 All eight builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
+## User guides
+
+- [Quick Start](docs/quick-start.md): connect the monitor, keyboard and
+  joysticks, turn on/reset the computer, and switch firmware through F12.
+- [User Manual](docs/user-manual.md): SD-card preparation, controller
+  compatibility, game-loading steps for all eight firmwares, and troubleshooting.
+
 ### Switching emulators
 
 With the current updater and shared dual 4 MiB OTA layout installed, open

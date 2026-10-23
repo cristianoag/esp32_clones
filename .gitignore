@@ -1,6 +1,10 @@
 /.github/
 .venv/
 
+# Local combined SD-card preparation.
+/software/Makefile
+/software/sdcard/
+
 # Only STL models and PNG previews under hardware/cases belong in Git.
 /hardware/cases/**
 !/hardware/cases/**/

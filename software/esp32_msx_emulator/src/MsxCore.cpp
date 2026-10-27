@@ -201,31 +201,72 @@ extern "C" void PlayAllSound(int microseconds)
   if (samples) RenderAndPlayAudio(samples);
 }
 
+static bool fileFailure(const char* path, const char* problem, int osError,
+                        char* error, size_t errorSize)
+{
+  const char* name = strrchr(path, '/');
+  name = name ? name + 1 : path;
+  const size_t length = strlen(name);
+  char displayName[56];
+  if (length > 52)
+    snprintf(displayName, sizeof(displayName), "...%s", name + length - 49);
+  else
+    snprintf(displayName, sizeof(displayName), "%s", name);
+  if (osError) {
+    const char* reason = strerror(osError);
+    printf("MSX file \"%s\": %s (errno %d: %s)\n", path, problem, osError, reason);
+    if (error && errorSize)
+      snprintf(error, errorSize, "%s: %s (errno %d: %s). Path: %s",
+               displayName, problem, osError, reason, path);
+  } else {
+    printf("MSX file \"%s\": %s\n", path, problem);
+    if (error && errorSize)
+      snprintf(error, errorSize, "%s: %s. Path: %s", displayName, problem, path);
+  }
+  return false;
+}
+
 bool MsxValidateCartridge(const char* path, char* error, size_t errorSize)
 {
   if (error && errorSize) error[0] = 0;
   if (!path || !*path) return true;
   const char* problem = nullptr;
+  int osError = 0;
   struct stat info;
   if (path[0] != '/')
-    problem = "requires an absolute path";
-  else if (stat(path, &info) != 0 || !S_ISREG(info.st_mode))
-    problem = "file is missing or is not a regular file";
-  else if (info.st_size < 8192 || info.st_size > MSX_MAX_CART_BYTES ||
-           (info.st_size % 8192) != 0)
-    problem = "invalid ROM size (8 KiB multiples, maximum 2 MiB)";
+    return fileFailure(path, "requires an absolute path", 0, error, errorSize);
+  errno = 0;
+  if (stat(path, &info) != 0)
+    return fileFailure(path, "cannot stat cartridge ROM", errno, error, errorSize);
+  if (!S_ISREG(info.st_mode))
+    return fileFailure(path, S_ISDIR(info.st_mode) ? "path is a directory, not a regular file" :
+                       "path is not a regular file", 0, error, errorSize);
+  if (info.st_size < 8192 || info.st_size > static_cast<off_t>(MSX_MAX_CART_BYTES) || info.st_size % 8192) {
+    char detail[112];
+    snprintf(detail, sizeof(detail), "invalid ROM size %lld bytes; expected 8192-byte multiples, 8192..2097152 bytes",
+             static_cast<long long>(info.st_size));
+    return fileFailure(path, detail, 0, error, errorSize);
+  }
   if (!problem) {
+    errno = 0;
     FILE* file = fopen(path, "rb");
-    if (!file) problem = "cannot open cartridge ROM";
+    if (!file) { problem = "cannot open cartridge ROM"; osError = errno; }
     else {
       bool signature = false;
       const long offsets[] = {0, 0x4000, static_cast<long>(info.st_size) - 0x4000};
       for (long offset : offsets) {
         if (offset < 0 || offset + 2 > info.st_size) continue;
         unsigned char header[2];
-        if (fseek(file, offset, SEEK_SET) != 0 ||
-            fread(header, 1, sizeof(header), file) != sizeof(header)) {
-          problem = "cannot read cartridge ROM header";
+        errno = 0;
+        if (fseek(file, offset, SEEK_SET) != 0) {
+          problem = "cannot seek to cartridge ROM header";
+          osError = errno;
+          break;
+        }
+        errno = 0;
+        if (fread(header, 1, sizeof(header), file) != sizeof(header)) {
+          problem = ferror(file) || errno ? "cannot read cartridge ROM header" : "truncated cartridge ROM header";
+          osError = errno;
           break;
         }
 #ifdef ESP_PLATFORM
@@ -237,15 +278,14 @@ bool MsxValidateCartridge(const char* path, char* error, size_t errorSize)
       fclose(file);
     }
   }
-  if (problem && error && errorSize) snprintf(error, errorSize, "%s", problem);
-  return !problem;
+  return problem ? fileFailure(path, problem, osError, error, errorSize) : true;
 }
 
 static bool validateCartridge(const char* path, int slot)
 {
-  char error[128];
+  char error[MsxFileErrorCapacity];
   if (MsxValidateCartridge(path, error, sizeof(error))) return true;
-  char message[192];
+  char message[MsxFileErrorCapacity + 32];
   snprintf(message, sizeof(message), "MSX slot %d: %s.", slot, error);
   msxReportError(message);
   return false;
@@ -265,11 +305,15 @@ bool MsxInspectCartridge(const char* path, const char* profileDirectory,
     return mediaResult("inspection requires cartridge and absolute BIOS directory", error, errorSize);
   if (!MsxValidateCartridge(path, error, errorSize)) return false;
   struct stat fileInfo;
-  if (stat(path, &fileInfo) || fileInfo.st_size < 8192 ||
-      fileInfo.st_size > MSX_MAX_CART_BYTES || fileInfo.st_size % 8192)
-    return mediaResult("cartridge size changed during inspection", error, errorSize);
+  errno = 0;
+  if (stat(path, &fileInfo))
+    return fileFailure(path, "cannot stat cartridge during inspection", errno, error, errorSize);
+  if (fileInfo.st_size < 8192 ||
+      fileInfo.st_size > static_cast<off_t>(MSX_MAX_CART_BYTES) || fileInfo.st_size % 8192)
+    return fileFailure(path, "cartridge size changed during inspection", 0, error, errorSize);
+  errno = 0;
   FILE* file = fopen(path, "rb");
-  if (!file) return mediaResult("cannot open cartridge for inspection", error, errorSize);
+  if (!file) return fileFailure(path, "cannot open cartridge for inspection", errno, error, errorSize);
   const size_t size = static_cast<size_t>(fileInfo.st_size);
   auto* data = static_cast<unsigned char*>(heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!data) {
@@ -277,17 +321,31 @@ bool MsxInspectCartridge(const char* path, const char* profileDirectory,
     return mediaResult("not enough PSRAM to inspect cartridge; previous selection retained", error, errorSize);
   }
   const char* problem = nullptr;
+  const char* failedPath = path;
+  int osError = 0;
   for (size_t offset = 0; offset < size;) {
     const size_t count = size - offset < 16384 ? size - offset : 16384;
-    if (fread(data + offset, 1, count, file) != count) { problem = "cannot fully read cartridge"; break; }
+    errno = 0;
+    if (fread(data + offset, 1, count, file) != count) {
+      problem = "cannot fully read cartridge";
+      osError = errno;
+      break;
+    }
     offset += count;
 #ifdef ESP_PLATFORM
     vTaskDelay(1);
 #endif
   }
-  if (!problem && (fgetc(file) != EOF || ferror(file))) problem = "cartridge changed during inspection";
+  if (!problem) {
+    errno = 0;
+    if (fgetc(file) != EOF || ferror(file)) {
+      problem = "cartridge changed during inspection";
+      osError = errno;
+    }
+  }
   fclose(file);
   FILE* databases[2] = {};
+  char databasePath[512];
   MsxCartridgeInfo detected = {-1, "ROM layout"};
   if (!problem) {
     const bool ab0 = data[0] == 'A' && data[1] == 'B';
@@ -297,11 +355,15 @@ bool MsxInspectCartridge(const char* path, const char* profileDirectory,
     else if (size > 32768 && !(!ab0 && ab4000)) {
       const char* names[] = {"CARTS.CRC", "CARTS.SHA"};
       for (unsigned i = 0; i < 2; ++i) {
-        char databasePath[512];
         snprintf(databasePath, sizeof(databasePath), "%s/%s", profileDirectory, names[i]);
         errno = 0;
         databases[i] = fopen(databasePath, "rb");
-        if (!databases[i] && errno != ENOENT) { problem = "cannot read mapper override database"; break; }
+        if (!databases[i] && errno != ENOENT) {
+          problem = "cannot read mapper override database";
+          failedPath = databasePath;
+          osError = errno;
+          break;
+        }
       }
       if (!problem) {
         detected.detectedMapper = GuessROMWithFiles(data, size, databases[0], databases[1], &detected.source);
@@ -312,7 +374,8 @@ bool MsxInspectCartridge(const char* path, const char* profileDirectory,
   for (FILE* database : databases) if (database) fclose(database);
   heap_caps_free(data);
   if (!problem) info = detected;
-  return mediaResult(problem, error, errorSize);
+  return problem ? fileFailure(failedPath, problem, osError, error, errorSize) :
+                   mediaResult(nullptr, error, errorSize);
 }
 
 static bool validateMedia(const char* path, bool tape, char* error, size_t size)
@@ -320,22 +383,37 @@ static bool validateMedia(const char* path, bool tape, char* error, size_t size)
   if (!path || !*path) return mediaResult(nullptr, error, size);
   struct stat info;
   if (path[0] != '/')
-    return mediaResult("requires an absolute path", error, size);
-  if (stat(path, &info) || !S_ISREG(info.st_mode))
-    return mediaResult("file is missing or is not a regular file", error, size);
-  if (!tape && info.st_size != 368640 && info.st_size != 737280)
-    return mediaResult("DSK must be raw 360 or 720 KiB", error, size);
+    return fileFailure(path, "requires an absolute path", 0, error, size);
+  errno = 0;
+  if (stat(path, &info))
+    return fileFailure(path, tape ? "cannot stat CAS tape" : "cannot stat DSK image", errno, error, size);
+  if (!S_ISREG(info.st_mode))
+    return fileFailure(path, S_ISDIR(info.st_mode) ? "path is a directory, not a regular file" :
+                       "path is not a regular file", 0, error, size);
+  if (!tape && info.st_size != 368640 && info.st_size != 737280) {
+    char detail[96];
+    snprintf(detail, sizeof(detail), "invalid DSK size %lld bytes; expected 368640 or 737280 bytes",
+             static_cast<long long>(info.st_size));
+    return fileFailure(path, detail, 0, error, size);
+  }
+  errno = 0;
   FILE* file = fopen(path, tape ? "rb" : "r+b");
-  if (!file) return mediaResult(tape ? "cannot open tape read-only" :
-                               "disk is not writable; check file/SD write protection", error, size);
+  if (!file) return fileFailure(path, tape ? "cannot open tape read-only" :
+                               "disk is not writable; check file/SD write protection", errno, error, size);
   const unsigned char marker[] = {0x1F,0xA6,0xDE,0xBA,0xCC,0x13,0x7D,0x74};
   unsigned char header[8];
+  errno = 0;
   const size_t count = fread(header, 1, sizeof(header), file);
+  const int readError = errno;
   fclose(file);
-  if (count != sizeof(header))
-    return mediaResult("cannot read media header", error, size);
+  if (count != sizeof(header)) {
+    char detail[96];
+    snprintf(detail, sizeof(detail), "cannot read media header; got %u of %u bytes",
+             static_cast<unsigned>(count), static_cast<unsigned>(sizeof(header)));
+    return fileFailure(path, detail, readError, error, size);
+  }
   if (tape && memcmp(header, marker, sizeof(marker)))
-    return mediaResult("invalid CAS marker (WAV is not supported)", error, size);
+    return fileFailure(path, "invalid CAS marker (WAV is not supported)", 0, error, size);
   return mediaResult(nullptr, error, size);
 }
 
@@ -407,12 +485,18 @@ bool MsxCoreRun(const char* romDirectory, int model, int ramPages,
     return false;
   }
   if (!validateCartridge(slot1, 1) || !validateCartridge(slot2, 2)) return false;
-  char mediaError[160];
-  if (!MsxValidateDisk(diskA, mediaError, sizeof(mediaError)) ||
-      !MsxValidateDisk(diskB, mediaError, sizeof(mediaError)) ||
-      !MsxValidateTape(tape, mediaError, sizeof(mediaError))) {
-    msxReportError(mediaError);
-    return false;
+  char mediaError[MsxFileErrorCapacity];
+  const char* mediaPaths[] = {diskA, diskB, tape};
+  const char* mediaNames[] = {"Drive A", "Drive B", "Tape"};
+  for (unsigned item = 0; item < 3; ++item) {
+    const bool valid = item == 2 ? MsxValidateTape(mediaPaths[item], mediaError, sizeof(mediaError)) :
+                                  MsxValidateDisk(mediaPaths[item], mediaError, sizeof(mediaError));
+    if (!valid) {
+      char message[MsxFileErrorCapacity + 32];
+      snprintf(message, sizeof(message), "%s: %s", mediaNames[item], mediaError);
+      msxReportError(message);
+      return false;
+    }
   }
   char fmRomPath[512];
   if (!MsxResolveAudioProfile(audioProfile, romDirectory, fmRomPath, sizeof(fmRomPath),

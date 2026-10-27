@@ -7,8 +7,11 @@
 // ramPages is 4, 8, 16 or 32 (16 KiB pages). BIOS paths are absolute POSIX paths.
 // fMSX uses byte-sized mapper registers addressing 256 banks of 8 KiB.
 constexpr unsigned MSX_MAX_CART_BYTES = 2U * 1024U * 1024U;
+constexpr size_t MsxFileErrorCapacity = 512;
 // Read-only size/header preflight; safe while the core runs. Null/empty is valid.
 // An optional error buffer is cleared on success and NUL-terminated on failure.
+// File failures include the name, reason, full path and OS error when available.
+// UART always receives the full path, even if the caller's buffer is small.
 bool MsxValidateCartridge(const char* absolutePath, char* error, size_t errorSize);
 // Full read-only inspection using the chosen profile, safe while another BIOS runs.
 bool MsxInspectCartridge(const char* absolutePath, const char* profileDirectory,

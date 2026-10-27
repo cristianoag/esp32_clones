@@ -19,7 +19,8 @@ static char selectedCartridges[2][MsxSdPathCapacity], selectedDisks[2][MsxSdPath
 static uint8_t selectedMappers[2];
 static MsxCartridgeInfo cartridgeInfo[2];
 static bool cartridgeInfoValid[2];
-static char selectedTape[MsxSdPathCapacity], statusMessage[160];
+constexpr size_t MsxFileErrorCapacity = 512;
+static char selectedTape[MsxSdPathCapacity], statusMessage[MsxFileErrorCapacity + 32];
 struct Profile { const char *id; const char *error; };
 static Profile MsxProfiles[] = {{"omega", "Invalid BIOS"}, {"fs-a1fx", "Invalid BIOS"}};
 static bool validProfile, validCartridges, validMedia, validCandidate, attachOk, pauseOk, writeOk;

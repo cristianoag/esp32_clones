@@ -37,7 +37,7 @@ static MsxCartridgeInfo cartridgeInfo[2] = {};
 static bool cartridgeInfoValid[2] = {};
 static char selectedDisks[2][MsxSdPathCapacity] = {};
 static char selectedTape[MsxSdPathCapacity] = {};
-static char statusMessage[160] = "";
+static char statusMessage[MsxFileErrorCapacity + 32] = "";
 static Preferences preferences;
 static bool preferencesReady = false;
 
@@ -87,17 +87,24 @@ static void messageLines(const char *message)
     }
 }
 
+static void reportMediaFileError(const char *device, const char *detail)
+{
+    snprintf(statusMessage, sizeof(statusMessage), "%s: %s", device, detail);
+    Serial.printf("MSX %s\n", statusMessage);
+}
+
 static bool validateCartridges()
 {
     for (unsigned slot = 0; slot < 2; ++slot)
     {
         if (!selectedCartridges[slot][0]) continue;
-        char path[MsxSdPathCapacity + 8], error[112];
+        char path[MsxSdPathCapacity + 8], error[MsxFileErrorCapacity];
         snprintf(path, sizeof(path), "/sdcard%s", selectedCartridges[slot]);
         if (!MsxValidateCartridge(path, error, sizeof(error)))
         {
-            snprintf(statusMessage, sizeof(statusMessage), "Slot %u: %s", slot + 1, error);
-            Serial.println(statusMessage);
+            char device[16];
+            snprintf(device, sizeof(device), "Slot %u", slot + 1);
+            reportMediaFileError(device, error);
             return false;
         }
     }
@@ -106,23 +113,23 @@ static bool validateCartridges()
 
 static bool validateMedia()
 {
-    char path[MsxSdPathCapacity + 8];
+    char path[MsxSdPathCapacity + 8], error[MsxFileErrorCapacity];
     for (unsigned drive = 0; drive < 2; ++drive)
     {
         if (!selectedDisks[drive][0]) continue;
         snprintf(path, sizeof(path), "/sdcard%s", selectedDisks[drive]);
-        if (!MsxValidateDisk(path, statusMessage, sizeof(statusMessage)))
+        if (!MsxValidateDisk(path, error, sizeof(error)))
         {
-            Serial.printf("MSX drive %c: %s\n", 'A' + drive, statusMessage);
+            reportMediaFileError(drive == 0 ? "Drive A" : "Drive B", error);
             return false;
         }
     }
     if (selectedTape[0])
     {
         snprintf(path, sizeof(path), "/sdcard%s", selectedTape);
-        if (!MsxValidateTape(path, statusMessage, sizeof(statusMessage)))
+        if (!MsxValidateTape(path, error, sizeof(error)))
         {
-            Serial.printf("MSX tape: %s\n", statusMessage);
+            reportMediaFileError("Tape", error);
             return false;
         }
     }
@@ -423,18 +430,20 @@ static void selectCartridge(unsigned slot, const char *path)
              slot + 1, *path ? "selected" : "ejected");
 }
 
-static bool inspectCartridgeForMenu(const char *selection, MsxCartridgeInfo &info)
+static bool inspectCartridgeForMenu(const char *selection, MsxCartridgeInfo &info, unsigned slot)
 {
-    char path[MsxSdPathCapacity + 8], directory[96], label[51];
+    char path[MsxSdPathCapacity + 8], directory[96], label[51], error[MsxFileErrorCapacity];
     snprintf(path, sizeof(path), "/sdcard%s", selection);
     snprintf(directory, sizeof(directory), "/sdcard/msx/bios/%s", MsxProfiles[selectedProfile].id);
     frame("Inspecting cartridge mapper");
     snprintf(label, sizeof(label), "%.50s", baseName(selection));
     text(8, 53, label);
     video.show();
-    if (!MsxInspectCartridge(path, directory, info, statusMessage, sizeof(statusMessage)))
+    if (!MsxInspectCartridge(path, directory, info, error, sizeof(error)))
     {
-        Serial.println(statusMessage);
+        char device[16];
+        snprintf(device, sizeof(device), "Slot %u", slot + 1);
+        reportMediaFileError(device, error);
         return false;
     }
     return true;
@@ -443,17 +452,18 @@ static bool inspectCartridgeForMenu(const char *selection, MsxCartridgeInfo &inf
 static bool selectMedia(unsigned item, const char *candidate)
 {
     char path[MsxSdPathCapacity + 8] = {};
+    char error[MsxFileErrorCapacity];
     if (*candidate) snprintf(path, sizeof(path), "/sdcard%s", candidate);
     bool accepted;
     if (running)
-        accepted = item < 2 ? MsxAttachDisk(item, path, statusMessage, sizeof(statusMessage)) :
-                             MsxAttachTape(path, statusMessage, sizeof(statusMessage));
+        accepted = item < 2 ? MsxAttachDisk(item, path, error, sizeof(error)) :
+                             MsxAttachTape(path, error, sizeof(error));
     else
-        accepted = item < 2 ? MsxValidateDisk(path, statusMessage, sizeof(statusMessage)) :
-                             MsxValidateTape(path, statusMessage, sizeof(statusMessage));
+        accepted = item < 2 ? MsxValidateDisk(path, error, sizeof(error)) :
+                             MsxValidateTape(path, error, sizeof(error));
     if (!accepted)
     {
-        Serial.printf("MSX media: %s\n", statusMessage);
+        reportMediaFileError(item == 0 ? "Drive A" : item == 1 ? "Drive B" : "Tape", error);
         return false;
     }
     char *selection = item < 2 ? selectedDisks[item] : selectedTape;
@@ -536,7 +546,7 @@ static void chooseCartridge(unsigned slot)
     snprintf(title, sizeof(title), "Cartridge slot %u - choose .ROM", slot + 1);
     if (!chooseSdFile(title, ".rom", true, candidate)) return;
     MsxCartridgeInfo detected = {};
-    if (*candidate && !inspectCartridgeForMenu(candidate, detected)) return;
+    if (*candidate && !inspectCartridgeForMenu(candidate, detected, slot)) return;
     selectCartridge(slot, candidate);
     cartridgeInfo[slot] = detected;
     cartridgeInfoValid[slot] = *candidate;
@@ -562,7 +572,7 @@ static bool mediaMenu()
     bool redraw = true;
     for (unsigned slot = 0; slot < 2; ++slot)
         cartridgeInfoValid[slot] = selectedCartridges[slot][0] &&
-                                  inspectCartridgeForMenu(selectedCartridges[slot], cartridgeInfo[slot]);
+                                  inspectCartridgeForMenu(selectedCartridges[slot], cartridgeInfo[slot], slot);
     MsxKeyboardClearEvents();
     for (;;)
     {

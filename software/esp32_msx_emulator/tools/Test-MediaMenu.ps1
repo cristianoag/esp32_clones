@@ -9,6 +9,7 @@ try {
     # Exercise the actual menu functions with scripted keys and hardware stubs.
     $source = [System.IO.File]::ReadAllText((Join-Path $project 'src\main.cpp'))
     $sections = @(
+        @('static void reportMediaFileError(', 'static bool validateCartridges()'),
         @('static bool saveSettings()', 'static void readSettings()'),
         @('static void selectCartridge(', 'static void drawProgressGauge(')
     )

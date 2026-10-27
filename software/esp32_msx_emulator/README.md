@@ -244,6 +244,15 @@ transaction timed out, not that the DSK format is unsupported. Persistent
 timeouts require checking the card, seating and board power; an image with
 the right size cannot by itself rule out a physical SD problem.
 
+Boot and Media-menu file errors identify the cartridge slot, disk drive or
+tape, the filename, and its full `/sdcard/...` path. Failed filesystem calls
+include errno and its description; invalid ROM/DSK sizes show the actual and
+expected byte counts. The three-line screen footer starts with the filename
+and reason; UART at 115200 baud prints the complete path and diagnostic even
+when the footer cannot display the entire message. These are media errors,
+not necessarily missing BIOS files. Check or eject stale selections under
+**F12 > Media** before trying another BIOS.
+
 Disk formatting and creating new blank images are not implemented; attach
 an existing, correctly formatted 360/720 KiB image. CAS tapes remain
 **read-only**, and cassette recording is not supported. Attaching an

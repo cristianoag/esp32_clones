@@ -11,6 +11,9 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Fixed
 
+- Identified failed cartridge, disk and tape files by name and full SD path instead of reporting only that a file was missing or was not a regular file.
+- Included the filesystem error and errno for failed file access, distinguished directories from missing files, and reported actual and expected sizes for invalid ROM and disk images.
+- Kept the cartridge slot, disk drive or tape label in boot and Media-menu errors, and printed complete file diagnostics on UART even when the screen or caller's error buffer was too small.
 - Restored low-speed USB joystick compatibility by starting raw calibrated reports without requiring a short, recognized HID report descriptor.
 - Requested HID idle mode on the selected interface as CP400 did, while allowing controllers that rejected this optional request to continue sending input.
 - Preserved both MSX joystick ports, saved controller calibration and neutral input for uncalibrated or disconnected controllers.

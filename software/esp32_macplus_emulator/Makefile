@@ -6,7 +6,7 @@ else
 PIO ?= pio
 endif
 
-FW_VERSION := 1.00
+FW_VERSION := 1.01
 PIO_ENV := esp32-s3-devkitc-1-n16r8
 OUTPUT_DIR ?= dist
 UPDATE_FILE ?= $(OUTPUT_DIR)/ESP32_MACPLUS-$(FW_VERSION).FLH
@@ -25,6 +25,7 @@ verify: package
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Package-Firmware.ps1" -Source "$(RAW_FIRMWARE)" -Output "$(UPDATE_FILE)" -VerifyOnly
 test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Core.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-JoystickTiming.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-FirmwareUpdate.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-ImportSdCard.ps1
 clean:

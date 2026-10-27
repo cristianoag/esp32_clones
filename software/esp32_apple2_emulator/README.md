@@ -63,7 +63,7 @@ PlatformIO is pinned to `espressif32@6.11.0`. `make` finds PlatformIO's
 usual Windows virtual environment. Native tests require G++ and
 PowerShell on PATH. All libraries and the board definition are local.
 
-`make firmware` packages and verifies `dist\ESP32_APPLE2-1.03.FLH` using
+`make firmware` packages and verifies `dist\ESP32_APPLE2-1.05.FLH` using
 the shared decimal checksum + `-~` + ESP32-S3 application format.
 Install over UART first to install the dual 4 MiB OTA partition layout.
 Later updates use **F12 > Firmware update** and any compatible `.FLH`

@@ -54,7 +54,7 @@ pio run -t upload
 `make test` requires native G++ on PATH and PowerShell. PlatformIO is pinned
 to `espressif32@6.11.0`, as in the MSX firmware.
 
-`make firmware` builds and verifies `dist\ESP32_TK95-1.00.FLH`: the shared
+`make firmware` builds and verifies `dist\ESP32_TK95-1.02.FLH`: the shared
 decimal checksum + `-~` + raw ESP32-S3 application format. First installation
 must use UART so the bootloader and dual 4 MiB OTA partition layout are
 installed. Subsequent updates use **F12 > Firmware update** and any

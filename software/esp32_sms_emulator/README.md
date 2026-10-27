@@ -44,7 +44,7 @@ make test
 ```
 
 `make firmware` builds, packages and verifies
-`dist\ESP32_SMS-1.00.FLH`. `make upload` flashes through UART.
+`dist\ESP32_SMS-1.02.FLH`. `make upload` flashes through UART.
 Host regressions require PowerShell plus native GCC and G++ on PATH
 (for example, MSYS2 UCRT64). The tests generate their own small Z80 cartridges;
 no commercial game or BIOS files are needed.

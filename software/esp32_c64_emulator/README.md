@@ -183,7 +183,7 @@ Raster effects and software requiring exact bus timing are not guaranteed.
 
 ## Interchangeable firmware
 
-`make firmware` builds and verifies `dist\ESP32_C64-1.00.FLH`:
+`make firmware` builds and verifies `dist\ESP32_C64-1.02.FLH`:
 the shared decimal checksum + `-~` + ESP32-S3 application format.
 Copy it and other trusted emulator packages to the FAT32 card root.
 In any current firmware choose **F12 > Firmware update**, select the

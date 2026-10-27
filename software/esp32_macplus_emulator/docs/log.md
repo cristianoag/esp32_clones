@@ -3,6 +3,14 @@
 This log tracks user-visible changes to the ESP32 Macintosh Plus emulator firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.01 - Unreleased
+
+### Fixed
+
+- Applied the MSX-tested USB receive fix to the mouse transport so brief SE0/SE1 transitions no longer ended descriptor packets early and prevented detection.
+- Preserved receive-edge timestamps and ACK timing while retaining CRC validation and boot-mouse protocol selection on joystick connector 2 only.
+- Added receive-edge traces for the first two failed control transactions and timing/packet regressions without enabling joystick connector 1 or changing mouse controls.
+
 ## 1.00 - Unreleased
 
 ### Added

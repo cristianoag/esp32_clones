@@ -11,6 +11,9 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Fixed
 
+- Confirmed USB packet endings before stopping reception so brief SE0 transitions no longer truncated joystick descriptors and left the USB joysticks screen showing disconnected.
+- Filtered short SE0/SE1 transition states while preserving edge timestamps for decoding and ACK timing, without accepting packets that failed CRC checks.
+- Included bounded DATA-stage receive-edge traces for the first two control failures on UART so descriptor failures could be diagnosed beyond the generic CRC/decode message.
 - Identified failed cartridge, disk and tape files by name and full SD path instead of reporting only that a file was missing or was not a regular file.
 - Included the filesystem error and errno for failed file access, distinguished directories from missing files, and reported actual and expected sizes for invalid ROM and disk images.
 - Kept the cartridge slot, disk drive or tape label in boot and Media-menu errors, and printed complete file diagnostics on UART even when the screen or caller's error buffer was too small.

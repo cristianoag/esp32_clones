@@ -33,7 +33,7 @@ notices and licenses. See [dependency provenance](lib/README.md).
 ## Build
 
 From this firmware directory, run `pio run` to build or `make firmware` to
-build, package and verify `dist\ESP32_MSX-1.01.FLH`. The same commands work
+build, package and verify `dist\ESP32_MSX-1.02.FLH`. The same commands work
 when this folder is outside the clone-series repository. `make test` runs
 the host regression tests using PowerShell and native G++.
 
@@ -41,6 +41,22 @@ If updating an older checkout that used cross-project symlinks, PlatformIO
 normally removes obsolete dependencies during the next build. If local
 cache metadata still points to the old project, delete this firmware's
 generated `.pio` directory and rebuild; no CP400 files need to be changed.
+
+## USB joystick diagnostics
+
+The two joystick connectors support directly connected low-speed USB pads,
+not full-speed devices or hubs. Open **F12 > USB joysticks** to view input
+and calibrate each pad. The screen reports disconnected until descriptor
+enumeration and configuration succeed; detecting the USB line state alone
+does not establish that the joystick is ready.
+
+`control cmd=9` is a SETUP transaction and `control cmd=10` reads control
+DATA, including the device descriptor. Repeated CRC/decode errors here
+occur before calibration or game input. The receiver filters brief SE0/SE1
+transition states and confirms a sustained SE0 before ending a packet;
+CRC verification remains mandatory. The first two failed control
+transactions also print `MSX joystick USB RX edges (shown/total)` with
+bounded receive timestamps for further diagnosis.
 
 ## Firmware updates and switching emulators
 

@@ -56,7 +56,7 @@ macplus/
     macplus.rom
   disks/
     hd.img
-ESP32_MACPLUS-1.00.FLH
+ESP32_MACPLUS-1.01.FLH
 ```
 
 Use your own **unmodified, raw 128 KiB Macintosh Plus ROM**. Its word-sum
@@ -133,7 +133,7 @@ make test
 make upload
 ```
 
-`make firmware` builds and verifies `dist\ESP32_MACPLUS-1.00.FLH`.
+`make firmware` builds and verifies `dist\ESP32_MACPLUS-1.01.FLH`.
 The platform is pinned to `espressif32@6.11.0`. Board definitions and libraries
 are local, so the directory can be compiled independently.
 `make test` also requires native `gcc` and `g++` on PATH.

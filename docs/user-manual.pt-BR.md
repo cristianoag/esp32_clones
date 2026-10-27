@@ -250,9 +250,10 @@ Raiz do cartão\
   ESP32_CP400-<version>.FLH
   ESP32_MSX-<version>.FLH
   ...outros pacotes de firmware de origem confiável...
-  YOURGAME.DSK                  discos de CP400 ficam na raiz
   cp400\
     bios\
+    disks\
+      YOURGAME.DSK
   msx\
     bios\
     audio\
@@ -283,8 +284,8 @@ Raiz do cartão\
 Copie a pasta de sistema preparada no projeto de firmware para a **raiz
 do cartão**, não para dentro de uma pasta `sdcard` adicional. Por exemplo,
 o cartão deve conter `cp400\bios`, não `sdcard\cp400\bios`.
-Com exceção do navegador de mídia do CP400, que só acessa a raiz, os
-navegadores disponíveis geralmente permitem percorrer pastas. Mantenha
+Os navegadores disponíveis geralmente permitem percorrer pastas, incluindo
+o seletor de imagens de disco do CP400. Mantenha
 nomes de arquivos e caminhos curtos e simples.
 
 Use ROMs de BIOS e programas obtidos legalmente. O projeto não fornece
@@ -324,7 +325,7 @@ Pressione Enter após cada comando BASIC.
 ### CP400 / CoCo 2
 
 **Mídia:** imagens `.DSK` padrão de 35 trilhas, 18 setores e 256 bytes por
-setor (161.280 bytes de dados). Coloque-as **na raiz do cartão**. Use nomes
+setor (161.280 bytes de dados). Coloque-as **em qualquer pasta do cartão**. Use nomes
 com extensão `.DSK` no seletor do CP400; arquivos DSK de outras máquinas
 não são intercambiáveis.
 
@@ -335,6 +336,9 @@ não são intercambiáveis.
 3. Abra **F12 > Disk drives**, selecione **Drive 0**, pressione Enter e
    escolha o DSK do jogo. As unidades **0-3** estão disponíveis para
    programas com vários discos.
+   Enter abre uma pasta ou seleciona uma imagem; `..` ou Esc volta à pasta
+   anterior, e Esc na raiz cancela. PgUp/PgDn avança ou recua uma página.
+   O conteúdo da imagem selecionada aparece abaixo da lista.
 4. Pressione Esc para voltar ao menu principal e depois Esc ou **Exit menu**
    para retornar ao BASIC. Associar um disco não o executa automaticamente.
 5. Liste o diretório:
@@ -361,7 +365,8 @@ Alguns programas precisam de um carregador, ROM de disco, número de unidade
 ou endereço de entrada específico. Use as instruções originais em vez de
 experimentar todos os comandos. Para trocar discos, associe outra imagem
 à unidade virtual solicitada pelo F12; Delete ejeta a imagem. As associações
-de discos são salvas no SD.
+de discos são salvas no SD com o caminho completo (até 255 caracteres,
+incluindo a `/` inicial).
 
 **Salvamento:** as gravações em disco podem modificar o DSK original no
 microSD. Mantenha um backup e aguarde o fim das gravações antes de reiniciar
@@ -765,7 +770,7 @@ controles de programação/inicialização.
 | Joystick não detectado | Confirme a compatibilidade HID low-speed, a conexão direta e o formato de relatório aceito. A calibração não corrige hardware que funciona apenas em full-speed. |
 | Joystick detectado, mas ignorado pelo jogo | Calibre neste firmware, ative a porta quando aplicável e selecione a porta/interface do jogo. Verifique a porta 2 do C64 e Kempston/Sinclair no TK. Atualmente, o TurboR não tem entrada de joystick USB. |
 | Mouse do Macintosh não funciona | Use um mouse HID low-speed com protocolo boot no conector **do meio**, não um joystick nesse conector. |
-| SD/mídia não encontrado | FAT32; pastas na raiz e nomes de arquivos corretos; imagem realmente compatível e extraída. Os arquivos DSK do CP400 e os arquivos FLH devem ficar na raiz. |
+| SD/mídia não encontrado | FAT32; pastas na raiz e nomes de arquivos corretos; imagem realmente compatível e extraída. Navegue até os arquivos DSK do CP400 em **F12 > Disk drives**. |
 | Erro de BIOS/ROM ausente | Verifique os arquivos brutos, tamanhos e caminhos exigidos pelo perfil selecionado. Um arquivo com o tamanho correto ainda pode ser a ROM errada. |
 | Arquivo selecionado, mas nada inicia | Verifique se o núcleo precisa de inicialização a frio, comando BASIC, **Play tape** para TAP ou `RUN`/`SYS` no C64. |
 | Apple aguarda sem disco | Insira um NIB inicializável na unidade 1 e faça uma inicialização a frio, ou use Warm reset para chegar ao BASIC. O carregamento pode levar o tempo de disco emulado. |

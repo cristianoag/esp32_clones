@@ -59,41 +59,56 @@ class MakefileTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for emulator in EMULATORS:
             project = self.root / f"esp32_{emulator}_emulator"
-            copied = list(project.glob("*.FLH"))
-            self.assertEqual(len(copied), 1)
+            self.assertEqual(list(project.glob("*.FLH")), [])
             source = (
                 latest
                 if emulator == "cp400"
                 else project / "dist" / f"ESP32_{emulator.upper()}-1.00.FLH"
             )
-            self.assertEqual(copied[0].name, source.name)
-            self.assertEqual(copied[0].read_bytes(), source.read_bytes())
             self.assertEqual(
                 self.root.joinpath("sdcard", source.name).read_bytes(),
                 source.read_bytes(),
             )
         self.assertEqual(len(list(self.root.joinpath("sdcard").glob("*.FLH"))), 8)
+        self.assertEqual(newer_timestamp.read_bytes(), b"older version")
 
-    def test_replaces_same_filename_and_preserves_other_project_files(self):
+    def test_cleans_only_sdcard_root_flh_and_preserves_project_files_and_archives(self):
         source = self.package("cp400", "1.14", b"rebuilt firmware")
+        archive = self.package("cp400", "1.13", b"archived firmware")
         sdcard = self.root / "sdcard"
         sdcard.mkdir()
-        destinations = (source.parent.parent / source.name, sdcard / source.name)
-        for destination in destinations:
+        project_destination = source.parent.parent / source.name
+        for destination in (project_destination, sdcard / source.name):
             destination.write_bytes(b"stale firmware")
             destination.with_name("ESP32_CP400-1.13.FLH").write_bytes(b"keep older package")
+        sdcard.joinpath("custom.fLh").write_bytes(b"obsolete custom package")
         sdcard.joinpath("keep.txt").write_text("destination only")
+        nested = sdcard / "updates"
+        nested.mkdir()
+        nested.joinpath("keep.FLH").write_bytes(b"nested package")
+        sdcard.joinpath("folder.FLH").mkdir()
 
         for _ in range(2):
             result = self.make("firmware")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            for destination in destinations:
-                self.assertEqual(destination.read_bytes(), source.read_bytes())
-                self.assertEqual(
-                    destination.with_name("ESP32_CP400-1.13.FLH").read_bytes(),
-                    b"keep older package",
-                )
+            self.assertEqual(sdcard.joinpath(source.name).read_bytes(), source.read_bytes())
+            self.assertEqual(
+                {
+                    path.name
+                    for path in sdcard.iterdir()
+                    if path.is_file() and path.suffix.lower() == ".flh"
+                },
+                {source.name},
+            )
+            self.assertEqual(project_destination.read_bytes(), b"stale firmware")
+            self.assertEqual(
+                project_destination.with_name("ESP32_CP400-1.13.FLH").read_bytes(),
+                b"keep older package",
+            )
+            self.assertEqual(archive.read_bytes(), b"archived firmware")
             self.assertEqual(sdcard.joinpath("keep.txt").read_text(), "destination only")
+            self.assertEqual(nested.joinpath("keep.FLH").read_bytes(), b"nested package")
+            self.assertTrue(sdcard.joinpath("folder.FLH").is_dir())
 
     def test_missing_packages_fail_before_any_firmware_is_copied(self):
         self.seed_packages()
@@ -113,6 +128,22 @@ class MakefileTests(unittest.TestCase):
                 list(self.root.joinpath(f"esp32_{emulator}_emulator").glob("*.FLH")),
                 [],
             )
+
+    def test_missing_packages_fail_before_existing_sdcard_firmware_is_deleted(self):
+        source = self.package("cp400")
+        self.root.joinpath("esp32_sms_emulator").mkdir()
+        sdcard = self.root / "sdcard"
+        sdcard.mkdir()
+        existing = sdcard / "ESP32_CP400-0.99.FLH"
+        existing.write_bytes(b"existing package")
+
+        result = self.make("firmware")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing firmware packages", result.stderr)
+        self.assertEqual(list(sdcard.iterdir()), [existing])
+        self.assertEqual(existing.read_bytes(), b"existing package")
+        self.assertEqual(source.read_bytes(), b"firmware")
 
     def test_no_projects_is_an_error(self):
         result = self.make("firmware")
@@ -137,11 +168,11 @@ class MakefileTests(unittest.TestCase):
         self.assertEqual(destination.joinpath("keep.txt").read_text(), "destination only")
         for emulator in EMULATORS:
             project = self.root / f"esp32_{emulator}_emulator"
-            copied = list(project.glob("*.FLH"))
-            self.assertEqual(len(copied), 1)
+            self.assertEqual(list(project.glob("*.FLH")), [])
+            source = project / "dist" / f"ESP32_{emulator.upper()}-1.00.FLH"
             self.assertEqual(
-                self.root.joinpath("sdcard", copied[0].name).read_bytes(),
-                copied[0].read_bytes(),
+                self.root.joinpath("sdcard", source.name).read_bytes(),
+                source.read_bytes(),
             )
             sdcard_name = "tk" if emulator == "tk95" else emulator
             self.assertTrue(self.root.joinpath("sdcard", sdcard_name).is_dir())
@@ -152,6 +183,7 @@ class MakefileTests(unittest.TestCase):
         local = source.parent.parent / "sdcard"
         local.mkdir()
         local.joinpath(source.name).write_bytes(b"stale local copy")
+        local.joinpath("ESP32_CP400-1.13.FLH").write_bytes(b"older local copy")
 
         result = self.make("-j4")
 
@@ -160,6 +192,11 @@ class MakefileTests(unittest.TestCase):
             self.root.joinpath("sdcard", source.name).read_bytes(),
             source.read_bytes(),
         )
+        self.assertEqual(
+            list(self.root.joinpath("sdcard").glob("*.FLH")),
+            [self.root / "sdcard" / source.name],
+        )
+        self.assertEqual(local.joinpath("ESP32_CP400-1.13.FLH").read_bytes(), b"older local copy")
 
     def test_sdcard_target_does_not_require_firmware(self):
         self.root.joinpath("esp32_cp400_emulator").mkdir()

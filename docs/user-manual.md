@@ -223,9 +223,10 @@ Card root\
   ESP32_CP400-<version>.FLH
   ESP32_MSX-<version>.FLH
   ...other trusted firmware packages...
-  YOURGAME.DSK                  CP400 disks go at the root
   cp400\
     bios\
+    disks\
+      YOURGAME.DSK
   msx\
     bios\
     audio\
@@ -256,8 +257,8 @@ Card root\
 Copy a firmware project's staged system folder to the **card root**,
 not inside an extra `sdcard` folder. For example, the card should contain
 `cp400\bios`, not `sdcard\cp400\bios`.
-Except for CP400's root-only media browser, supported browsers can
-generally traverse folders. Keep filenames and paths short and simple.
+Supported browsers can generally traverse folders, including CP400's
+disk-image picker. Keep filenames and paths short and simple.
 
 Use legally obtained BIOS ROMs and software. The project does not supply
 commercial BIOS, operating systems or games. Renaming a ZIP, HTML page,
@@ -293,7 +294,7 @@ launchers for every game. Press Enter after each BASIC command.
 ### CP400 / CoCo 2
 
 **Media:** standard 35-track, 18-sector, 256-byte-sector `.DSK` images
-(161,280-byte payload). Put them **at the card root**. Use `.DSK` filenames
+(161,280-byte payload). Put them **in any folder on the card**. Use `.DSK` filenames
 for the CP400 picker; other machines' DSK files are not interchangeable.
 
 1. Prepare the BASIC and disk-controller ROMs from the checklist.
@@ -302,6 +303,9 @@ for the CP400 picker; other machines' DSK files are not interchangeable.
    start with that controller ROM.
 3. Open **F12 > Disk drives**, select **Drive 0**, press Enter and choose
    the game's DSK. Drives **0-3** are available for multi-disk software.
+   Enter opens a folder or selects an image; `..` or Esc returns to the
+   parent folder, and Esc at the root cancels. PgUp/PgDn moves a page.
+   The selected image's contents are previewed below the list.
 4. Press Esc back to the main menu, then Esc or **Exit menu** to return to
    BASIC. Assigning a disk does not automatically run it.
 5. List the directory:
@@ -327,7 +331,8 @@ for the CP400 picker; other machines' DSK files are not interchangeable.
 Some software needs a particular loader, disk ROM, drive number or entry
 address. Use its original instructions instead of trying every command.
 For disk changes, reassign the requested virtual drive through F12;
-Delete ejects its image. Disk assignments are saved on SD.
+Delete ejects its image. Disk assignments are saved on SD with their full
+paths (up to 255 characters, including the leading `/`).
 
 **Saving:** disk writes can modify the original DSK on microSD. Keep a
 backup and allow writes to finish before resetting or powering off.
@@ -695,7 +700,7 @@ maintenance rather than experimenting with the programming/boot controls.
 | Joystick not detected | Confirm low-speed HID compatibility, direct connection and supported report format. Calibration cannot fix full-speed-only hardware. |
 | Joystick detected but game ignores it | Calibrate in this firmware, enable the port where applicable, and select the game's port/interface. Check C64 port 2 and TK Kempston/Sinclair. TurboR currently has no USB joystick input. |
 | Macintosh mouse does not work | Use a low-speed HID boot mouse in the **middle** socket, not a joystick in that socket. |
-| SD/media not found | FAT32; correct root folders and filenames; actual supported, extracted image. CP400 DSK/FLH files must be at the root. |
+| SD/media not found | FAT32; correct root folders and filenames; actual supported, extracted image. Browse to CP400 DSK files with **F12 > Disk drives**. |
 | Missing BIOS/ROM error | Check the selected profile's required raw files, sizes and paths. A correctly sized file may still be the wrong ROM. |
 | File selected but nothing starts | Check whether the core needs cold boot, a BASIC command, TAP **Play tape**, or a C64 `RUN`/`SYS`. |
 | Apple waits with no disk | Insert a boot NIB in drive 1 and cold-boot, or use Warm reset to reach BASIC. Loading can take emulated disk time. |

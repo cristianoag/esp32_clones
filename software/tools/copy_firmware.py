@@ -23,7 +23,7 @@ def copy_firmware(root: Path) -> None:
             missing.append(str(project / "dist"))
             continue
         source = max(candidates)[1]
-        packages.append((source, project / source.name))
+        packages.append(source)
 
     if missing:
         raise SystemExit(
@@ -34,10 +34,14 @@ def copy_firmware(root: Path) -> None:
 
     sdcard = root / "sdcard"
     sdcard.mkdir(parents=True, exist_ok=True)
-    for source, project_destination in packages:
-        for destination in (project_destination, sdcard / source.name):
-            copy2(source, destination)
-            print(f"Copied {source} to {destination}")
+    for path in sdcard.iterdir():
+        if path.is_file() and path.suffix.casefold() == ".flh":
+            path.unlink()
+            print(f"Deleted {path}")
+    for source in packages:
+        destination = sdcard / source.name
+        copy2(source, destination)
+        print(f"Copied {source} to {destination}")
 
 
 if __name__ == "__main__":

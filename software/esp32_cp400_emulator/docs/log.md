@@ -5,8 +5,14 @@ Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
 ## 1.15 - Unreleased
 
+### Changed
+
+- Changed the parent-folder `make` and `make firmware` commands to clear FLH files from the shared SD-card root and copy only the latest CP400 package there, leaving emulator project roots and build archives unchanged.
+
 ### Fixed
 
+- Allowed Disk drives to browse folders and parent folders anywhere on the microSD card, preview nested DSK images and save their complete paths without truncation.
+- Corrected disk-image paging so folders and unrelated files no longer caused images to be skipped or repeated.
 - Paused the CPU and software-USB interrupt before reading OTA metadata, not just before writing firmware, preventing the cache-disabled crash that rebooted back into CP400 after Y confirmation.
 - Kept that interrupt paused through OTA handle cleanup and restored it after failed layout checks, SD reads and image installation.
 - Stopped routing the VGA pixel clock onto GPIO48, which could light the RGB LED again after startup had cleared it.

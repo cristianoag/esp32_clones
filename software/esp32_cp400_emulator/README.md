@@ -62,9 +62,14 @@ Prepare these files before switching to CP400 from another emulator.
 The `cp400` folder can coexist with `msx`, `tk` and `apple2` on one card.
 ROMs and games are not distributed with the firmware.
 
-Put `.DSK` images at the card root. **F12 > Disk drives** assigns them
-to the four virtual drives; Delete ejects the selected disk and saves
-the empty assignment. F12 also provides Disk ROM selection, artifact
+Put `.DSK` images in any folder on the card. **F12 > Disk drives** assigns
+them to the four virtual drives. Enter opens a folder or selects an image;
+`..` or Esc returns to the parent folder, and Esc at the root cancels.
+Arrows move through entries; PgUp/PgDn moves a page. The selected image's
+contents are previewed below the list. Full paths (up to 255 characters,
+including the leading `/`) are saved and restored on restart.
+Delete ejects the selected disk and saves the empty assignment.
+F12 also provides Disk ROM selection, artifact
 colors, joystick calibration, reboot and firmware updates.
 
 ## Firmware updates and switching emulators

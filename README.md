@@ -284,13 +284,16 @@ make firmware
 
 The build produces FLH packages for each target; the project directories keep their own firmware images and configuration.
 From `software`, run `make` to prepare the shared SD-card tree and copy each
-emulator's highest-versioned `dist\ESP32_*-X.YY.FLH` package to that emulator's
-project root and the root of `software\sdcard`. Firmware packages are copied
+emulator's highest-versioned `dist\ESP32_*-X.YY.FLH` package only to the root of
+`software\sdcard`. Firmware packages are copied
 after merging the SD-card trees, including with parallel `make`.
 Run `make firmware` there to copy packages only, or `make sdcard`
 to prepare the SD-card tree only. Packages are not rebuilt; if any emulator is
-missing a package, copying fails before any firmware files are copied. Existing
-same-name files are replaced, and other files are preserved.
+missing a package, copying fails before any firmware files are deleted or copied.
+Before copying, all FLH files directly in the shared SD-card root are deleted,
+leaving only the latest package for each emulator. Emulator project roots and
+`dist` archives are left unchanged, as are non-FLH files and nested folders
+during firmware copying.
 Each firmware directory includes its own board definitions and required
 library sources and can be copied and compiled independently of the others.
 All six still require PlatformIO and the configured ESP32 toolchain.

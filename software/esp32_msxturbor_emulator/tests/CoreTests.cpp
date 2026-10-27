@@ -248,6 +248,20 @@ int main(int argc, char** argv)
             "Retry interrupted/short reads and load exactly the mapped ROM and Kanji bytes.");
     romReadFragment = SIZE_MAX;
     a1stMediaTests();
+    a1stWritePort(0xa0, 7);
+    a1stWritePort(0xa1, 0x40);
+    for (unsigned port = 0; port < 2; ++port) {
+        a1stWritePort(0xa0, 15);
+        a1stWritePort(0xa1, port ? 0x40 : 0);
+        a1stWritePort(0xa0, 14);
+        for (unsigned bit = 0; bit < 6; ++bit) {
+            a1stSetJoysticks(1U << (port * 8 + bit));
+            require(a1stReadPort(0xa2) == (0xff ^ (1U << bit)),
+                    "Both PSG joystick ports expose all directions and buttons active-low.");
+        }
+        a1stSetJoysticks(0);
+        require(a1stReadPort(0xa2) == 0xff, "Disconnected joystick releases every PSG input.");
+    }
     FILE* file;
     require(a1stReadMemory(0) == 40, "BIOS comes from firmware block 40.");
     a1stWritePort(0xa8, 0xff);

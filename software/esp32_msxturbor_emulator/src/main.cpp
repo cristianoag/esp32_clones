@@ -14,6 +14,8 @@
 #include "MsxAudio.h"
 #include "MsxFileBrowser.h"
 #include "MsxFirmwareUpdate.h"
+#include "MsxJoysticks.h"
+#include "MsxJoystickHost.h"
 
 namespace
 {
@@ -35,7 +37,7 @@ static_assert(static_cast<int>(MsxMapperAuto) == A1ST_MAPPER_AUTO &&
 enum MenuItem : unsigned
 {
     Resume, Machine, Media, Sound, Firmware, AutoBoot, DrawEvery, VgaFit,
-    Save, Boot, Rescan, Update, MenuCount
+    Save, Boot, Rescan, Update, Joysticks, MenuCount
 };
 enum MediaItem : unsigned
 {
@@ -148,10 +150,17 @@ bool mountSd()
 }
 bool saveSettings()
 {
-    if (!nvsReady || preferences.putBytes("boot", &settings, sizeof(settings)) != sizeof(settings)) {
+    if (!nvsReady) {
         reportError("Cannot save A1ST boot settings to NVS.");
         return false;
     }
+    if (!MsxJoystickHostPause()) {
+        reportError("Cannot pause joystick USB for saving settings.");
+        return false;
+    }
+    const bool saved = preferences.putBytes("boot", &settings, sizeof(settings)) == sizeof(settings);
+    MsxJoystickHostResume();
+    if (!saved) { reportError("Cannot save A1ST boot settings to NVS."); return false; }
     snprintf(status, sizeof(status), "A1ST boot configuration saved.");
     return true;
 }
@@ -296,7 +305,15 @@ void firmwareUpdate()
     if (!sdReady) { reportError("Mount the SD card before updating firmware."); return; }
     if (!chooseFile("Firmware update - choose .FLH", ".flh", false, path) ||
         !confirmUpdate(path) || !flushState()) return;
-    if (!MsxInstallFirmware(path, firmwareProgress, status, sizeof(status))) return;
+    if (!MsxJoystickHostPause()) {
+        reportError("Cannot pause joystick USB for firmware update.");
+        return;
+    }
+    if (!MsxInstallFirmware(path, firmwareProgress, status, sizeof(status))) {
+        MsxJoystickHostResume();
+        reportError(status);
+        return;
+    }
     frame("Firmware update complete");
     text(8, 53, "Verified. Rebooting into selected firmware...");
     showMenu();
@@ -384,6 +401,114 @@ bool mediaMenu()
         }
     }
 }
+bool sameJoystick(const MsxJoystickSnapshot& identity, const MsxJoystickSnapshot& current)
+{
+    return current.connected && identity.generation == current.generation &&
+           identity.vid == current.vid && identity.pid == current.pid &&
+           identity.endpoint == current.endpoint && identity.length == current.length;
+}
+void calibrateJoystick(unsigned port)
+{
+    MsxJoystickSnapshot identity;
+    MsxJoystickSnapshotFor(port, identity);
+    if (!identity.connected || !identity.length) {
+        reportError("No joystick reports. Use a directly connected low-speed USB pad.");
+        return;
+    }
+    const char* const poses[] = {
+        "Release ALL controls", "Hold UP only", "Hold RIGHT only",
+        "Hold DOWN only", "Hold LEFT only", "Hold button A only", "Hold button B only"
+    };
+    MsxJoystickSample samples[7] = {};
+    for (unsigned pose = 0; pose < 7; ++pose) {
+        char title[64];
+        snprintf(title, sizeof(title), "Joystick %u calibration - %u/7", port + 1, pose + 1);
+        frame(title);
+        text(8, 53, poses[pose]);
+        text(8, 69, "Enter: capture while holding. Esc/F12: cancel.");
+        showMenu();
+        MsxKeyboardClearEvents();
+        for (;;) {
+            MsxJoystickSnapshot current;
+            MsxJoystickSnapshotFor(port, current);
+            if (!sameJoystick(identity, current)) {
+                reportError("Joystick changed; calibration cancelled.");
+                return;
+            }
+            const uint8_t key = MsxKeyboardMenuKey();
+            if (key == 41 || key == 69) { reportError("Calibration cancelled; mapping unchanged."); return; }
+            if (key == 40) break;
+            delay(10);
+        }
+        bool captured = false;
+        uint8_t baseline[8] = {};
+        const uint32_t start = millis();
+        while (millis() - start < 600) {
+            const uint8_t key = MsxKeyboardMenuKey();
+            if (key == 41 || key == 69) { reportError("Calibration cancelled; mapping unchanged."); return; }
+            MsxJoystickSnapshot current;
+            MsxJoystickSnapshotFor(port, current);
+            if (!sameJoystick(identity, current)) {
+                reportError("Joystick changed during capture; retry.");
+                return;
+            }
+            if (millis() - start >= 250) {
+                if (!captured) memcpy(baseline, current.report, identity.length);
+                captured = true;
+                if (!pose)
+                    for (unsigned byte = 0; byte < identity.length; ++byte)
+                        samples[pose].changed[byte] |= baseline[byte] ^ current.report[byte];
+                memcpy(samples[pose].bytes, current.report, identity.length);
+            }
+            delay(10);
+        }
+        if (!captured) { reportError("Joystick capture timed out; retry."); return; }
+    }
+    MsxJoystickMapping mapping = {};
+    if (!MsxBuildJoystickCardinalMapping(identity.length, samples, mapping, status, sizeof(status)) ||
+        !MsxJoystickSave(port, identity, mapping, status, sizeof(status))) {
+        reportError(status);
+        return;
+    }
+    Serial.println(status);
+}
+void joystickMenu()
+{
+    unsigned selected = 0;
+    MsxKeyboardClearEvents();
+    for (;;) {
+        frame("USB JOYSTICKS - CALIBRATION / LIVE INPUT");
+        text(8, 40, "Direct low-speed USB pads only.");
+        for (unsigned port = 0; port < 2; ++port) {
+            MsxJoystickSnapshot snapshot;
+            MsxJoystickSnapshotFor(port, snapshot);
+            const int y = 56 + port * 48;
+            if (selected == port) display.fillRect(6, y, 308, 8, 0x48);
+            char label[80];
+            snprintf(label, sizeof(label), "Port %u: %s", port + 1, !snapshot.connected ? "disconnected" :
+                     !snapshot.length ? "waiting for reports" : snapshot.calibrated ? "calibrated" : "needs calibration");
+            text(8, y, label);
+            snprintf(label, sizeof(label), "VID %04X PID %04X EP %02X len %u",
+                     snapshot.vid, snapshot.pid, snapshot.endpoint, snapshot.length);
+            text(8, y + 10, label);
+            snprintf(label, sizeof(label), "U:%u D:%u L:%u R:%u A:%u B:%u",
+                     !!(snapshot.buttons & 1), !!(snapshot.buttons & 2), !!(snapshot.buttons & 4),
+                     !!(snapshot.buttons & 8), !!(snapshot.buttons & 16), !!(snapshot.buttons & 32));
+            text(8, y + 20, label);
+        }
+        text(8, 164, "USB1 -> MSX port 1; USB2 -> MSX port 2.");
+        text(8, 180, "Arrows: port  Enter: calibrate  Del: clear");
+        text(8, 188, "Esc/F12: back. Calibration saves immediately.");
+        messageLines(status);
+        showMenu();
+        const uint8_t key = MsxKeyboardMenuKey();
+        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return; }
+        if (key >= 79 && key <= 82) selected ^= 1;
+        else if (key == 40) calibrateJoystick(selected);
+        else if (key == 76 && !MsxJoystickClear(selected, status, sizeof(status))) reportError(status);
+        delay(100);
+    }
+}
 void present();
 bool menu()
 {
@@ -411,6 +536,7 @@ bool menu()
         snprintf(labels[Boot], 64, "Cold boot with selected configuration");
         snprintf(labels[Rescan], 64, "Rescan SD (stopped machine only)");
         snprintf(labels[Update], 64, "Firmware update / switch emulator");
+        snprintf(labels[Joysticks], 64, "USB joysticks / calibration");
         for (unsigned row = 0; row < MenuCount; ++row) {
             if (selected == row) display.fillRect(6, 48 + row * 10, 308, 9, 0x48);
             text(8, 48 + row * 10, labels[row]);
@@ -436,6 +562,7 @@ bool menu()
         else if (key == 40 && selected == Boot && coldBoot()) { booted = true; break; }
         else if (key == 40 && selected == Rescan) mountSd();
         else if (key == 40 && selected == Update) firmwareUpdate();
+        else if (key == 40 && selected == Joysticks) joystickMenu();
     }
     if (running && !booted) {
         if (settings.vgaFit != previousFit) present();
@@ -531,6 +658,7 @@ void setup()
                 reportError("Invalid saved A1ST settings; using defaults without overwriting NVS.");
         }
     }
+    if (!MsxJoysticksStart()) reportError("Joystick USB initialization failed. See UART.");
     frame("PANASONIC FS-A1ST READY");
     text(8, 53, "Press F12 for configuration and firmware updates.");
     messageLines(status);
@@ -553,6 +681,7 @@ void loop()
     uint8_t matrix[16];
     MsxKeyboardMatrix(matrix);
     a1stSetKeyboard(matrix);
+    a1stSetJoysticks(MsxJoysticksRead());
     a1stRunFrame();
     A1stStats stats;
     a1stGetStats(&stats);

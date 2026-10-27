@@ -3,6 +3,33 @@
 This log tracks user-visible changes to the ESP32 CP400 emulator firmware.
 Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
+## 1.15 - Unreleased
+
+### Fixed
+
+- Paused the CPU and software-USB interrupt before reading OTA metadata, not just before writing firmware, preventing the cache-disabled crash that rebooted back into CP400 after Y confirmation.
+- Kept that interrupt paused through OTA handle cleanup and restored it after failed layout checks, SD reads and image installation.
+- Stopped routing the VGA pixel clock onto GPIO48, which could light the RGB LED again after startup had cleared it.
+- Started native keyboard initialization before the software-USB CPU timer and cleared held menu keys when the keyboard disconnected.
+- Stopped configuring BOOT GPIO0 as an unused software-USB activity output on ESP32-S3.
+- Configured the UART uploader and monitor for COM9 and stopped the monitor from asserting DTR and RTS when opening the port.
+- Kept firmware installation errors visible until ENTER or ESC acknowledged them and wrapped long messages so recovery instructions were not clipped.
+- Reported firmware selection, Y confirmation, the installed partition layout and the selected boot slot on UART so skipped or rejected updates could be diagnosed.
+- Distinguished an incompatible partition table from an already selected boot update, with the appropriate recovery instructions for each.
+- Accepted Y after the firmware picker released ENTER without discarding a confirmation pressed while its screen was being drawn.
+
+## 1.14 - Unreleased
+
+### Added
+
+- Copied the latest prebuilt CP400 firmware package to this emulator's project root and the shared SD-card root when running `make` or `make firmware` from the parent software folder, without rebuilding firmware.
+
+### Fixed
+
+- Allowed Firmware update to browse folders and parent folders anywhere on the microSD card instead of listing only files at the root.
+- Preserved the complete selected path when installing another emulator's FLH package and corrected paging so unrelated files did not hide firmware choices.
+- Displayed the selected firmware name before confirmation and retained checksum, ESP32-S3 image and inactive-slot validation for all eight Clone Series emulators.
+
 ## 1.13 - Unreleased
 
 ### Changed

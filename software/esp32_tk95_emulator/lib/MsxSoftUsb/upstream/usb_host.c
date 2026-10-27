@@ -1577,7 +1577,7 @@ void fsm_Mashine()
       current->cb_Cmd = CB_TICK;
       return;
     }
-    if(!current->inputCount || !current->reportDescriptorLength) {
+    if(!current->inputCount) {
       current->fsm_state = 104;
       current->cb_Cmd = CB_TICK;
       return;
@@ -1595,8 +1595,10 @@ void fsm_Mashine()
       current->cb_Cmd = CB_TICK;
       return;
     }
-    Request(T_SETUP,ASSIGNED_USB_ADDRESS,0,T_DATA0,0x81,0x6,0x2200,
-            current->inputInterface,current->reportDescriptorLength,current->reportDescriptorLength);
+    // Like CP400, consume opaque reports through calibration. Fetching and
+    // classifying a report descriptor must not prevent a usable pad starting.
+    Request(T_SETUP,ASSIGNED_USB_ADDRESS,0,T_DATA0,0x21,0x0a,0,
+            current->inputInterface,0,0);
     current->fsm_state = 90;
 #else
     // config interfaces??
@@ -1605,14 +1607,9 @@ void fsm_Mashine()
 #endif
 #ifdef MSX_SOFT_USB
   } else if(current->fsm_state==90) {
-    if(current->numb_reps_errors_allowed <= 0 ||
-       current->acc_decoded_resp_counter != current->reportDescriptorLength ||
-       !msxIsGamepadReport(current->acc_decoded_resp, current->acc_decoded_resp_counter)) {
-      current->inputCount = 0;
-      current->fsm_state = 104;
-      current->cb_Cmd = CB_TICK;
-      return;
-    }
+    if(current->numb_reps_errors_allowed <= 0) current->ufPrintDesc |= 8;
+    // SET_IDLE is optional for nonboot HID devices; a STALL is not a failed
+    // SET_CONFIGURATION. Input remains neutral until the user calibrates it.
     if(onDetectCB) onDetectCB(current->selfNum, &current->desc);
     current->fsm_state = 100;
     current->cb_Cmd = CB_TICK;
@@ -2024,6 +2021,10 @@ void printState()
   int ref = cntl%NUM_USB;
   sUsbContStruct * pcurrent = &current_usb[ref];
   if(!pcurrent->isValid) return;
+  if(pcurrent->ufPrintDesc & 8) {
+    pcurrent->ufPrintDesc &= ~(uint32_t)8;
+    printf("USB port %u: SET_IDLE unsupported; continuing with interrupt-IN reports\n", ref + 1);
+  }
 #ifdef MSX_SOFT_USB
   if(!pcurrent->connected) pcurrent->unsupportedLogged = false;
   if(pcurrent->controlFailures != pcurrent->loggedControlFailures &&
@@ -2134,7 +2135,7 @@ void printState()
       if(d[1] == 4) {
         if(d[0] < 9) { malformed = true; break; }
         acceptInterface = d[3] == 0 && d[5] == HIDCLASS &&
-                          d[6] == 0 && d[7] == 0 &&
+                          d[7] == 0 &&
                           (selectedInterface < 0 || selectedInterface == d[2]);
         if(acceptInterface) {
           selectedInterface = d[2];
@@ -2145,8 +2146,9 @@ void printState()
         for(unsigned i=0; i<d[5]; ++i) {
           if(d[6+3*i] != 0x22) continue;
           unsigned length = d[7+3*i] | ((unsigned)d[8+3*i] << 8);
-          if(!length || length > 255) { malformed = true; break; }
-          pcurrent->reportDescriptorLength = length;
+          // Report descriptors can exceed the control accumulator's 255-byte
+          // limit. They are not needed to capture calibrated raw reports.
+          (void)length;
         }
       } else if(d[1] == 5 && acceptInterface) {
         if(d[0] < 7) { malformed = true; break; }

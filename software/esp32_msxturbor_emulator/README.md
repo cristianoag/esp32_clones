@@ -179,6 +179,24 @@ The repository-level `software\Test-FirmwareCompatibility.ps1` includes
 this firmware and checks every source/destination combination in its
 configured project list. Build all listed packages before running it.
 
+## USB joysticks
+
+Both joystick connectors now accept direct low-speed USB HID controllers:
+D-/D+ on GPIO15/16 for MSX port 1 and GPIO17/18 for MSX port 2.
+Open **F12 > USB joysticks / calibration**, choose a port and press Enter.
+Capture neutral, up, right, down, left, button A and button B. Calibration
+is saved immediately in the independent `a1st-joystick` NVS namespace;
+Delete clears it. Uncalibrated controllers remain neutral. Normal MSX
+calibration is not overwritten or imported. Hubs and full-speed pads
+are not supported; Macintosh Plus continues to use its mouse.
+
+The host uses CP400-compatible raw report capture and HID idle setup,
+without requiring a readable or short HID report descriptor. Reports
+remain limited to eight bytes, including any report ID. From `software`,
+run `.\Test-UsbJoysticks.ps1` to exercise enumeration and report delivery
+for every joystick firmware. `make test` also covers calibration, runtime
+reconnection and packet timing.
+
 ## Implementation scope and limitations
 
 Included: 256 KiB mapped RAM, 16 KiB firmware SRAM, 128 KiB V9958 VRAM,
@@ -187,8 +205,8 @@ banking and DRAM aliases, Kanji ROM, PPI keyboard, PSG, MSX-MUSIC, RTC,
 non-inverted reset status, E6/E7 timer, PCM output, pause/LED registers and
 the original banked TC8566AF disk interface.
 
-Not claimed: A1GT/MIDI, cassette selection, USB joystick
-support, microphone recording, printer output, save states, reverse
+Not claimed: A1GT/MIDI, cassette selection,
+microphone recording, printer output, save states, reverse
 execution, cycle-perfect R800/VDP timing or complete application
 compatibility. The upstream CPU timing model is retained; openMSX is a
 reference, not the linked desktop CPU core. PCM input reads a neutral

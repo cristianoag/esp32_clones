@@ -73,8 +73,7 @@ bool VGA::init(const PinConfig pins, const Mode mode, int bits)
 	periph_module_reset(PERIPH_LCD_CAM_MODULE);
 	LCD_CAM.lcd_user.lcd_reset = 1;
 
-	//esp_rom_gpio_connect_out_signal(48, )
-	attachPinToSignal(48, LCD_PCLK_IDX);
+	// VGA needs no external pixel-clock pin; GPIO48 belongs to the RGB LED.
 	esp_rom_delay_us(100);
 
 	

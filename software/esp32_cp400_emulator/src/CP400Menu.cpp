@@ -22,6 +22,7 @@
 #include "CP400Input.h"
 #include "CP400Roms.h"
 #include "FirmwareUpdater.h"
+#include "Cp400FirmwareBrowser.h"
 
 extern uint8_t *MENU_Backup;
 extern uint8_t *MENU_BackupPage2;
@@ -562,6 +563,33 @@ void ChangeMainMenuValue(uint8_t selectedItem)
     }
 }
 
+static void ShowFirmwareUpdateError(const char *message)
+{
+    DrawScreenFrame("Firmware update failed", "ENTER or ESC: return to menu", nullptr);
+    for (uint8_t row = MENU_CONTENT_ROW; *message && row < 24; row++)
+    {
+        size_t length = strcspn(message, "\n");
+        if (length > MENU_TEXT_COLUMNS)
+        {
+            length = MENU_TEXT_COLUMNS;
+            size_t split = length;
+            while (split && message[split] != ' ') --split;
+            if (split) length = split;
+        }
+        char line[MENU_TEXT_COLUMNS + 1];
+        memcpy(line, message, length);
+        line[length] = '\0';
+        DrawText(line, 0, row, 0, 0, MENU_ALERT_COLOR, 0);
+        message += length;
+        while (*message == ' ' || *message == '\n') ++message;
+    }
+    vga->show();
+    WaitForMenuKeyRelease();
+    while (sf.DIRECT_Key_Code != MENU_ENTER && sf.DIRECT_Key_Code != MENU_ESC)
+        vTaskDelay(2);
+    WaitForMenuKeyRelease();
+}
+
 void RunFirmwareUpdateFlow(void)
 {
     char *file = Firmware_Choose();
@@ -569,27 +597,32 @@ void RunFirmwareUpdateFlow(void)
     {
         return;
     }
+    Serial.printf("[Firmware update] Selected %s\n", file);
 
     DrawScreenFrame("Firmware update", "Press Y or N to choose", "ESC also cancels");
     DrawText("Install the selected firmware?", 0, MENU_CONTENT_ROW, 0, 0, MENU_TEXT_COLOR, 0);
+    const char *name = strrchr(file, '/');
+    char selectedName[MENU_TEXT_COLUMNS + 1];
+    snprintf(selectedName, sizeof(selectedName), "%.*s", MENU_TEXT_COLUMNS, name ? name + 1 : file);
+    DrawText(selectedName, 0, MENU_CONTENT_ROW + 1, 0, 0, MENU_ACCENT_COLOR, 0);
     DrawText("Y  Yes - install and reboot", 2, MENU_CONTENT_ROW + 2, 0, 0,
              MENU_ACCENT_COLOR, 0);
     DrawText("N  No  - cancel update", 2, MENU_CONTENT_ROW + 4, 0, 0,
              MENU_TEXT_COLOR, 0);
     vga->show();
-    WaitForMenuKeyRelease();
-
     while (1)
     {
         switch (sf.DIRECT_Key_Code)
         {
         case MENU_Y:
         {
+            Serial.printf("[Firmware update] Confirmed %s; starting installation.\n", file);
             ProgressMessage = "";
+            FirmwareProgressUpdate("Preparing update", 0);
             char error[160] = {};
             if (!Cp400InstallFirmware(file, FirmwareProgressUpdate, error, sizeof(error)))
             {
-                ShowMenuError(error);
+                ShowFirmwareUpdateError(error);
                 return;
             }
 
@@ -604,6 +637,8 @@ void RunFirmwareUpdateFlow(void)
 
         case MENU_N:
         case MENU_ESC:
+            Serial.println("[Firmware update] Cancelled by user.");
+            WaitForMenuKeyRelease();
             return;
 
         default:
@@ -1269,120 +1304,94 @@ void DiskMenuChoose_1(uint8_t DriveNumber)
 
 char* Firmware_Choose(void)
 {
-    #define DELAY_MENU_SELECT 80
-    int16_t FileStart = 0;
-    int16_t MenuPick = 0;
-    
-    int8_t MenuMaxIndex;
-    char buf[15];
-
+    static char selectedPath[Cp400FirmwarePathCapacity];
+    static Cp400FirmwareEntry entries[Cp400FirmwarePageSize];
+    char directory[Cp400FirmwarePathCapacity] = "/";
+    size_t first = 0, selected = 0;
     if (!IsSDCardAvailable())
     {
         ShowMenuError("No microSD card detected.");
         return (char*)"NF";
     }
 
-    vga->clear(0);
-    vga->show();
-    vga->clear(0);
-    vga->show();
-
-    DrawFirmwareUpdateMenuChoose();
-    MenuMaxIndex =  FillFileBuffer(MenuPick, 10,".FLH");
-    if (MenuMaxIndex < 0)
+    WaitForMenuKeyRelease();
+    while (true)
     {
-        ShowMenuError("No .FLH files found.");
-        return (char*)"NF";
-    }
-    DrawFiles(MenuPick,0b11100000, 0b00000011);
-    
-    //DrawFrames();
-    
-    vga->show();
-    vTaskDelay(200);
-    while(1)
-    {
-
-        switch (sf.DIRECT_Key_Code)
+        size_t count = 0, total = 0;
+        char error[160] = {};
+        if (!IsSDCardAvailable())
+        {
+            ShowMenuError("microSD card was removed.");
+            return (char*)"NF";
+        }
+        if (!Cp400ReadFirmwarePage(directory, first, entries, count, total, error, sizeof(error)))
+        {
+            ShowMenuError(error);
+            return (char*)"NF";
+        }
+        if (error[0]) ShowMenuError(error);
+        if (selected >= count) selected = count ? count - 1 : 0;
+        DrawScreenFrame("Firmware update", "UP/DOWN move  ENTER open/install", "ESC parent folder / cancel at root");
+        char caption[MENU_TEXT_COLUMNS + 1];
+        snprintf(caption, sizeof(caption), "%.*s", MENU_TEXT_COLUMNS, directory);
+        DrawText(caption, 0, MENU_CONTENT_ROW, 0, 0, MENU_ACCENT_COLOR, 0);
+        for (size_t i = 0; i < count; ++i)
+        {
+            const char *kind = entries[i].kind == Cp400FirmwareEntryKind::File ? ".FLH" : "<DIR>";
+            DrawSelectableRow(MENU_CONTENT_ROW + 2 + i, entries[i].name, kind, i == selected);
+        }
+        if (!count) DrawText("No .FLH files or folders.", 0, MENU_CONTENT_ROW + 2, 0, 0, MENU_TEXT_COLOR, 0);
+        vga->show();
+        while (!sf.DIRECT_Key_Code) vTaskDelay(10);
+        const auto key = sf.DIRECT_Key_Code;
+        WaitForMenuKeyRelease();
+        switch (key)
         {
         case MENU_DOWN:
-            MenuPick++;
-            //FileStart++;
-            if (MenuPick > MenuMaxIndex)
+            if (count && first + selected + 1 < total)
             {
-                FileStart +=11;
-                MenuMaxIndex =  FillFileBuffer(FileStart, 10,".FLH");
-                if (MenuMaxIndex == -1) //Error
+                if (++selected == count)
                 {
-                    MenuPick--;
-                    FileStart-=11;
-                }
-                else
-                {
-                    MenuPick = 0;
+                    first += count;
+                    selected = 0;
                 }
             }
-            vga->clear(0);
-
-            DrawFirmwareUpdateMenuChoose();
-            
-            DrawFiles(MenuPick,0b11100000, 0b00000011);
-            
-            
-            vga->show();
-            vTaskDelay(DELAY_MENU_SELECT);
             break;
         case MENU_UP:
-        
-            MenuPick--;
-            //FileStart--;
-            if (MenuPick < 0 && FileStart < 0)
+            if (selected) --selected;
+            else if (first)
             {
-                MenuPick = 0;
-                FileStart = 0;
+                first -= Cp400FirmwarePageSize;
+                selected = Cp400FirmwarePageSize - 1;
             }
-            else if (MenuPick < 0 && FileStart >= 0)
-            {
-                MenuPick+=11;
-                FileStart-=11;
-                if (FileStart <0)
-                {
-                    FileStart = 0;
-                    MenuPick = 0;
-                }
-                MenuMaxIndex =  FillFileBuffer(FileStart, 10,".FLH");
-            }
-            vga->clear(0);
-
-            DrawFirmwareUpdateMenuChoose();
-            DrawFiles(MenuPick,0b11100000, 0b00000011);
-
-            vga->show();
-            vTaskDelay(DELAY_MENU_SELECT);
             break;
         case MENU_ENTER:
-            if (!IsSDCardAvailable())
+            if (!count) break;
+            if (entries[selected].kind == Cp400FirmwareEntryKind::Parent)
+                Cp400ParentFirmwarePath(directory);
+            else
             {
-                ShowMenuError("microSD card was removed.");
-                return (char*)"NF";
+                if (!Cp400JoinFirmwarePath(directory, entries[selected].name,
+                                          selectedPath, sizeof(selectedPath)))
+                {
+                    ShowMenuError("Invalid or overlong firmware path.");
+                    break;
+                }
+                if (entries[selected].kind == Cp400FirmwareEntryKind::File)
+                    return selectedPath;
+                strcpy(directory, selectedPath);
             }
-            FileArray.FileBuffer[15][0] = '/';
-            strcpy((char*)&FileArray.FileBuffer[15][1], (const char*)FileArray.FileBuffer[MenuPick]);
-            return (char*)FileArray.FileBuffer[15];
+            first = selected = 0;
             break;
-            
         case MENU_ESC:
-            return (char*)"NF";  // No file selected.
+            if (!strcmp(directory, "/")) return (char*)"NF";
+            Cp400ParentFirmwarePath(directory);
+            first = selected = 0;
             break;
-            
-        
         default:
             break;
         }
-        vTaskDelay(10);
-        
     }
-
 }
 
 

@@ -40,7 +40,7 @@ Packaging requires Python; host tests require PowerShell and native G++.
 Set the upload and monitor ports in [platformio.ini](platformio.ini) to
 the board's UART port before using `make upload`.
 
-`make firmware` builds and verifies `dist\ESP32_CP400-1.13.FLH`.
+`make firmware` builds and verifies `dist\ESP32_CP400-1.15.FLH`.
 The board definition, libraries and updater are local, so this folder
 remains independently buildable. The updater follows the same validated
 FLH/OTA implementation as the other clone-series firmware projects.
@@ -69,9 +69,11 @@ colors, joystick calibration, reboot and firmware updates.
 
 ## Firmware updates and switching emulators
 
-Open **F12 > Firmware update**, select a `.FLH` file at the card root
-and confirm with Y. CP400 accepts CP400, MSX, TK95 and Apple II packages
-without renaming. The destination emulator starts after installation;
+Open **F12 > Firmware update**, browse to a `.FLH` file anywhere on the card
+and confirm its name with Y. Enter opens a folder or selects a file; `..`
+or Esc returns to the parent folder, and Esc at the root cancels. CP400
+accepts CP400, MSX, MSX TurboR, TK95, Apple II, C64, SMS and Macintosh Plus
+packages without renaming. The destination emulator starts after installation;
 use its Firmware update menu to switch again. Prepare its ROMs first.
 
 The updater checks the shared partition layout, file structure, checksum,
@@ -79,7 +81,10 @@ ESP32-S3 image header and 4 MiB image limit before writing the inactive
 OTA slot. A second pass detects changes during the update; ESP-IDF
 verifies the image before selecting it for boot. Failures are reported
 on screen and UART without intentionally restarting or selecting the
-failed image. Successful updates preserve the source FLH file.
+failed image. Installation errors remain visible, wrapped across multiple
+lines, until Enter or Esc is pressed and released. UART logs show the selected
+file, Y confirmation, partition offsets/sizes and boot-slot selection.
+Successful updates preserve the source FLH file.
 Keep power connected throughout. A checksum is not a signature: use
 only trusted firmware for this board.
 
@@ -90,4 +95,24 @@ Boards already running current MSX, TK or Apple firmware on the shared
 layout can install this CP400 package directly. Use current builds of
 all destinations to retain cross-emulator updates.
 
+### UART recovery without a working keyboard
+
+The board's single USB-C connector exposes its onboard CH343 UART bridge as
+COM9 on this setup. No second USB connector or external adapter is required.
+Close other serial monitors and run `make upload` from this firmware folder
+to install through UART without using F12. The monitor leaves DTR and RTS
+deasserted so opening it does not request the ROM download loader.
+If automatic upload reset fails, hold BOOT, press and release RESET/EN, release
+BOOT, and retry the upload. Release BOOT and reset again for normal startup.
+The software USB host no longer claims GPIO0 as an unused blink output.
+Version 1.15 also pauses the CPU/software-USB interrupt before OTA metadata
+reads, which could otherwise crash with cache disabled before installation
+started. An affected 1.14 installation needs UART upload to obtain this fix.
+Native keyboard enumeration still needs board testing; a "host started"
+message alone does not establish that a keyboard is connected.
+
 See the [firmware change log](docs/log.md) for version history.
+
+`make test` covers nested firmware browsing, pagination and updater failures.
+From `software`, `.\Test-FirmwareCompatibility.ps1` verifies all 64
+cross-emulator installation combinations using the built FLH files and mock OTA.

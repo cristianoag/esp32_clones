@@ -3,6 +3,18 @@
 This log tracks user-visible changes to the Commodore 64 firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.01 - Unreleased
+
+### Added
+
+- Copied the latest prebuilt Commodore 64 firmware package to this emulator's project root and the shared SD-card root when running `make` or `make firmware` from the parent software folder, without rebuilding firmware.
+
+### Fixed
+
+- Restored low-speed USB joystick compatibility by starting raw calibrated reports without requiring a short, recognized HID report descriptor.
+- Requested HID idle mode on the selected interface as CP400 did, while allowing controllers that rejected this optional request to continue sending input.
+- Preserved calibration, per-port enable settings and C64 port swapping while retaining neutral input for uncalibrated controllers.
+
 ## 1.00 - Unreleased
 
 ### Added

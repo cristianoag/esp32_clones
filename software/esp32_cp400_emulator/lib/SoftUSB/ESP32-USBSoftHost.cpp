@@ -275,10 +275,13 @@ bool USB_SOFT_HOST::_init( usb_pins_config_t pconf )
     (gpio_num_t)pconf.dp3, (gpio_num_t)pconf.dm3
   );
 
-  Serial.printf("Seleting SCL (blink) Pin #%d\n", blink_gpio );
-
-  gpio_pad_select_gpio( blink_gpio );
-  gpio_set_direction( blink_gpio, GPIO_MODE_OUTPUT);
+  if( blink_gpio >= 0 ) {
+    Serial.printf("Selecting activity blink pin #%d\n", blink_gpio);
+    gpio_pad_select_gpio( blink_gpio );
+    gpio_set_direction( blink_gpio, GPIO_MODE_OUTPUT);
+  } else {
+    Serial.println("USB activity blink pin disabled; BOOT GPIO0 left untouched");
+  }
 
   Serial.println("Creating timer config");
 

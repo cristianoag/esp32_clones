@@ -6,13 +6,12 @@
 // Physical connectors 1/2 map to ports 0/1, DP/DM 16/15 and 18/17.
 // Reserves TG1/T0 (Arduino timer 2); native USB GPIO19/20 is untouched.
 // Direct low-speed devices only: first configuration, first alternate-zero
-// nonboot HID joystick/gamepad interface, up to four interrupt-IN endpoints,
-// 1..8 bytes including any report ID. Configuration and HID report descriptors
-// must fit 255 bytes each. HID application usages and input-report sizes are
-// validated, but fields are not mapped. No hubs, full-speed devices, alternate settings,
-// mixed keyboard/mouse application collections, or output/feature reports.
-// Requires top-level joystick/gamepad Application collections; unsupported HID
-// long items, nested Application collections, or >4 global PUSH levels are rejected.
+// HID interface with protocol zero, up to four interrupt-IN endpoints,
+// 1..8 bytes including any report ID. Configuration must fit 255 bytes.
+// Like CP400, reports are opaque and decoded only by saved calibration;
+// no report descriptor fetch/size restriction. SET_IDLE is optional.
+// No hubs, full-speed devices, alternate settings or output/feature reports.
+// Keyboard/mouse interface protocols are excluded.
 // Callbacks run serially in the core-0 host task, never the timer ISR; they must
 // be brief and must not write flash. Report storage is valid only in the call.
 bool MsxJoystickHostStart(

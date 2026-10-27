@@ -34,7 +34,7 @@ bool Fail(char *error, size_t capacity, const char *message)
     return false;
 }
 
-const esp_partition_t *CheckLayout()
+const esp_partition_t *CheckLayout(char *error, size_t errorSize)
 {
     struct Expected
     {
@@ -54,28 +54,54 @@ const esp_partition_t *CheckLayout()
     for (esp_partition_iterator_t it = esp_partition_find(
              ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, nullptr);
          it; it = esp_partition_next(it))
+    {
+        const esp_partition_t *partition = esp_partition_get(it);
+        Serial.printf("[Firmware update] Partition %s: offset=0x%lx size=0x%lx\n",
+                      partition->label, static_cast<unsigned long>(partition->address),
+                      static_cast<unsigned long>(partition->size));
         ++count;
-    if (count != sizeof(expected) / sizeof(expected[0])) return nullptr;
+    }
+    if (count != sizeof(expected) / sizeof(expected[0]))
+    {
+        Fail(error, errorSize, "Partition layout differs. Upload CP400 via UART once; FLH cannot replace the partition table.");
+        return nullptr;
+    }
     for (const auto &entry : expected)
     {
         const esp_partition_t *partition = esp_partition_find_first(
             entry.type, entry.subtype, entry.label);
         if (!partition || partition->address != entry.address ||
             partition->size != entry.size || partition->encrypted)
+        {
+            Fail(error, errorSize, "Partition layout differs. Upload CP400 via UART once; FLH cannot replace the partition table.");
             return nullptr;
+        }
     }
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *boot = esp_ota_get_boot_partition();
-    if (!running || !boot || boot->address != running->address ||
+    if (!running || !boot ||
         running->type != ESP_PARTITION_TYPE_APP ||
         (running->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_0 &&
          running->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_1))
+    {
+        Fail(error, errorSize, "Cannot identify the running OTA slot. Upload the shared CP400 layout via UART.");
         return nullptr;
+    }
+    Serial.printf("[Firmware update] Running slot %s, boot slot %s\n",
+                  running->label, boot->label);
+    if (boot->address != running->address)
+    {
+        Fail(error, errorSize, "Another boot slot is already selected. Reboot the board before updating again.");
+        return nullptr;
+    }
     const esp_partition_t *target = esp_ota_get_next_update_partition(running);
     if (!target || target->address == running->address ||
         target->size != Cp400Flh::MaxImageSize ||
         (target->address != 0x10000 && target->address != 0x410000))
+    {
+        Fail(error, errorSize, "No compatible inactive OTA slot. Upload the shared CP400 layout via UART.");
         return nullptr;
+    }
     return target;
 }
 
@@ -160,17 +186,11 @@ private:
     bool active_ = false;
     char error_[128] = {};
 };
-}
-
-bool Cp400InstallFirmware(const char *sdPath, void (*progress)(const char *, uint8_t),
-                          char *error, size_t errorSize)
+bool InstallWhilePaused(const char *sdPath, void (*progress)(const char *, uint8_t),
+                        char *error, size_t errorSize)
 {
-    if (error && errorSize) error[0] = '\0';
-    if (!Cp400Flh::IsFirmwarePath(sdPath))
-        return Fail(error, errorSize, "Select a .FLH firmware file on the SD card.");
-    const esp_partition_t *target = CheckLayout();
-    if (!target)
-        return Fail(error, errorSize, "OTA layout mismatch or pending boot update. Install shared layout via UART.");
+    const esp_partition_t *target = CheckLayout(error, errorSize);
+    if (!target) return false;
     File file = SD_MMC.open(sdPath, FILE_READ);
     if (!file || file.isDirectory())
     {
@@ -181,28 +201,38 @@ bool Cp400InstallFirmware(const char *sdPath, void (*progress)(const char *, uin
     SdReader reader(file);
     OtaFlash flash(target);
     char detail[160] = {};
-    // CP400's CPU/software-USB ISR calls flash code even while emulation is
-    // halted in the menu. It cannot run while OTA disables the flash cache.
+    const bool ok = Cp400Flh::Install(reader, flash, target->size, progress, detail, sizeof(detail));
+    file.close();
+    if (!ok) return Fail(error, errorSize, detail);
+    Serial.printf("[Firmware update] %s selected for next boot; source FLH preserved.\n",
+                  target->label);
+    return true;
+}
+}
+
+bool Cp400InstallFirmware(const char *sdPath, void (*progress)(const char *, uint8_t),
+                          char *error, size_t errorSize)
+{
+    if (error && errorSize) error[0] = '\0';
+    if (!Cp400Flh::IsFirmwarePath(sdPath))
+        return Fail(error, errorSize, "Select a .FLH firmware file on the SD card.");
+    char detail[160] = {};
+    // Even reading otadata can disable cache. Pause before layout checks and
+    // keep the CPU/software-USB ISR stopped until OTA handles are destroyed.
     const esp_err_t paused = timer_disable_intr(TIMER_GROUP_0, TIMER_0);
     if (paused != ESP_OK)
     {
-        file.close();
         snprintf(detail, sizeof(detail), "Cannot pause CPU/joystick timer: %s",
                  esp_err_to_name(paused));
         return Fail(error, errorSize, detail);
     }
-    const bool ok = Cp400Flh::Install(reader, flash, target->size, progress, detail, sizeof(detail));
+    const bool ok = InstallWhilePaused(sdPath, progress, error, errorSize);
     const esp_err_t resumed = timer_enable_intr(TIMER_GROUP_0, TIMER_0);
-    file.close();
-    if (!ok) Fail(error, errorSize, detail);
     if (resumed != ESP_OK)
     {
         snprintf(detail, sizeof(detail), "CPU/joystick timer restart failed: %s. Reboot board.",
                  esp_err_to_name(resumed));
         return Fail(error, errorSize, detail);
     }
-    if (!ok) return false;
-    Serial.printf("[Firmware update] %s selected for next boot; source FLH preserved.\n",
-                  target->label);
-    return true;
+    return ok;
 }

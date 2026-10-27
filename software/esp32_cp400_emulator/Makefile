@@ -9,7 +9,7 @@ endif
 
 PYTHON ?= python
 PIO_ENV ?= esp32-s3-devkitc-1-Modded
-FW_VERSION ?= 1.13
+FW_VERSION ?= 1.15
 OUTPUT_DIR ?= dist
 UPDATE_FILE ?= $(OUTPUT_DIR)/ESP32_CP400-$(FW_VERSION).FLH
 
@@ -37,6 +37,9 @@ verify: package
 
 test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools/Test-FirmwareUpdate.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-FirmwareBrowser.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-FirmwareBackend.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Startup.ps1
 
 clean:
 	$(PIO) run -e "$(PIO_ENV)" -t clean

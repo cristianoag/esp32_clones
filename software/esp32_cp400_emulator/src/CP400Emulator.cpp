@@ -3601,7 +3601,8 @@ usb_pins_config_t USB_Pins_Config =
 void Setup_USB(void)
 {
     fillKeysStruct();
-  
+    CP400UsbKeyboard_Start();
+
     USH.setOnConfigDescCB( Default_USB_ConfigDescCB );
     USH.setOnIfaceDescCb( Default_USB_IfaceDescCb );
     USH.setOnHIDDevDescCb( Default_USB_HIDDevDescCb );
@@ -3610,8 +3611,6 @@ void Setup_USB(void)
     //Joysticks only. The soft host timer also clocks the 6809, so it keeps
     //running even though the keyboard port has moved off it.
     USH.init( USB_Pins_Config, my_USB_DetectCB, my_USB_PrintCB );
-
-    CP400UsbKeyboard_Start();
 
 }
 

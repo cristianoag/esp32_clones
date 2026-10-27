@@ -3,6 +3,18 @@
 This log tracks user-visible changes to the ESP32 TK95 / TK90X firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.01 - Unreleased
+
+### Added
+
+- Copied the latest prebuilt TK95 firmware package to this emulator's project root and the shared SD-card root when running `make` or `make firmware` from the parent software folder, without rebuilding firmware.
+
+### Fixed
+
+- Restored low-speed USB joystick compatibility by starting raw calibrated reports without requiring a short, recognized HID report descriptor.
+- Requested HID idle mode on the selected interface as CP400 did, while allowing controllers that rejected this optional request to continue sending input.
+- Preserved saved calibration and Kempston, Sinclair and Cursor interface choices while keeping uncalibrated and disconnected controllers neutral.
+
 ## 1.00 - Unreleased
 
 ### Added

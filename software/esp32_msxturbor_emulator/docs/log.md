@@ -3,6 +3,20 @@
 This log tracks user-visible changes to the ESP32 MSX TurboR / FS-A1ST firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.02 - Unreleased
+
+### Added
+
+- Copied the latest prebuilt MSX TurboR firmware package to this emulator's project root and the shared SD-card root when running `make` or `make firmware` from the parent software folder, without rebuilding firmware.
+- Added two independent low-speed USB joystick ports on GPIO15/16 and GPIO17/18 and connected their directions and two buttons to the emulated MSX PSG ports.
+- Added an F12 USB joysticks page with live input, seven-step calibration, per-controller saved mappings and a clear-calibration action.
+- Stored calibration separately from normal MSX and kept uncalibrated or disconnected controllers neutral.
+
+### Fixed
+
+- Matched CP400's raw-report compatibility and HID idle setup without requiring a short, recognized HID report descriptor.
+- Paused and reset the software USB host around settings, calibration and firmware flash writes so input resumed safely after saving or a failed update.
+
 ## 1.01 - Unreleased
 
 ### Added

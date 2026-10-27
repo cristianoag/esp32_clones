@@ -10,7 +10,7 @@
   #elif CONFIG_IDF_TARGET_ESP32S2 || defined ESP32S2
     #define BLINK_GPIO 2 //19 // 9 // 2
   #elif CONFIG_IDF_TARGET_ESP32S3
-    #define BLINK_GPIO 0
+    #define BLINK_GPIO -1
   #else
     #define BLINK_GPIO 22
   #endif

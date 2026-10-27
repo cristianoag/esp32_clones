@@ -7,6 +7,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Added
 
+- Copied the latest prebuilt Macintosh Plus firmware package to this emulator's project root and the shared SD-card root when running `make` or `make firmware` from the parent software folder, without rebuilding firmware.
 - Added standalone Macintosh Plus firmware with a Musashi 68000, 4 MiB of RAM and a centered native 512x342 monochrome display on VGA.
 - Loaded a checksum-verified, user-supplied 128 KiB Plus ROM and a writable whole SCSI disk image from SD.
 - Added USB keyboard input with Command, Option, latched Caps Lock and extended arrow/keypad events.

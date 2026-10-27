@@ -75,10 +75,8 @@ bool CP400UsbKeyboard_Connected(void)
 
 static void ClearKeyboardState(void)
 {
-    for (uint8_t index = 0; index < sizeof(USB_DEV_CONTROL.USB_CP400_Key_Array); index++)
-    {
-        USB_DEV_CONTROL.USB_CP400_Key_Array[index] = 0;
-    }
+    uint8_t released[HID_BOOT_REPORT_SIZE] = {};
+    UpdateKeyMap(released);
 }
 
 /*

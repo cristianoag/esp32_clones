@@ -3,6 +3,14 @@
 This log tracks user-visible changes to the ESP32 Apple II emulator firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.05 - Unreleased
+
+### Fixed
+
+- Applied the MSX-tested USB receive fix so brief SE0/SE1 transitions no longer ended joystick descriptor packets early and prevented detection.
+- Preserved receive-edge timestamps and ACK timing while retaining CRC validation, saved calibration and independent joystick ports.
+- Added receive-edge traces for the first two failed control transactions and timing/packet regressions for both connectors.
+
 ## 1.04 - Unreleased
 
 ### Added

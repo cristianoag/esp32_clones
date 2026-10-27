@@ -11,6 +11,9 @@
 #define ASSIGNED_USB_ADDRESS 3
 #define STDCLASS 0
 #define HIDCLASS 3
+#ifdef MACPLUS_MOUSE
+#include "mac_mouse.h"
+#endif
 #include "UsbTypes.inc"
 
 static sUsbContStruct current_usb[NUM_USB];
@@ -80,27 +83,56 @@ static void enumerate(unsigned port, bool stallIdle)
     current->numb_reps_errors_allowed = 4;
     step();
     assert(current->fsm_state == 90 && current->rq.bmRequestType == 0x21);
-    assert(current->rq.bmRequest == 0x0a && current->rq.wIndex == 3);
+#ifdef MACPLUS_MOUSE
+    assert(current->rq.bmRequest == 0x0b && current->rq.wValue == 0);
+#else
+    assert(current->rq.bmRequest == 0x0a);
+#endif
+    assert(current->rq.wIndex == 3);
     assert(current->rq.wLen == 0);
     current->numb_reps_errors_allowed = stallIdle ? 0 : 4;
     step();
+#ifdef MACPLUS_MOUSE
+    if (stallIdle) {
+        assert(current->fsm_state == 104 && detectedPort == 99);
+        return;
+    }
+#endif
     assert(current->fsm_state == 100 && detectedPort == port);
     step();
     assert(current->fsm_state == 101 && current->rq.eop == 3);
     assert(current->asckedReceiveBytes == 8);
     const uint8_t payload[] = {0, 127, 255, 0x10, 0x20, 0x55, 0xaa, 0};
     memcpy(current->acc_decoded_resp, payload, sizeof(payload));
-    current->acc_decoded_resp_counter = sizeof(payload);
+#ifdef MACPLUS_MOUSE
+    const unsigned payloadSize = 3;
+#else
+    const unsigned payloadSize = sizeof(payload);
+#endif
+    current->acc_decoded_resp_counter = payloadSize;
     unsigned before = reports;
     step();
     assert(reports == before + 1 && reportPort == port && reportEndpoint == 0x83);
-    assert(reportLength == 8 && !memcmp(delivered, payload, sizeof(payload)));
+    assert(reportLength == payloadSize && !memcmp(delivered, payload, payloadSize));
     current->wires_last_state = 0;
     step();
     assert(current->fsm_state == 0 && current->cb_Cmd == CB_CHECK);
 }
 int main(void)
 {
+#ifdef MACPLUS_MOUSE
+    config[15] = 1;
+    config[16] = 2;
+    enumerate(1, false);
+    enumerate(1, true); // Boot protocol must succeed for a boot mouse.
+    config[25] = config[26] = 0;
+    enumerate(1, false); // Boot protocol does not need a report descriptor.
+    prepare(0);
+    parse();
+    step();
+    assert(current->fsm_state == 104 && !current->inputCount); // Port 1 remains disabled.
+    const unsigned validPort = 1;
+#else
     for (unsigned port = 0; port < 2; ++port) {
         enumerate(port, false); // Report descriptor is 308 bytes, not fetched.
         enumerate(port, true);  // Optional HID SET_IDLE can STALL.
@@ -109,28 +141,44 @@ int main(void)
         config[25] = 0x34;
         config[26] = 1;
     }
-    prepare(0);
+    const unsigned validPort = 0;
+#endif
+    prepare(validPort);
     parse();
     step();
     current->numb_reps_errors_allowed = 0;
     step();
     assert(current->fsm_state == 104 && detectedPort == 99); // Configuration is mandatory.
-    for (unsigned protocol = 1; protocol <= 2; ++protocol) {
-        prepare(0);
-        current->descrBuffer[16] = protocol; // Do not claim keyboards or mice.
+#ifdef MACPLUS_MOUSE
+    const unsigned firstProtocol = 0, lastProtocol = 1;
+#else
+    const unsigned firstProtocol = 1, lastProtocol = 2;
+#endif
+    for (unsigned protocol = firstProtocol; protocol <= lastProtocol; ++protocol) {
+        prepare(validPort);
+        current->descrBuffer[16] = protocol; // Reject inappropriate HID interface protocols.
         parse();
         step();
         assert(current->fsm_state == 104 && !current->inputCount);
     }
-    prepare(0);
+    prepare(validPort);
     current->descrBuffer[31] = 9; // Oversized low-speed interrupt packet.
     parse();
     step();
     assert(current->fsm_state == 104 && !current->inputCount);
-    prepare(0);
+    prepare(validPort);
     current->descrBuffer[27] = 0; // Malformed descriptor cannot loop forever.
     parse();
     step();
     assert(current->fsm_state == 104 && !current->inputCount);
+#ifdef MACPLUS_MOUSE
+    prepare(validPort);
+    current->descrBuffer[31] = 2;
+    parse();
+    step();
+    assert(current->fsm_state == 104 && !current->inputCount);
+    puts("PASS: boot mouse on port 2 only, SET_PROTOCOL, short reports, configuration failure and unplug.");
+#else
     puts("PASS: both ports, opaque/long HID descriptors, SET_IDLE, config failure, reports and unplug.");
+#endif
 }

@@ -82,7 +82,7 @@ make firmware
 make upload
 ```
 
-`make firmware` builds and verifies `dist\ESP32_MSXTURBOR-1.01.FLH`.
+`make firmware` builds and verifies `dist\ESP32_MSXTURBOR-1.03.FLH`.
 `make upload` is a UART upload, including the shared partition table.
 The Makefile uses PlatformIO's standard Windows virtual environment.
 

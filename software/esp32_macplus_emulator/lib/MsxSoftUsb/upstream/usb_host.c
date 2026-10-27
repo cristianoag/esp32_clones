@@ -372,7 +372,7 @@ typedef struct
   unsigned lastCaptureEdges;
   int lastControlResult;
   uint8_t lastControlCommand;
-  uint16_t lastControlTrace[24];
+  uint16_t lastControlTrace[128];
 #endif
 
   uint8_t flags_new;
@@ -425,6 +425,16 @@ void restart()
 {
   transmit_NRZI_buffer_cnt = 0;
 }
+
+#ifdef MSX_SOFT_USB
+static void msxSaveControlTrace(void)
+{
+  unsigned count = received_NRZI_buffer_bytesCnt;
+  const unsigned capacity = sizeof(current->lastControlTrace) / sizeof(current->lastControlTrace[0]);
+  if(count > capacity) count = capacity;
+  memcpy(current->lastControlTrace, received_NRZI_buffer, count * sizeof(uint16_t));
+}
+#endif
 
 
 
@@ -788,8 +798,8 @@ void IRAM_ATTR __attribute__((noinline)) sendRecieveNParse()
   msxReplayAcked = false;
   sendOnly();
   const uint32_t pins = GPIO.in & mask;
-  msx_usb_capture_begin(&capture, received_NRZI_buffer, pins, shift,
-                        cpu_hal_get_cycle_count(), timeout);
+  msx_usb_capture_begin(&capture, received_NRZI_buffer, pins, mask, shift,
+                        cpu_hal_get_cycle_count(), msxBitCycles, timeout);
   while(msx_usb_capture_sample(&capture, GPIO.in & mask, cpu_hal_get_cycle_count())) {}
   received_NRZI_buffer_bytesCnt = capture.count;
   /* The first copy was CRC-validated without an ACK. Acknowledge its replay
@@ -1032,8 +1042,7 @@ void timerCallBack()
     if(res == T_ACK) ++current->setupAcks;
     else {
       ++current->controlFailures;
-      memcpy(current->lastControlTrace, received_NRZI_buffer,
-             (received_NRZI_buffer_bytesCnt < 24 ? received_NRZI_buffer_bytesCnt : 24) * sizeof(uint16_t));
+      msxSaveControlTrace();
     }
 #endif
     if(res==T_ACK) {
@@ -1087,6 +1096,7 @@ void timerCallBack()
       current->cb_Cmd = CB_7;
     } else {
       ++current->controlFailures;
+      msxSaveControlTrace();
       if(--current->numb_reps_errors_allowed <= 0) {
         current->cb_Cmd = CB_TICK;
         current->bComplete = 1;
@@ -2050,9 +2060,11 @@ void printState()
            pcurrent->lastControlResult == T_CHK_ERR ? "CRC/decode error" :
            pcurrent->lastCaptureEdges <= 1 ? "no reply" : "unrecognized reply",
            pcurrent->lastCaptureEdges, pcurrent->setupAcks);
-    if(pcurrent->loggedControlFailures <= 2 && pcurrent->lastControlCommand == CB_5) {
-      printf("MSX joystick USB RX edges:");
-      for(unsigned i = 0; i < pcurrent->lastCaptureEdges && i < 24; ++i)
+    if(pcurrent->loggedControlFailures <= 2) {
+      const unsigned capacity = sizeof(pcurrent->lastControlTrace) / sizeof(pcurrent->lastControlTrace[0]);
+      const unsigned count = pcurrent->lastCaptureEdges < capacity ? pcurrent->lastCaptureEdges : capacity;
+      printf("MSX joystick USB RX edges (%u/%u):", count, pcurrent->lastCaptureEdges);
+      for(unsigned i = 0; i < count; ++i)
         printf(" %04x", pcurrent->lastControlTrace[i]);
       printf("\n");
     }
@@ -2161,8 +2173,8 @@ void printState()
         if(d[0] < 6 || d[0] < 6 + 3*d[5]) { malformed = true; break; }
         for(unsigned i=0; i<d[5]; ++i) {
           if(d[6+3*i] != 0x22) continue;
-          unsigned length = d[7+3*i] | ((unsigned)d[8+3*i] << 8);
 #ifndef MACPLUS_MOUSE
+          unsigned length = d[7+3*i] | ((unsigned)d[8+3*i] << 8);
           if(!length || length > 255) { malformed = true; break; }
           pcurrent->reportDescriptorLength = length;
 #endif

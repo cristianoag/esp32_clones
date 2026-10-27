@@ -3,6 +3,14 @@
 This log tracks user-visible changes to the ESP32 MSX TurboR / FS-A1ST firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.03 - Unreleased
+
+### Fixed
+
+- Applied the MSX-tested USB receive fix so brief SE0/SE1 transitions no longer ended joystick descriptor packets early and prevented detection.
+- Preserved receive-edge timestamps and ACK timing while retaining CRC validation, both MSX ports and TurboR-specific saved calibration.
+- Added receive-edge traces for the first two failed control transactions and extended timing/packet regressions across both connectors.
+
 ## 1.02 - Unreleased
 
 ### Added

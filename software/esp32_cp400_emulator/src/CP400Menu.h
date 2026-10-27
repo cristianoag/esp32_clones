@@ -41,15 +41,10 @@ void PrintFileName(uint8_t LoopFile);
 void DiskMenuChoose(void);
 void DiskMenuChoose_1(uint8_t DriveNumber);
 void ClearFileList(void);
-void ClearFileBuffer(void);
-uint8_t DrawFiles(uint16_t FileNumber, uint8_t ForeColor, uint8_t BackColor);
 void DisplayDiskContent(void);
-int8_t FillFileBuffer(uint16_t startIndex, int8_t MaxIndex, const char* fileExt);
 void DrawFrames(void);
 void DrawMenuDiskChoose(uint8_t selectedDrive);
-void DrawDiskMenuChoose_1(void);
 void DrawMainMenuOptions(uint8_t selectedItem);
-void DrawFirmwareUpdateMenuChoose(void);
 char* Firmware_Choose(void);
 
 

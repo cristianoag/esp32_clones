@@ -9,6 +9,10 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 - Copied the latest prebuilt MSX firmware package to this emulator's project root and the shared SD-card root when running `make` or `make firmware` from the parent software folder, without rebuilding firmware.
 
+### Changed
+
+- Changed the parent-folder `make` and `make firmware` commands to clear FLH files from the shared SD-card root and copy only the latest MSX package there, leaving emulator project roots and build archives unchanged.
+
 ### Fixed
 
 - Confirmed USB packet endings before stopping reception so brief SE0 transitions no longer truncated joystick descriptors and left the USB joysticks screen showing disconnected.

@@ -22,7 +22,7 @@
 #include "CP400Input.h"
 #include "CP400Roms.h"
 #include "FirmwareUpdater.h"
-#include "Cp400FirmwareBrowser.h"
+#include "Cp400SdBrowser.h"
 
 extern uint8_t *MENU_Backup;
 extern uint8_t *MENU_BackupPage2;
@@ -49,9 +49,6 @@ extern uint8_t memory[65536];
 
 struct FileArrayStruct
 {
-  uint8_t FileBuffer[31][255];
-  int16_t FileStart;
-  int16_t FileEnd;
   uint8_t FileList[69][11];
 };
 FileArrayStruct FileArray;
@@ -193,95 +190,16 @@ void ShowMenuError(const char *message)
     vTaskDelay(2000);
 }
 
-int8_t FillFileBuffer(uint16_t startIndex, int8_t MaxIndex, const char* fileExt)
-{
-    ClearFileBuffer();
-
-    if (!IsSDCardAvailable() || MaxIndex < 0)
-    {
-        return -1;
-    }
-
-    File root = SD_MMC.open("/");
-    if (!root)
-    {
-#ifdef DEBUG_PRINT
-        Serial.println("Failed to open root directory");
-#endif
-        return -1;
-    }
-
-    if (!root.isDirectory())
-    {
-#ifdef DEBUG_PRINT
-        Serial.println("Root is not a directory");
-#endif
-        root.close();
-        return -1;
-    }
-
-    File file = root.openNextFile();
-    uint16_t currentIndex = 0;
-    int8_t bufferIndex = 0;
-    while (file && bufferIndex <= MaxIndex)
-    {
-        const char* name = file.name();
-        bool validEntry = false;
-
-        //Directories cannot be opened as images, so only matching files are listed.
-        if (!file.isDirectory())
-        {
-            const char* ext = strrchr(name, '.');
-            if (ext && strcasecmp(ext, fileExt) == 0)            
-            {
-                validEntry = true;
-            }
-        }
-
-        if (currentIndex >= startIndex && validEntry)
-        {
-            snprintf((char*)FileArray.FileBuffer[bufferIndex],
-                     255,
-                     "%s",
-                     name);
-
-            bufferIndex++;
-        }
-
-        currentIndex++;
-
-        file.close();
-        file = root.openNextFile();
-    }
-
-    root.close();
-
-#ifdef DEBUG_PRINT
-    Serial.print("Loaded ");
-    Serial.print(bufferIndex);
-    Serial.println(" entries into FileBuffer");
-#endif
-
-    if (bufferIndex == 0)
-        return -1; // Aucun fichier chargé
-
-    return bufferIndex - 1; // Dernier index rempli
-}
-
-
-
 void PopulateDiskContent(const char *FileToLoad)
 {
     File f;
     uint8_t DataDisk;
     uint8_t LoopFile = 0;
     uint32_t LoopSeek;
-    char tmpBuf[100];
     volatile uint32_t BytePos = 256 * 18 * 17 + 512; // Start of filenames
     ClearFileList();
-    snprintf(tmpBuf, sizeof(tmpBuf), "/%s", FileToLoad);
 
-    f = SD_MMC.open(tmpBuf, FILE_READ);
+    f = SD_MMC.open(FileToLoad, FILE_READ);
     if (!f)
     {
 #ifdef DEBUG_PRINT
@@ -332,11 +250,6 @@ void ClearFileList(void)
 {
     memset(FileArray.FileList, 0xFF, sizeof(FileArray.FileList));
 }
-void ClearFileBuffer(void)
-{
-    memset(FileArray.FileBuffer, 0, sizeof(FileArray.FileBuffer));
-}
-
 void PrintFileName(uint8_t LoopFile)
 {
 
@@ -1091,222 +1004,19 @@ void DrawMenuDiskChoose(uint8_t selectedDrive)
     {
         char label[16];
         snprintf(label, sizeof(label), "Drive %u", drive);
-        const char *diskName = Disk_Drive.Name_Disk[drive][0] != '\0'
-                                 ? (char*)Disk_Drive.Name_Disk[drive] + 1
-                                 : "<empty>";
+        const char *path = (const char*)Disk_Drive.Name_Disk[drive];
+        const char *slash = strrchr(path, '/');
+        const char *diskName = *path ? (slash ? slash + 1 : path) : "<empty>";
         DrawSelectableRow(3 + drive, label, diskName, drive == selectedDrive);
     }
 }
 
-void DrawDiskMenuChoose_1(void)
+static char* ChooseSdFile(bool diskImage)
 {
-    DrawScreenFrame("Disk image", "Arrows move  PgUp/PgDn page", "ENTER select  ESC back");
-    return;
-}
-
-void DrawFirmwareUpdateMenuChoose(void)
-{
-    DrawScreenFrame("Firmware update", "Arrows move  ENTER select  ESC back", nullptr);
-    return;
-}
-
-void DiskMenuChoose_1(uint8_t DriveNumber)
-{
-    #define DELAY_MENU_SELECT 80
-    int16_t FileStart = 0;
-    int16_t MenuPick = 0;
-    
-    int8_t MenuMaxIndex;
-    char buf[15];
-
-    if (!IsSDCardAvailable())
-    {
-        ShowMenuError("No microSD card detected.");
-        return;
-    }
-
-    vga->clear(0);
-    vga->show();
-    vga->clear(0);
-    vga->show();
-
-    DrawDiskMenuChoose_1();
-    MenuMaxIndex =  FillFileBuffer(MenuPick, 10,".DSK");
-    if (MenuMaxIndex < 0)
-    {
-        ShowMenuError("No .DSK files found.");
-        return;
-    }
-    DrawFiles(MenuPick,0b11100000, 0b00000011);
-    DisplayDiskContent();
-    DrawFrames();
-    
-    vga->show();
-    vTaskDelay(200);
-    while(1)
-    {
-
-        switch (sf.DIRECT_Key_Code)
-        {
-        case MENU_DOWN:
-            MenuPick++;
-            //FileStart++;
-            if (MenuPick > MenuMaxIndex)
-            {
-                FileStart +=11;
-                MenuMaxIndex =  FillFileBuffer(FileStart, 10,".DSK");
-                if (MenuMaxIndex == -1) //Error
-                {
-                    MenuPick--;
-                    FileStart-=11;
-                }
-                else
-                {
-                    MenuPick = 0;
-                }
-            }
-            vga->clear(0);
-
-            DrawDiskMenuChoose_1();
-            
-            DrawFiles(MenuPick,0b11100000, 0b00000011);
-            DisplayDiskContent();
-            DrawFrames();
-            vga->show();
-            vTaskDelay(DELAY_MENU_SELECT);
-            break;
-        case MENU_PGDWN:
-            
-            for (uint8_t loop1 = 0; loop1 !=11; loop1++)
-            {
-                MenuPick++;
-                //FileStart++;
-                if (MenuPick > MenuMaxIndex)
-                {
-                    FileStart +=11;
-                    MenuMaxIndex =  FillFileBuffer(FileStart, 10,".DSK");
-                    if (MenuMaxIndex == -1) //Error
-                    {
-                        MenuPick--;
-                        FileStart-=11;
-                    }
-                    else
-                    {
-                        MenuPick = 0;
-                    }
-                }
-            }
-            vga->clear(0);
-            //DrawText ("Choose the file to assign to disk drive:",0,0,0,0,255,0);
-            DrawDiskMenuChoose_1();
-
-            DrawFiles(MenuPick,0b11100000, 0b00000011);
-            DisplayDiskContent();
-            DrawFrames();
-            vga->show();
-            vTaskDelay(DELAY_MENU_SELECT);
-            break;
-        case MENU_UP:
-        
-            MenuPick--;
-            //FileStart--;
-            if (MenuPick < 0 && FileStart < 0)
-            {
-                MenuPick = 0;
-                FileStart = 0;
-            }
-            else if (MenuPick < 0 && FileStart >= 0)
-            {
-                MenuPick+=11;
-                FileStart-=11;
-                if (FileStart <0)
-                {
-                    FileStart = 0;
-                    MenuPick = 0;
-                }
-                MenuMaxIndex =  FillFileBuffer(FileStart, 10,".DSK");
-            }
-            vga->clear(0);
-
-            DrawDiskMenuChoose_1();
-            DrawFiles(MenuPick,0b11100000, 0b00000011);
-            DisplayDiskContent();
-            DrawFrames();
-            vga->show();
-            vTaskDelay(DELAY_MENU_SELECT);
-            break;
-        case MENU_PGUP:
-            for (uint8_t loop1 = 0; loop1 !=11; loop1++)
-            {
-                MenuPick--;
-                //FileStart--;
-                if (MenuPick < 0 && FileStart < 0)
-                {
-                    MenuPick = 0;
-                    FileStart = 0;
-                }
-                else if (MenuPick < 0 && FileStart >= 0)
-                {
-                    MenuPick+=11;
-                    FileStart-=11;
-                    if (FileStart <0)
-                    {
-                        FileStart = 0;
-                        MenuPick = 0;
-                    }
-                    MenuMaxIndex =  FillFileBuffer(FileStart, 10,".DSK");
-                }
-            }
-                vga->clear(0);
-                DrawDiskMenuChoose_1();
-                DrawFiles(MenuPick,0b11100000, 0b00000011);
-                DisplayDiskContent();
-                DrawFrames();
-                vga->show();
-                vTaskDelay(DELAY_MENU_SELECT);
-                break;
-        case MENU_ENTER:
-                if (!IsSDCardAvailable())
-                {
-                    ShowMenuError("microSD card was removed.");
-                    return;
-                }
-                snprintf((char*)Disk_Drive.Name_Disk[DriveNumber],
-                         sizeof(Disk_Drive.Name_Disk[DriveNumber]), "/%s",
-                         (char*)FileArray.FileBuffer[MenuPick]);
-                if (!ReadCP400DiskImage((const char*)Disk_Drive.Name_Disk[DriveNumber], DriveNumber))
-                {
-                    ShowMenuError("Unable to read disk image.");
-                    return;
-                }
-                if (!SaveConfigToSD())
-                {
-                    ShowMenuError("Unable to save configuration.");
-                    return;
-                }
-                return;
-            break;
-            
-        case MENU_ESC:
-            return;
-            break;
-            
-        
-        default:
-            break;
-        }
-        vTaskDelay(10);
-        
-    }
-
-}
-
-
-char* Firmware_Choose(void)
-{
-    static char selectedPath[Cp400FirmwarePathCapacity];
-    static Cp400FirmwareEntry entries[Cp400FirmwarePageSize];
-    char directory[Cp400FirmwarePathCapacity] = "/";
+    static char selectedPath[Cp400SdPathCapacity];
+    static Cp400SdEntry entries[Cp400SdPageSize];
+    char directory[Cp400SdPathCapacity] = "/";
+    const char *extension = diskImage ? ".DSK" : ".FLH";
     size_t first = 0, selected = 0;
     if (!IsSDCardAvailable())
     {
@@ -1324,23 +1034,39 @@ char* Firmware_Choose(void)
             ShowMenuError("microSD card was removed.");
             return (char*)"NF";
         }
-        if (!Cp400ReadFirmwarePage(directory, first, entries, count, total, error, sizeof(error)))
+        if (!Cp400ReadSdPage(directory, extension, first, entries, count, total, error, sizeof(error)))
         {
             ShowMenuError(error);
             return (char*)"NF";
         }
         if (error[0]) ShowMenuError(error);
         if (selected >= count) selected = count ? count - 1 : 0;
-        DrawScreenFrame("Firmware update", "UP/DOWN move  ENTER open/install", "ESC parent folder / cancel at root");
+        DrawScreenFrame(diskImage ? "Disk image" : "Firmware update",
+                        diskImage ? "Arrows/PgUp/PgDn move  ENTER open/select" : "UP/DOWN move  ENTER open/install",
+                        "ESC parent folder / cancel at root");
         char caption[MENU_TEXT_COLUMNS + 1];
         snprintf(caption, sizeof(caption), "%.*s", MENU_TEXT_COLUMNS, directory);
-        DrawText(caption, 0, MENU_CONTENT_ROW, 0, 0, MENU_ACCENT_COLOR, 0);
+        DrawText(caption, 0, diskImage ? 25 : MENU_CONTENT_ROW, 0, 0, MENU_ACCENT_COLOR, 0);
+        const uint8_t firstRow = diskImage ? 2 : MENU_CONTENT_ROW + 2;
         for (size_t i = 0; i < count; ++i)
         {
-            const char *kind = entries[i].kind == Cp400FirmwareEntryKind::File ? ".FLH" : "<DIR>";
-            DrawSelectableRow(MENU_CONTENT_ROW + 2 + i, entries[i].name, kind, i == selected);
+            const char *kind = entries[i].kind == Cp400SdEntryKind::File ? extension : "<DIR>";
+            DrawSelectableRow(firstRow + i, entries[i].name, kind, i == selected);
         }
-        if (!count) DrawText("No .FLH files or folders.", 0, MENU_CONTENT_ROW + 2, 0, 0, MENU_TEXT_COLOR, 0);
+        if (!count)
+        {
+            snprintf(caption, sizeof(caption), "No %s files or folders.", extension);
+            DrawText(caption, 0, firstRow, 0, 0, MENU_TEXT_COLOR, 0);
+        }
+        if (diskImage)
+        {
+            ClearFileList();
+            if (count && entries[selected].kind == Cp400SdEntryKind::File &&
+                Cp400JoinSdPath(directory, entries[selected].name, selectedPath, sizeof(selectedPath)))
+                PopulateDiskContent(selectedPath);
+            DisplayDiskContent();
+            DrawFrames();
+        }
         vga->show();
         while (!sf.DIRECT_Key_Code) vTaskDelay(10);
         const auto key = sf.DIRECT_Key_Code;
@@ -1361,37 +1087,85 @@ char* Firmware_Choose(void)
             if (selected) --selected;
             else if (first)
             {
-                first -= Cp400FirmwarePageSize;
-                selected = Cp400FirmwarePageSize - 1;
+                first -= Cp400SdPageSize;
+                selected = Cp400SdPageSize - 1;
+            }
+            break;
+        case MENU_PGDWN:
+            if (count && first + selected + 1 < total)
+            {
+                const size_t remaining = total - first - selected - 1;
+                const size_t target = first + selected + (remaining < Cp400SdPageSize ? remaining : Cp400SdPageSize);
+                first = target / Cp400SdPageSize * Cp400SdPageSize;
+                selected = target - first;
+            }
+            break;
+        case MENU_PGUP:
+            {
+                const size_t current = first + selected;
+                const size_t target = current > Cp400SdPageSize ? current - Cp400SdPageSize : 0;
+                first = target / Cp400SdPageSize * Cp400SdPageSize;
+                selected = target - first;
             }
             break;
         case MENU_ENTER:
             if (!count) break;
-            if (entries[selected].kind == Cp400FirmwareEntryKind::Parent)
-                Cp400ParentFirmwarePath(directory);
+            if (entries[selected].kind == Cp400SdEntryKind::Parent)
+                Cp400ParentSdPath(directory);
             else
             {
-                if (!Cp400JoinFirmwarePath(directory, entries[selected].name,
-                                          selectedPath, sizeof(selectedPath)))
+                if (!Cp400JoinSdPath(directory, entries[selected].name,
+                                     selectedPath, sizeof(selectedPath)))
                 {
-                    ShowMenuError("Invalid or overlong firmware path.");
+                    ShowMenuError("Invalid or overlong SD path.");
                     break;
                 }
-                if (entries[selected].kind == Cp400FirmwareEntryKind::File)
+                if (entries[selected].kind == Cp400SdEntryKind::File)
+                {
+                    if (diskImage && strlen(selectedPath) >= sizeof(Disk_Drive.Name_Disk[0]))
+                    {
+                        ShowMenuError("Disk path too long (max 255 characters).");
+                        break;
+                    }
                     return selectedPath;
+                }
                 strcpy(directory, selectedPath);
             }
             first = selected = 0;
             break;
         case MENU_ESC:
             if (!strcmp(directory, "/")) return (char*)"NF";
-            Cp400ParentFirmwarePath(directory);
+            Cp400ParentSdPath(directory);
             first = selected = 0;
             break;
         default:
             break;
         }
     }
+}
+
+void DiskMenuChoose_1(uint8_t DriveNumber)
+{
+    const char *path = ChooseSdFile(true);
+    if (!strcmp(path, "NF")) return;
+    if (!IsSDCardAvailable())
+    {
+        ShowMenuError("microSD card was removed.");
+        return;
+    }
+    if (!ReadCP400DiskImage(path, DriveNumber))
+    {
+        ShowMenuError("Unable to read disk image.");
+        return;
+    }
+    strcpy((char*)Disk_Drive.Name_Disk[DriveNumber], path);
+    if (!SaveConfigToSD())
+        ShowMenuError("Unable to save configuration.");
+}
+
+char* Firmware_Choose(void)
+{
+    return ChooseSdFile(false);
 }
 
 
@@ -1449,26 +1223,4 @@ void DrawFrames(void)
     DrawMenuLine(0, 199, MENU_CONTENT_RIGHT, 199, FRAME_COL_1);
     DrawMenuLine(88, 108, 88, 199, FRAME_COL_1);
     DrawMenuLine(176, 108, 176, 199, FRAME_COL_1);
-}
-
-uint8_t DrawFiles(uint16_t FileNumber, uint8_t ForeColor, uint8_t BackColor)
-{
-    uint16_t Loop1;
-    uint16_t Ypos = 2;
-    for (Loop1 = 0;
-         Loop1 <= 10 && FileArray.FileBuffer[Loop1][0] != 0;
-         Loop1++)
-    {
-        if (FileNumber == Loop1)
-        {
-            DrawText((char*)FileArray.FileBuffer[Loop1],0, Ypos++,0,0,ForeColor, 255);
-            PopulateDiskContent((char*)FileArray.FileBuffer[Loop1]);
-        }
-        else
-        {
-            DrawText((char*)FileArray.FileBuffer[Loop1], 0,Ypos++,0,0,ForeColor, BackColor);
-        }
-    }
-    return Loop1;
-
 }

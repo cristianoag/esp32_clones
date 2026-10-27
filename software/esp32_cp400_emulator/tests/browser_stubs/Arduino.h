@@ -5,6 +5,9 @@
 struct TestSerial
 {
     unsigned messages = 0;
+    void print(const char *message) { ++messages; fputs(message, stdout); }
+    void print(size_t value) { ++messages; ::printf("%zu", value); }
+    void println(size_t value) { ++messages; ::printf("%zu\n", value); }
     void println(const char *message)
     {
         ++messages;

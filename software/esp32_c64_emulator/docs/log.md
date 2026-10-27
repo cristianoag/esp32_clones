@@ -5,6 +5,10 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ## 1.02 - Unreleased
 
+### Changed
+
+- Changed the parent-folder `make` and `make firmware` commands to clear FLH files from the shared SD-card root and copy only the latest Commodore 64 package there, leaving emulator project roots and build archives unchanged.
+
 ### Fixed
 
 - Applied the MSX-tested USB receive fix so brief SE0/SE1 transitions no longer ended joystick descriptor packets early and prevented detection.

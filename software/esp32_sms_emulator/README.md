@@ -44,10 +44,12 @@ make test
 ```
 
 `make firmware` builds, packages and verifies
-`dist\ESP32_SMS-1.02.FLH`. `make upload` flashes through UART.
+`dist\ESP32_SMS-1.03.FLH`. `make upload` flashes through UART.
 Host regressions require PowerShell plus native GCC and G++ on PATH
 (for example, MSYS2 UCRT64). The tests generate their own small Z80 cartridges;
 no commercial game or BIOS files are needed.
+Run `powershell -File tools\Test-Core.ps1 -Benchmark` for optional synthetic
+host core/scaling timings; these are not ESP32 frame-rate measurements.
 
 ## Prepare the SD card
 
@@ -67,7 +69,11 @@ place your legally obtained, uncompressed `.sms` or `.rom` cartridges in
   empty components, control characters, colons or backslashes.
 
 The ROM browser starts in `/sms/roms` if present, supports nested directories
-and parent navigation, and pages through ten entries at a time.
+and parent navigation, and pages through ten entries at a time. Each directory
+is scanned once using filenames and directory flags without opening individual
+cartridges. Its list is kept in PSRAM, so arrow keys and page changes do not
+rescan the card, even with hundreds of games. Opening another directory or
+reopening the browser refreshes the list; no index files are written to SD.
 
 ## F12 menu
 
@@ -168,5 +174,30 @@ its layout and mock-OTA cross-emulator checks.
   VGA/audio quality, real game compatibility, USB hardware and live firmware
   switching still need validation on the board. UART reports measured speed;
   use frame skipping if necessary.
+
+  ### Performance diagnostics
+
+  The CPU, working RAM and hot VDP state prefer internal SRAM, with 64 KiB of
+  internal-heap headroom reserved for peripherals and tasks. Large cartridge
+  SRAM and decoded tile-cache buffers remain separate. UART reports either
+  `SMS core memory: ... bytes in internal SRAM` or an explicit slower PSRAM
+  fallback if there is insufficient internal memory.
+
+  The 60 KiB game framebuffer also prefers internal SRAM, after peripherals
+  have started, only when 64 KiB plus room for both the running and replacement
+  hot cores can remain free. `SMS framebuffer memory` reports its placement.
+  A PSRAM fallback preserves functionality on a fragmented or low-memory heap.
+  VGA scaling uses a small SRAM row buffer and a bulk copy to the DMA buffer.
+  Pixel spacing, console timing and the selected frame-skipping setting are
+  unchanged.
+
+  Every five seconds, `SMS speed` reports actual emulated FPS and the configured
+  render ratio. `SMS work` breaks down average core time (CPU, VDP and PSG), VGA
+  presentation time per rendered frame, and audio submission time per emulated
+  frame. These work timings exclude frame-pacing sleep; audio includes any wait
+  for output-buffer space. Menu time is excluded. Console targets remain
+  60 Hz NTSC or 50 Hz PAL, and frame skipping is never enabled automatically.
+  Include the startup core/framebuffer placement lines when comparing board
+  measurements, since a PSRAM fallback can affect both core and VGA timings.
 
 See the [firmware change log](docs/log.md).

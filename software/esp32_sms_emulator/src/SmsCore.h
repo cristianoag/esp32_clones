@@ -2,6 +2,7 @@
 #include "SmsSettings.h"
 #include <sms.h>
 #include <memory>
+#include <stdlib.h>
 
 class SmsCore
 {
@@ -22,7 +23,7 @@ public:
 
 private:
     static void samples(void *user, int16_t *data, uint32_t count);
-    std::unique_ptr<SMS_Core> core_;
+    std::unique_ptr<SMS_Core, decltype(&free)> core_{nullptr, free};
     std::unique_ptr<uint8_t[]> rom_;
     int16_t stereo_[1024] = {}, mono_[512] = {};
     unsigned count_ = 0;

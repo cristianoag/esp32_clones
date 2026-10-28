@@ -9,7 +9,7 @@ SD root
   sms
     roms
       YourGame.sms
-  ESP32_SMS-1.02.FLH       optional firmware update
+  ESP32_SMS-1.03.FLH       optional firmware update
 ```
 
 No BIOS is needed. No game images are supplied. The F12 ROM browser can also

@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Local ESP32 port: bounded header reads, small/headerless SMS cartridges,
@@ -296,6 +297,12 @@ bool SMS_init(struct SMS_Core* sms)
     }
 
     memset(sms, 0, sizeof(*sms));
+    sms->cart_ram.ram = calloc(2, sizeof(*sms->cart_ram.ram));
+    sms->vdp.cached_palette = calloc(sizeof(sms->vdp.vram) / 4, sizeof(*sms->vdp.cached_palette));
+    if (!sms->cart_ram.ram || !sms->vdp.cached_palette)
+    {
+        return false;
+    }
 
     // set default vdp sprites.
     SMS_set_mode1_max_sprites(sms, SMS_MODE1_MAX_SPRITES);
@@ -335,6 +342,8 @@ void SMS_quit(struct SMS_Core* sms)
     {
         psg_quit(sms->psg);
         scheduler_quit(&sms->scheduler);
+        free(sms->cart_ram.ram);
+        free(sms->vdp.cached_palette);
         memset(sms, 0, sizeof(*sms));
     }
 }
@@ -346,7 +355,9 @@ void SMS_reset(struct SMS_Core* sms)
     memset(sms->rmap, 0, sizeof(sms->rmap));
     memset(sms->wmap, 0, sizeof(sms->wmap));
     memset(&sms->cpu, 0, sizeof(sms->cpu));
+    struct CachedPalette* cached_palette = sms->vdp.cached_palette;
     memset(&sms->vdp, 0, sizeof(sms->vdp));
+    sms->vdp.cached_palette = cached_palette;
     memset(&sms->port, 0, sizeof(sms->port));
     memset(sms->system_ram, 0, sizeof(sms->system_ram));
 
@@ -604,7 +615,7 @@ bool SMS_loadromEx(struct SMS_Core* sms, const uint8_t* rom, size_t size, int sy
 
 bool SMS_loadsave(struct SMS_Core* sms, const uint8_t* data, size_t size)
 {
-    if (!data || !size || size != sizeof(sms->cart_ram.ram))
+    if (!data || size != SMS_SRAM_SIZE_MAX)
     {
         return false;
     }

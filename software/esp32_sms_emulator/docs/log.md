@@ -3,6 +3,24 @@
 This log tracks user-visible changes to the Sega Master System firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.03 - Unreleased
+
+### Fixed
+
+- Reduced the time to open Load ROM with hundreds of cartridges by reading directory names and types without opening each file.
+- Removed repeated microSD scans from arrow-key and page navigation by keeping the current folder's list in PSRAM, while refreshing it when changing folders or reopening the browser.
+- Reported directory read and list-allocation failures instead of showing an incomplete cartridge list.
+- Improved emulation throughput by keeping CPU, working RAM and VDP state in internal SRAM when available, while leaving large tile-cache and cartridge-SRAM buffers separately allocated and preserving failed-load recovery.
+- Reduced CPU memory-access overhead and VGA scaling work without changing console timing, pixel output or the selected frame-skipping setting.
+- Stopped rewriting unchanged VGA borders every frame while retaining complete screen restoration after F12 and video-mode changes.
+- Reduced rendering memory traffic by preferring internal SRAM for the game framebuffer when enough room remained for peripherals and a staged cartridge replacement.
+- Reduced VGA transfer overhead by scaling each output row in SRAM before copying it to the VGA buffer in a single bulk transfer.
+- Accelerated fully visible background tiles while preserving scrolling, clipping, flips, palette priority and sprite collision results.
+
+### Added
+
+- Added UART reports of core and framebuffer memory placement and average emulation, VGA and audio submission times to help diagnose remaining frame-rate limits on the board.
+
 ## 1.02 - Unreleased
 
 ### Changed

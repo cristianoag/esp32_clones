@@ -3,6 +3,7 @@
 #include <sms_internal.h>
 #include <algorithm>
 #include <assert.h>
+#include <chrono>
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -79,6 +80,18 @@ static void settingsAndInput()
     SmsVideoRow(destination + 1, source);
     assert(destination[0] == 0xa5 && destination[321] == 0xa5);
     for (unsigned i = 0; i < 320; ++i) assert(destination[i + 1] == source[i * 4 / 5]);
+    for (unsigned sourceOffset = 0; sourceOffset < 4; ++sourceOffset)
+        for (unsigned destinationOffset = 0; destinationOffset < 4; ++destinationOffset)
+        {
+            uint8_t input[260], output[328];
+            for (unsigned i = 0; i < sizeof(input); ++i) input[i] = uint8_t(i * 73 + 19);
+            memset(output, 0xa5, sizeof(output));
+            const unsigned start = destinationOffset + 1;
+            SmsVideoRow(output + start, input + sourceOffset);
+            for (unsigned i = 0; i < sizeof(output); ++i)
+                assert(output[i] == (i >= start && i < start + 320 ?
+                       input[sourceOffset + (i - start) * 4 / 5] : 0xa5));
+        }
 }
 
 static void loaderAndFrames()
@@ -184,7 +197,9 @@ static void loaderAndFrames()
 static void hardwareCore()
 {
     SMS_Core sms = {};
+    static_assert(sizeof(SMS_Core) <= 32 * 1024, "Hot core must fit in internal SRAM.");
     assert(SMS_init(&sms));
+    assert(sms.cart_ram.ram && sms.vdp.cached_palette);
     auto rom = cartridge(65536);
     for (unsigned bank = 0; bank < 4; ++bank) rom[bank * 16384 + 1024] = bank + 10;
     assert(SMS_loadromEx(&sms, rom.data(), rom.size(), SMS_System_SMS, -1, -1));
@@ -211,6 +226,26 @@ static void hardwareCore()
     assert(SMS_target_fps(&sms) < 60);
     SMS_set_use_exact_timing(&sms, false);
     assert(SMS_target_fps(&sms) == 60);
+    auto *cache = sms.vdp.cached_palette;
+    auto *ram = sms.cart_ram.ram;
+    std::vector<uint8_t> save(SMS_SRAM_SIZE_MAX, 0x5a);
+    save.back() = 0x9c;
+    assert(!SMS_loadsave(&sms, save.data(), sizeof(sms.cart_ram.ram)));
+    assert(SMS_loadsave(&sms, save.data(), save.size()));
+    assert(sms.cart_ram.ram[0][0] == 0x5a && sms.cart_ram.ram[1][16383] == 0x9c);
+    const SMS_StateConfig config = {false, false};
+    std::vector<uint8_t> state(SMS_get_state_size(&sms, &config));
+    assert(SMS_savestate(&sms, state.data(), state.size(), &config));
+    sms.cart_ram.ram[1][16383] = 0;
+    assert(SMS_loadstate(&sms, state.data(), state.size(), &config));
+    assert(sms.cart_ram.ram[1][16383] == 0x9c);
+    sms.vdp.cached_palette[4095].normal = 0xffffffff;
+    SMS_reset(&sms);
+    mapper_init(&sms);
+    assert(sms.vdp.cached_palette == cache && sms.cart_ram.ram == ram);
+    assert(!cache[4095].normal && !ram[0][0] && !ram[1][16383]);
+    SMS_quit(&sms);
+    assert(!sms.cart_ram.ram && !sms.vdp.cached_palette);
     SMS_quit(&sms);
     for (size_t size : {size_t(8192), size_t(16384), size_t(32768), size_t(49152)})
     {
@@ -227,10 +262,97 @@ static void hardwareCore()
     }
 }
 
-int main()
+static void benchmark()
+{
+    SmsCore machine;
+    SmsSettings settings;
+    char error[160];
+    auto rom = cartridge();
+    printf("Hot core size: %u bytes; cartridge SRAM and tile cache allocated separately\n", unsigned(sizeof(SMS_Core)));
+    std::vector<uint8_t> pixels(SmsCore::Width * SmsCore::Height);
+    assert(machine.load(rom.data(), rom.size(), settings, pixels.data(), error, sizeof(error)));
+    for (bool draw : {false, true})
+    {
+        const auto start = std::chrono::steady_clock::now();
+        for (unsigned frame = 0; frame < 3000; ++frame) machine.runFrame(0, draw);
+        const double micros = std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - start).count();
+        printf("Host synthetic core (%s): %.2f us/frame\n", draw ? "rendered" : "skipped", micros / 3000);
+    }
+    uint8_t line[320];
+    const auto start = std::chrono::steady_clock::now();
+    unsigned checksum = 0;
+    for (unsigned frame = 0; frame < 3000; ++frame)
+        for (unsigned y = 0; y < 240; ++y)
+        {
+            SmsVideoRow(line, pixels.data() + y * SmsCore::Width);
+            checksum += line[frame % 320];
+        }
+    const double micros = std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - start).count();
+    printf("Host video scaling (240 rows): %.2f us/frame, checksum %u\n", micros / 3000, checksum);
+}
+
+static void rendererScenes()
+{
+    const uint64_t expected[] = {0x04931991e0b67fb4ULL, 0xd4d5913e0a130ef2ULL, 0xd6e318b27b0c50e2ULL};
+    unsigned mode = 0;
+    for (unsigned height : {192u, 224u, 240u})
+    {
+        uint64_t hash = 0xcbf29ce484222325ULL;
+        auto hashByte = [&hash](uint8_t value) { hash = (hash ^ value) * 0x100000001b3ULL; };
+        for (unsigned scroll : {0u, 1u, 7u, 8u, 255u})
+            for (unsigned flags : {0u, 0x20u, 0x40u, 0x80u, 0xe0u})
+            {
+                SMS_Core sms = {};
+                assert(SMS_init(&sms));
+                std::vector<uint8_t> rom(32768), pixels(256 * 240 + 2, 0xa5);
+                rom[0] = 0xc3;
+                assert(SMS_loadromEx(&sms, rom.data(), rom.size(), SMS_System_SMS, -1, -1));
+                SMS_set_pixels(&sms, pixels.data() + 1, 256, 8);
+                SMS_set_colour_callback(&sms, [](void *, uint8_t r, uint8_t g, uint8_t b) -> uint32_t
+                {
+                    return SmsColour(r, g, b);
+                });
+                uint32_t seed = height ^ scroll ^ flags;
+                for (uint8_t &value : sms.vdp.vram)
+                {
+                    seed = seed * 1664525u + 1013904223u;
+                    value = seed >> 24;
+                }
+                for (unsigned i = 0; i < 32; ++i) sms.vdp.cram[i] = (i * 7 + scroll) & 0x3f;
+                auto reg = [&sms](uint8_t index, uint8_t value)
+                {
+                    SMS_write_io(&sms, 0xbf, value);
+                    SMS_write_io(&sms, 0xbf, 0x80 | index);
+                };
+                reg(0, (height == 192 ? 0x04 : 0x06) | flags);
+                reg(1, height == 192 ? 0x40 : height == 224 ? 0x50 : 0x48);
+                reg(2, 0x0e);
+                reg(5, 0x7e);
+                reg(6, 0x04);
+                reg(8, scroll);
+                reg(9, (scroll * 7 + flags) & 255);
+                SMS_run(&sms, SMS_RunEndFrame);
+                SMS_run(&sms, SMS_RunEndFrame);
+                assert(pixels.front() == 0xa5 && pixels.back() == 0xa5);
+                for (uint8_t value : pixels) hashByte(value);
+                hashByte(sms.vdp.sprite_collision);
+                hashByte(sms.vdp.sprite_overflow);
+                hashByte(sms.vdp.fifth_sprite_num);
+                SMS_quit(&sms);
+            }
+        assert(hash == expected[mode++]);
+    }
+    puts("75 reference VDP scenes matched: scroll/wrap, clipping, flips, priority, sprites and 192/224/240 rows.");
+}
+
+int main(int argc, char **argv)
 {
     settingsAndInput();
     loaderAndFrames();
     hardwareCore();
+    rendererScenes();
     puts("SMS core, synthetic cartridge video/audio, ROM loading, mappers, input and settings passed.");
+    if (argc == 2 && !strcmp(argv[1], "--benchmark")) benchmark();
 }

@@ -5,6 +5,7 @@
 #include <VGA.h>
 #include <esp_heap_caps.h>
 #include <algorithm>
+#include <cerrno>
 #include <memory>
 #include <new>
 #include "SmsAudio.h"
@@ -148,53 +149,80 @@ static bool browse(const char *title, const char *extension, char result[SmsPath
     char directory[SmsPathSize] = "/";
     if (!strcmp(extension, ".sms") && SD_MMC.exists("/sms/roms"))
         snprintf(directory, sizeof(directory), "/sms/roms");
-    unsigned selected = 0;
+    struct Entry { char name[SmsPathSize]; bool directory; };
+    std::unique_ptr<Entry[], decltype(&heap_caps_free)> entries(nullptr, heap_caps_free);
+    size_t selected = 0, total = 0, capacity = 0;
+    unsigned skipped = 0;
+    bool refresh = true;
     SmsKeyboardClearEvents();
     for (;;)
     {
-        struct Entry { char name[SmsPathSize]; bool directory; };
-        Entry entries[10] = {};
-        unsigned total = 0, count = 0;
-        const unsigned first = (selected / 10) * 10;
-        File folder = SD_MMC.open(directory);
-        if (!folder || !folder.isDirectory()) return error("Cannot read SD directory.");
-        if (strcmp(directory, "/"))
+        if (refresh)
         {
-            if (!first) { snprintf(entries[0].name, SmsPathSize, ".."); entries[0].directory = true; ++count; }
-            ++total;
-        }
-        unsigned visited = 0, skipped = 0;
-        for (File entry = folder.openNextFile(); entry; entry = folder.openNextFile())
-        {
-            if (++visited % 16 == 0) delay(1);
-            const char *name = baseName(entry.name());
-            if (!strcmp(name, ".") || !strcmp(name, "..") ||
-                !strcasecmp(name, "System Volume Information")) continue;
-            if (!entry.isDirectory() && !hasExtension(name, extension) &&
-                (strcmp(extension, ".sms") || !hasExtension(name, ".rom"))) continue;
-            char path[SmsPathSize];
-            const int length = snprintf(path, sizeof(path), "%s%s%s", directory,
-                                         strcmp(directory, "/") ? "/" : "", name);
-            if (length < 0 || unsigned(length) >= sizeof(path) || !SmsValidPath(path))
+            frame(title);
+            text(8, 55, "Reading SD directory...");
+            snprintf(status, sizeof(status), "%.150s", directory);
+            footer("");
+            total = 0;
+            skipped = 0;
+            File folder = SD_MMC.open(directory);
+            if (!folder || !folder.isDirectory()) return error("Cannot read SD directory.");
+            auto append = [&](const char *name, bool isDirectory)
             {
-                ++skipped;
-                Serial.printf("SMS browser: invalid/overlong path: %s\n", name);
-                continue;
-            }
-            if (total >= first && count < 10)
+                if (total == capacity)
+                {
+                    if (capacity > SIZE_MAX / sizeof(Entry) / 2)
+                        return error("Not enough memory to list SD directory.");
+                    const size_t nextCapacity = capacity ? capacity * 2 : 32;
+                    Entry *grown = static_cast<Entry *>(heap_caps_realloc(
+                        entries.get(), nextCapacity * sizeof(Entry), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+                    if (!grown) return error("Not enough memory to list SD directory.");
+                    entries.release();
+                    entries.reset(grown);
+                    capacity = nextCapacity;
+                }
+                snprintf(entries[total].name, SmsPathSize, "%s", name);
+                entries[total++].directory = isDirectory;
+                return true;
+            };
+            if (strcmp(directory, "/") && !append("..", true)) return false;
+            unsigned visited = 0;
+            for (;;)
             {
-                snprintf(entries[count].name, SmsPathSize, "%s", name);
-                entries[count++].directory = entry.isDirectory();
+                bool isDirectory = false;
+                errno = 0;
+                // This reads directory metadata without opening/stat-ing every cartridge.
+                const auto path = folder.getNextFileName(&isDirectory);
+                if (!path.length())
+                {
+                    if (errno) return error("Cannot read SD directory.");
+                    break;
+                }
+                if (++visited % 16 == 0) delay(1);
+                const char *name = baseName(path.c_str());
+                if (!strcmp(name, ".") || !strcmp(name, "..") ||
+                    !strcasecmp(name, "System Volume Information")) continue;
+                if (!isDirectory && !hasExtension(name, extension) &&
+                    (strcmp(extension, ".sms") || !hasExtension(name, ".rom"))) continue;
+                if (!SmsValidPath(path.c_str()))
+                {
+                    ++skipped;
+                    Serial.printf("SMS browser: invalid/overlong path: %s\n", name);
+                    continue;
+                }
+                if (!append(name, isDirectory)) return false;
             }
-            ++total;
+            folder.close();
+            refresh = false;
         }
-        folder.close();
-        if (selected >= total && selected) { selected = total ? total - 1 : 0; continue; }
+        const size_t first = (selected / 10) * 10;
+        const size_t count = std::min<size_t>(10, total - first);
         frame(title);
         for (unsigned i = 0; i < count; ++i)
         {
+            const Entry &entry = entries[first + i];
             char label[52];
-            snprintf(label, sizeof(label), "%s%.46s", entries[i].directory ? "> " : "  ", entries[i].name);
+            snprintf(label, sizeof(label), "%s%.46s", entry.directory ? "> " : "  ", entry.name);
             row(i, selected == first + i, label);
         }
         if (!total) text(8, 55, "No matching files.");
@@ -209,13 +237,14 @@ static bool browse(const char *title, const char *extension, char result[SmsPath
         else if (value == 78 && total) selected = std::min(selected + 10, total - 1);
         else if (value == 40 && count)
         {
-            const Entry &entry = entries[selected - first];
+            const Entry &entry = entries[selected];
             if (!strcmp(entry.name, ".."))
             {
                 char *slash = strrchr(directory, '/');
                 if (slash == directory) directory[1] = 0;
                 else *slash = 0;
                 selected = 0;
+                refresh = true;
             }
             else
             {
@@ -223,7 +252,12 @@ static bool browse(const char *title, const char *extension, char result[SmsPath
                 const int length = snprintf(path, sizeof(path), "%s%s%s", directory,
                                              strcmp(directory, "/") ? "/" : "", entry.name);
                 if (length < 0 || unsigned(length) >= sizeof(path)) return error("SD path is too long.");
-                if (entry.directory) { snprintf(directory, sizeof(directory), "%s", path); selected = 0; }
+                if (entry.directory)
+                {
+                    snprintf(directory, sizeof(directory), "%s", path);
+                    selected = 0;
+                    refresh = true;
+                }
                 else { snprintf(result, SmsPathSize, "%s", path); status[0] = 0; return true; }
             }
         }
@@ -510,16 +544,20 @@ static void menu()
     SmsAudioEnable(audioReady && settings.sound && !audioFailed);
 }
 
-static void present()
+static void present(bool restore = false)
 {
+    static unsigned previousHeight = 0;
     const unsigned height = machine.height(), top = (240 - height) / 2;
+    const bool clearBorders = restore || height != previousHeight;
     for (unsigned y = 0; y < 240; ++y)
     {
+        if (!clearBorders && (y < top || y >= top + height)) continue;
         uint8_t *line = video.dmaBuffer->getLineAddr8(y);
         if (y >= top && y < top + height) SmsVideoRow(line, pixels + (y - top) * SmsCore::Width);
         else memset(line, 0, 320);
         video.dmaBuffer->flush(0, y);
     }
+    previousHeight = height;
 }
 
 static void fatal(const char *message, bool visible)
@@ -527,6 +565,23 @@ static void fatal(const char *message, bool visible)
     Serial.println(message);
     if (visible) { frame("Initialization failed"); error(message); footer(""); }
     for (;;) delay(1000);
+}
+
+static uint8_t *allocateFramebuffer()
+{
+    constexpr size_t size = SmsCore::Width * SmsCore::Height;
+    constexpr size_t reserve = 64 * 1024 + 2 * sizeof(SMS_Core);
+    constexpr unsigned caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    uint8_t *buffer = nullptr;
+    if (heap_caps_get_free_size(caps) >= size + reserve)
+        buffer = static_cast<uint8_t *>(heap_caps_calloc(size, 1, caps));
+    if (buffer)
+    {
+        Serial.printf("SMS framebuffer memory: %u bytes in internal SRAM\n", unsigned(size));
+        return buffer;
+    }
+    Serial.println("SMS framebuffer memory: internal SRAM unavailable; using slower PSRAM");
+    return static_cast<uint8_t *>(heap_caps_calloc(size, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 }
 
 void setup()
@@ -544,8 +599,6 @@ void setup()
     if (!video.start()) fatal("VGA start failed.", false);
     frame("Starting shared board hardware...");
     video.show();
-    pixels = static_cast<uint8_t *>(heap_caps_calloc(SmsCore::Width * SmsCore::Height, 1, MALLOC_CAP_SPIRAM));
-    if (!pixels) fatal("Emulator framebuffer allocation failed.", true);
     if (!SmsKeyboardStart()) fatal("USB keyboard host failed; see UART.", true);
     audioReady = SmsAudioStart();
     if (!audioReady) error("Audio initialization failed; see UART.");
@@ -568,6 +621,8 @@ void setup()
         }
     }
     if (!SmsJoysticksStart()) error("Joystick host failed; keyboard controls remain available.");
+    pixels = allocateFramebuffer();
+    if (!pixels) fatal("Emulator framebuffer allocation failed.", true);
     frame("Sega Master System - press F12 for menu");
     text(8, 58, "Copy your cartridges to /sms/roms on FAT32.");
     text(8, 78, "F12 > Load ROM to start. No BIOS needed.");
@@ -587,6 +642,8 @@ void setup()
 void loop()
 {
     static uint32_t lastReport = 0, measuredFrames = 0;
+    static uint64_t coreTime = 0, videoTime = 0, audioTime = 0;
+    static unsigned renderedFrames = 0;
     bool openMenu = !running || audioFailed;
     for (uint8_t value = SmsKeyboardMenuKey(); value; value = SmsKeyboardMenuKey())
         if (value == 69) openMenu = true;
@@ -594,9 +651,11 @@ void loop()
     {
         if (audioFailed) { settings.sound = 0; audioFailed = false; }
         menu();
-        present();
+        present(true);
         lastReport = millis();
         measuredFrames = 0;
+        coreTime = videoTime = audioTime = 0;
+        renderedFrames = 0;
     }
     const uint32_t start = micros();
     uint8_t report[8];
@@ -604,8 +663,11 @@ void loop()
     const uint16_t buttons = SmsFilterMenuPause(SmsInput(report, SmsJoysticksRead(), settings.joystick),
                                                waitForPauseRelease);
     const bool draw = machine.frames % (settings.frameSkip + 1) == 0;
+    const uint32_t coreStart = micros();
     machine.runFrame(buttons, draw);
+    const uint32_t coreEnd = micros();
     if (draw) present();
+    const uint32_t videoEnd = micros();
     if (audioReady && settings.sound)
     {
         int16_t samples[512];
@@ -613,6 +675,11 @@ void loop()
         for (unsigned i = 0; i < count; ++i) samples[i] = machine.audio()[i] * settings.volume / 100;
         SmsAudioSubmit(samples, count);
     }
+    const uint32_t audioEnd = micros();
+    coreTime += uint32_t(coreEnd - coreStart);
+    videoTime += uint32_t(videoEnd - coreEnd);
+    audioTime += uint32_t(audioEnd - videoEnd);
+    if (draw) ++renderedFrames;
     const uint32_t target = machine.frameMicros(), elapsed = micros() - start;
     if (elapsed < target)
     {
@@ -628,7 +695,13 @@ void loop()
         Serial.printf("SMS speed: %.2f emulated fps, target %.2f, rendering 1/%u, mapper %s\n",
                       measuredFrames * 1000.0 / (now - lastReport), 1000000.0 / target,
                       settings.frameSkip + 1, machine.mapperName());
+        Serial.printf("SMS work: core %.2f ms/frame, VGA %.2f ms/rendered frame, audio %.2f ms/frame\n",
+                      coreTime / (measuredFrames * 1000.0),
+                      renderedFrames ? videoTime / (renderedFrames * 1000.0) : 0.0,
+                      audioTime / (measuredFrames * 1000.0));
         lastReport = now;
         measuredFrames = 0;
+        coreTime = videoTime = audioTime = 0;
+        renderedFrames = 0;
     }
 }

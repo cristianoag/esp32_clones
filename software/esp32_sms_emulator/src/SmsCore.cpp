@@ -4,9 +4,35 @@
 #include <new>
 #include <stdio.h>
 #include <string.h>
+#ifdef ESP_PLATFORM
+#include <esp_heap_caps.h>
+#endif
 
 namespace
 {
+static_assert(sizeof(SMS_Core) <= 32 * 1024, "Keep CPU/VDP hot state within 32 KiB.");
+
+SMS_Core *allocateCore()
+{
+#ifdef ESP_PLATFORM
+    constexpr unsigned caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    constexpr size_t reserve = 64 * 1024;
+    SMS_Core *core = nullptr;
+    if (heap_caps_get_free_size(caps) >= sizeof(SMS_Core) + reserve)
+        core = static_cast<SMS_Core *>(heap_caps_calloc(1, sizeof(SMS_Core), caps));
+    if (core)
+    {
+        printf("SMS core memory: %u bytes in internal SRAM\n", unsigned(sizeof(SMS_Core)));
+        return core;
+    }
+    printf("SMS core memory: internal SRAM unavailable; using slower PSRAM\n");
+    return static_cast<SMS_Core *>(heap_caps_calloc(1, sizeof(SMS_Core),
+                                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
+    return static_cast<SMS_Core *>(calloc(1, sizeof(SMS_Core)));
+#endif
+}
+
 bool fail(char *error, size_t capacity, const char *message)
 {
     snprintf(error, capacity, "%s", message);
@@ -27,7 +53,19 @@ uint8_t SmsColour(uint8_t red, uint8_t green, uint8_t blue)
 
 void SmsVideoRow(uint8_t destination[320], const uint8_t source[256])
 {
-    for (unsigned x = 0; x < 320; ++x) destination[x] = source[x * 4 / 5];
+    alignas(4) uint8_t expanded[320];
+    uint8_t *output = expanded;
+    for (unsigned x = 0; x < 256; x += 4, output += 5)
+    {
+        const uint8_t first = source[x];
+        output[0] = first;
+        output[1] = first;
+        output[2] = source[x + 1];
+        output[3] = source[x + 2];
+        output[4] = source[x + 3];
+    }
+    // Scale in SRAM, then let memcpy use word-sized writes to the PSRAM VGA row.
+    memcpy(destination, expanded, sizeof(expanded));
 }
 
 bool SmsInspectRom(const uint8_t *data, size_t size, size_t &offset, size_t &length,
@@ -63,7 +101,7 @@ bool SmsCore::load(const uint8_t *data, size_t size, const SmsSettings &settings
         return fail(error, capacity, "Invalid cartridge configuration or framebuffer.");
     if (!SmsInspectRom(data, size, offset, length, error, capacity)) return false;
     std::unique_ptr<uint8_t[]> rom(new (std::nothrow) uint8_t[length]);
-    std::unique_ptr<SMS_Core> candidate(new (std::nothrow) SMS_Core{});
+    std::unique_ptr<SMS_Core, decltype(&free)> candidate(allocateCore(), free);
     if (!rom || !candidate) return fail(error, capacity, "Not enough memory to stage cartridge.");
     memcpy(rom.get(), data + offset, length);
     if (!SMS_init(candidate.get()))

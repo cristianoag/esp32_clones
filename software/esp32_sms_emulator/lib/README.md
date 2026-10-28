@@ -29,11 +29,29 @@ Local TotalSMS changes:
 - Corrected the exact-timing setter so disabling exact timing works.
 - Enabled the existing 224/240-line rendering paths with a 240-row frontend
   framebuffer, removing upstream placeholder assertions and testing row bounds.
+- Separated the 32 KiB cartridge SRAM and 32 KiB decoded tile cache from hot
+  core state, preserving buffer ownership, resets, SRAM loading and the
+  upstream state serialization layout.
+- Inlined mapped CPU memory reads to avoid out-of-line calls for each opcode
+  and operand fetch.
+- Added an unrolled background-tile path for fully visible tiles, retaining
+  the original clipping/wrap path at screen edges. Compared output and sprite
+  flags against 75 reference scenes covering scrolling, masks, flips, priority
+  and all three supported SMS heights.
 
 The wrapper caps SMS cartridges at 1 MiB, strips optional copier headers,
 rejects Game Gear headers, stages replacement cores before committing and
 adapts pixels, PCM and input to the board. Its own platform-specific source
-lives in `../src`, not inside the upstream core.
+lives in `../src`, not inside the upstream core. The wrapper prefers internal
+SRAM for the roughly 30 KiB hot core, leaving 64 KiB of internal-heap headroom.
+It reports and uses a PSRAM fallback if internal allocation is unavailable.
+The pinned Arduino allocator places the two separately allocated 32 KiB
+buffers in PSRAM, above its 4 KiB internal-allocation threshold.
+The frontend also prefers internal SRAM for the 60 KiB game framebuffer,
+after peripheral startup and only when 64 KiB plus space for two hot cores
+remains available. Its VGA scaler builds each output line on the internal
+stack before a bulk copy to the DMA framebuffer, avoiding per-pixel PSRAM
+stores. Both framebuffer placement and PSRAM fallback are reported on UART.
 
 Architectural reference:
 [hi631/esp32-smsemu](https://github.com/hi631/esp32-smsemu), commit

@@ -1,3 +1,4 @@
+param([switch]$Benchmark)
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 $cc = (Get-Command gcc -ErrorAction Stop).Source
@@ -21,11 +22,12 @@ try {
         (Join-Path $project 'src\SmsCore.cpp') (Join-Path $project 'tests\CoreTests.cpp') @outputs -o $executable
     $outputs += $executable
     if ($LASTEXITCODE -ne 0) { throw 'SMS host test compilation failed.' }
-    & $executable
+    if ($Benchmark) { & $executable '--benchmark' }
+    else { & $executable }
     if ($LASTEXITCODE -ne 0) { throw 'SMS host regression failed.' }
     $menu = Join-Path $temporary 'sms-menu-tests.exe'
     $outputs += $menu
-    & $cxx -std=c++11 -Wall -Wextra -Werror @flags `
+    & $cxx -std=c++11 -Wall -Wextra -Werror -DESP_PLATFORM @flags `
         "-I$(Join-Path $project 'tests\menu_stubs')" "-I$(Join-Path $project 'src')" `
         (Join-Path $project 'src\SmsCore.cpp') (Join-Path $project 'src\SmsJoystickMapping.cpp') `
         (Join-Path $project 'tests\MenuTests.cpp') @($outputs | Where-Object { $_.EndsWith('.o') }) -o $menu

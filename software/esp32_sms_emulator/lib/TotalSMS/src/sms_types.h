@@ -223,7 +223,7 @@ struct SMS_CartRom
 // some games have 8-16-32KiB ram
 struct SMS_CartRam
 {
-    uint8_t ram[2][1024 * 16];
+    uint8_t (*ram)[1024 * 16];
     bool used; // set when game uses sram at any point.
     bool dirty; // set whilst sram is mapped.
 };
@@ -293,7 +293,7 @@ struct SMS_Vdp
 
     uint8_t vram[1024 * 16];
     bool dirty_vram[(1024 * 16) / 4];
-    struct CachedPalette cached_palette[(1024 * 16) / 4];
+    struct CachedPalette* cached_palette;
 
     // bg can use either palette, while sprites can only use
     // the second half of the cram.

@@ -50,6 +50,7 @@ void ay8910WriteAddress(AY8910* ay8910, UInt16 ioPort, UInt8 address);
 UInt8 ay8910PeekData(AY8910* ay8910, UInt16 ioPort);
 UInt8 ay8910ReadData(AY8910* ay8910, UInt16 ioPort);
 void ay8910WriteData(AY8910* ay8910, UInt16 ioPort, UInt8 data);
+void ay8910GetRegisters(AY8910* ay8910, UInt8 registers[16]);
 
 typedef UInt8 (*AY8910ReadCb)(void*, UInt16);
 typedef void (*AY8910WriteCb)(void*, UInt16, UInt8);
@@ -60,4 +61,3 @@ void ay8910LoadState(AY8910* ay8910);
 void ay8910SaveState(AY8910* ay8910);
 
 #endif
-

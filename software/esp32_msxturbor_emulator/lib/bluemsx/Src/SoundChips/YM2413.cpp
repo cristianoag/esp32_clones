@@ -49,7 +49,6 @@ struct YM_2413 {
         else {
              ym2413 = new OpenYM2413_2("ym2413", 100, 0);
         }
-        memset(defaultBuffer, 0, sizeof(defaultBuffer));
     }
 
     ~YM_2413() {
@@ -62,8 +61,6 @@ struct YM_2413 {
     OpenYM2413Base* ym2413;
     UInt8  address;
     UInt8  registers[256];
-    Int32  buffer[AUDIO_MONO_BUFFER_SIZE];
-    Int32  defaultBuffer[AUDIO_MONO_BUFFER_SIZE];
 };
 
 extern "C" {
@@ -115,20 +112,7 @@ void ym2413WriteData(YM_2413* ym2413, UInt8 data)
 static Int32* ym2413Sync(void* ref, UInt32 count) 
 {
     YM_2413* ym2413 = (YM_2413*)ref;
-    int* genBuf;
-    UInt32 i;
-
-    genBuf = ym2413->ym2413->updateBuffer(count);
-
-    if (genBuf == NULL) {
-        return ym2413->defaultBuffer;
-    }
-
-    for (i = 0; i < count; i++) {
-        ym2413->buffer[i] = genBuf[i];
-    }
-
-    return ym2413->buffer;
+    return ym2413->ym2413->updateBuffer(count);
 }
 
 static char* regText(int d)

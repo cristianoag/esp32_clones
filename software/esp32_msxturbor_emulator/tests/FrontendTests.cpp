@@ -1,5 +1,6 @@
 #include "A1stVideo.h"
 #include "A1stSettings.h"
+#include "A1stCore.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -11,6 +12,11 @@ static void require(bool condition, const char* message)
 }
 int main()
 {
+    static_assert(MsxMapperAuto == 8 && A1ST_MAPPER_AUTO == 8,
+                  "Existing saved Auto mapper IDs must not change.");
+    static_assert(static_cast<int>(MsxAscii16X) == A1ST_ASCII16X &&
+                  static_cast<int>(MsxMapperCount) == A1ST_MAPPER_COUNT,
+                  "Core and frontend mapper IDs must agree.");
     require(A1stVgaColor(0xffff) == 255, "White RGB565 maps to white VGA.");
     require(A1stVgaColor(0xf800) == 7, "Red VGA channel ordering.");
     require(A1stVgaColor(0x07e0) == 0x38, "Green VGA channel ordering.");
@@ -58,6 +64,21 @@ int main()
         }
     }
     A1stSettings defaults, decoded;
+    for (unsigned width : {272U, 544U}) {
+        const unsigned scale = width / 272;
+        for (unsigned x = 0; x < source.size(); ++x) source[x] = uint16_t(x * 19937);
+        for (unsigned fit : {80U, 85U, 90U, 95U, 100U}) {
+            const A1stViewport viewport(fit);
+            output.fill(0x55);
+            A1stScaleVideoRow(output.data() + 1, source.data(), width, fit);
+            for (unsigned x = 0; x < viewport.width; ++x) {
+                const unsigned expected = 8 * scale + x * (256 * scale - 1) / (viewport.width - 1);
+                require(output[1 + viewport.left + x] == A1stVgaColor(source[expected]),
+                        "Division-free VGA scaling matches every original sample at every fit.");
+            }
+            require(output.front() == 0x55 && output.back() == 0x55, "Fast VGA scaling preserves buffer bounds.");
+        }
+    }
     require(A1stDecodeSettings(&defaults, sizeof(defaults), decoded), "Default settings round trip.");
     auto invalid = defaults;
     invalid.drawEvery = 0;
@@ -73,7 +94,7 @@ int main()
     legacy.sound = 0;
     legacy.drawEvery = 5;
     require(A1stDecodeSettings(&legacy, sizeof(legacy), decoded), "Migrate existing A1ST NVS settings.");
-    require(decoded.version == 2 && decoded.sound == 0 && decoded.drawEvery == 5 &&
+    require(decoded.version == 4 && decoded.sound == 0 && decoded.drawEvery == 5 &&
             !std::strcmp(decoded.disks[0], legacy.disk) && decoded.vgaFit == 90 &&
             !decoded.disks[1][0] && !decoded.cartridges[0][0],
             "Migration retains boot preferences and starts with empty added slots.");
@@ -87,6 +108,40 @@ int main()
     full.vgaFit = 85;
     require(A1stDecodeSettings(&full, sizeof(full), decoded) && !std::memcmp(&full, &decoded, sizeof(full)),
             "Both slots, mappers, drives and VGA fit round-trip.");
+    full.mappers[1] = MsxAscii16X;
+    require(A1stDecodeSettings(&full, sizeof(full), decoded) && decoded.mappers[1] == MsxAscii16X &&
+            !std::strcmp(MsxMapperName(decoded.mappers[1]), "ASCII16-X"),
+            "ASCII16-X manual selection is named correctly and persists.");
+    auto legacyV2 = full;
+    legacyV2.version = 2;
+    legacyV2.audioOptions = 0;
+    require(A1stDecodeSettings(&legacyV2, sizeof(legacyV2), decoded) &&
+            decoded.version == 4 && decoded.audioOptions == (A1ST_SOUND_ALL | A1stAudioDefaultGain) &&
+            decoded.mappers[1] == MsxAscii16X && !std::strcmp(decoded.cartridges[0], full.cartridges[0]),
+            "Version 2 settings migrate without losing media or disabling sound sources.");
+    legacyV2.audioOptions = 1;
+    require(!A1stDecodeSettings(&legacyV2, sizeof(legacyV2), decoded), "Reject a nonzero legacy reserved byte.");
+    auto legacyV3 = full;
+    legacyV3.version = 3;
+    legacyV3.audioOptions = A1ST_SOUND_PSG | A1stAudioDiagnostics;
+    require(A1stDecodeSettings(&legacyV3, sizeof(legacyV3), decoded) &&
+            decoded.version == 4 && (decoded.audioOptions & A1ST_SOUND_ALL) == A1ST_SOUND_PSG &&
+            (decoded.audioOptions & A1stAudioDiagnostics) && A1stPwmGain(decoded.audioOptions) == 8,
+            "Version 3 source/debug choices migrate with corrected default PWM gain.");
+    legacyV3.audioOptions = 64;
+    require(!A1stDecodeSettings(&legacyV3, sizeof(legacyV3), decoded), "Reject unknown legacy audio bits.");
+    full.audioOptions = A1ST_SOUND_PSG | A1stAudioDiagnostics | A1stAudioDefaultGain;
+    require(A1stDecodeSettings(&full, sizeof(full), decoded) && decoded.audioOptions == full.audioOptions,
+            "Per-source switches and UART diagnostics persist without changing the NVS record size.");
+    invalid = full;
+    invalid.version = 99;
+    require(!A1stDecodeSettings(&invalid, sizeof(invalid), decoded), "Reject unknown settings versions.");
+    for (unsigned step = 0; step < 4; ++step) {
+        full.audioOptions = (full.audioOptions & ~A1stAudioGainMask) | (step << 6);
+        require(A1stDecodeSettings(&full, sizeof(full), decoded) && A1stPwmGain(decoded.audioOptions) == (1U << step),
+                "Every PWM gain choice persists in the unchanged settings record.");
+    }
+    require(!MsxValidMapper(MsxMapperCount), "The mapper count is not a selectable mapper.");
     invalid = full;
     invalid.mappers[1] = 255;
     require(!A1stDecodeSettings(&invalid, sizeof(invalid), decoded), "Reject invalid mapper.");

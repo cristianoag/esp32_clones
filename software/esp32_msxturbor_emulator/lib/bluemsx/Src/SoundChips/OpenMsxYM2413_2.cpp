@@ -615,6 +615,7 @@ const string& OpenYM2413_2::getDescription() const
 // Reset whole of OPLL except patch datas
 void OpenYM2413_2::reset(const UINT32 &time)
 {
+    std::fill(in, in + 5, 0);
 	pm_phase = 0;
 	am_phase = 0;
 	noise_seed = 0xFFFF;
@@ -1025,6 +1026,7 @@ bool OpenYM2413_2::checkMuteHelper()
 
 int* OpenYM2413_2::updateBuffer(int length)
 {
+    if (isInternalMuted()) return nullptr;
     int* buf = buffer;
 
 	while (length--) {

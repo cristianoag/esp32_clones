@@ -13,6 +13,7 @@ combined firmware remain to be resolved separately.
 | Z80/R800, V9958/commands, slots, RAM/Panasonic mappers, S1990, Kanji, RTC, TC8566AF, mixer/PSG/DAC/SCC | [libretro/blueMSX-libretro](https://github.com/libretro/blueMSX-libretro), commit `e3086eb5d36d77fa11704cf53dc176686e70127d` | Selected source headers generally specify GPL version 2 or later; some helper/rendering headers use a permissive three-condition zlib-style notice. Check each retained notice. |
 | Built-in YM2413 synthesis | blueMSX's `YM2413.cpp` and `OpenMsxYM2413_2.cpp/.h` | The latter explicitly identifies its origin as openMSX, by Mitsutaka Okazaki. The upstream license report classifies the openMSX-derived sound code as GPL. |
 | A1ST hardware description and behavior reference | [openMSX](https://github.com/openMSX/openMSX/tree/5ae314755fd1d2e89b0504caad47d2772b043a32), commit `5ae314755fd1d2e89b0504caad47d2772b043a32` | Current openMSX build metadata declares GPL-2.0-only. Its machine definition, Panasonic memory mapping, S1990, E6 timer and PCM behavior were consulted. The modern desktop core is not linked. |
+| ASCII16-X banking behavior reference | openMSX [`RomAscii16X.cc`](https://github.com/openMSX/openMSX/blob/master/src/memory/RomAscii16X.cc) and [`AmdFlash.cc`](https://github.com/openMSX/openMSX/blob/master/src/memory/AmdFlash.cc), consulted 2026-10-28 | GPL-2.0-only. Register decoding, mirrored windows, 8 MiB flash address capacity and unpopulated-byte behavior were consulted for the local read-only cartridge mapper; the desktop implementation is not linked. |
 | BIOS/firmware and Kanji ROM | User's Panasonic FS-A1ST dumps | Proprietary third-party ROMs. Not distributed or embedded. Importing locally does not transfer redistribution rights. |
 
 The blueMSX checkout's
@@ -47,7 +48,9 @@ firmware's independent copy:
   the upper Kanji BASIC pages outside the DRAM overlay.
 - `romMapperPanasonic.c`: permitted SRAM/RAM writes through every mapped
   region and exposed BIOS/sub-ROM DRAM overlays through the firmware
-  mapper, following openMSX's hardware behavior.
+  mapper, following openMSX's hardware behavior; stored identical read-only
+  firmware banks in shared allocations to reduce PSRAM use without changing
+  logical bank mappings.
 - `romMapperTurboRTimer.c`: used the exact master-clock/84 E6 frequency,
   preserved oscillator phase on reset, and ignored E7 writes.
 - `VDP.c`: reset the cached scanline offset at a new frame, avoiding a
@@ -56,13 +59,26 @@ firmware's independent copy:
   checked binary CMOS writes and synchronization.
 - `OpenMsxYM2413_2.cpp/.h`: placed the two large shared lookup tables in
   dynamically allocated PSRAM instead of overflowing internal BSS; scaled
-  the 44100 Hz modulation constants for the board's 22050 Hz output.
+  the 44100 Hz modulation constants for the board's 22050 Hz output; honored
+  the internal mute state to skip inactive operators and cleared filter state
+  at reset.
+- `YM2413.cpp`: returned the chip's existing output buffer directly and used
+  null for silence, avoiding redundant buffer copies and zero-buffer mixing.
 - `SCC.c`: imported from the same pinned blueMSX commit with its original
   notices; adjusted the phase step to the active mixer sample rate.
+- `AY8910.c`: scaled tone, noise and envelope phase steps to the active
+  mixer sample rate and recalculated them when that rate changed; added a
+  read-only register snapshot for audio diagnostics and exact fast phase
+  averaging with the original 16-step behavior retained.
+- `DAC.c/.h`: added mixer-category selection so keyboard-click output could
+  be muted independently of TurboR PCM while retaining default DAC behavior;
+  returned null for inactive channels instead of redundant zero buffers.
+- `R800.c`: allocated zeroed CPU state through the embedded CPU-memory helper,
+  preferring internal SRAM under the same reserve policy as ordinary MSX.
 
 The `port` directory implements the embedded scheduler, A1ST construction,
 framebuffer, raw sector I/O, persistence, host-service boundary and PCM
 integration. It also provides independent cartridge mapping for the eight
-normal MSX mapper choices, using blueMSX SCC and the existing YM2413
+normal MSX mapper choices plus read-only ASCII16-X banking, using blueMSX SCC and the existing YM2413
 integration without linking the noncommercial fMSX core. Desktop save-state calls fail explicitly if accidentally
 invoked; that feature is not advertised by the frontend.

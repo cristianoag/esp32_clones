@@ -1,4 +1,5 @@
 #include "A1stCore.h"
+#include "MemoryHooks.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -53,6 +54,9 @@ static void writeFixture(const char* path, const unsigned char* bytes, size_t co
 static void message(const char* value) { std::fprintf(stderr, "A1ST: %s\n", value); }
 static unsigned audioSamples;
 void a1stMediaTests();
+void a1stAudioTests();
+void a1stGameAudioTests(const char* firmware, const char* kanji, const char* game);
+void a1stCartridgeFileTests(const char* path);
 static void audio(const int16_t*, unsigned count) { audioSamples += count; }
 static std::vector<char> readVram()
 {
@@ -154,8 +158,14 @@ int main(int argc, char** argv)
 {
     A1stHost host = { message, audio };
     char error[512];
-    if (argc == 3) {
+    if (argc == 5 && !std::strcmp(argv[3], "--game")) {
+        a1stGameAudioTests(argv[1], argv[2], argv[4]);
+        return 0;
+    }
+    if (argc == 3 || argc == 4) {
+        if (argc == 4) a1stTestSetAllocationLimit(8 * 1024 * 1024 - 512 * 1024);
         require(a1stCreate(argv[1], argv[2], "original-state", &host, error, sizeof(error)), error);
+        const size_t residentCoreBytes = a1stTestAllocatedBytes();
         for (unsigned slot = 0; slot < 2; ++slot) {
             std::vector<unsigned char> cartridge(8192, 0);
             cartridge[0] = 'A'; cartridge[1] = 'B';
@@ -202,12 +212,25 @@ int main(int argc, char** argv)
         typeBasic("FILES \"B:\"\n");
         require(occurrences(readVram(), "HELLO") > listings,
                 "Original disk BIOS lists a real second drive through TC8566AF.");
+        if (argc == 4) {
+            a1stCartridgeFileTests(argv[3]);
+            std::printf("Core allocations: %zu bytes; core/cartridge tests passed with a 7.5 MiB limit.\n",
+                        residentCoreBytes);
+        }
         require(a1stFlushState(error, sizeof(error)), error);
         a1stDestroy();
         std::remove("original-fixture.dsk");
         std::remove("original-fixture-b.dsk");
         std::remove("original-slot1.rom");
         std::remove("original-slot2.rom");
+        if (argc == 4) {
+            const size_t retainedBytes = a1stTestAllocatedBytes();
+            require(a1stCreate(argv[1], argv[2], "original-state", &host, error, sizeof(error)), error);
+            a1stCartridgeFileTests(argv[3]);
+            a1stDestroy();
+            require(a1stTestAllocatedBytes() == retainedBytes,
+                    "Repeated cold boot releases all firmware/cartridge banks without double frees or leaks.");
+        }
         std::puts("Original-ROM A1ST BASIC boot, both cartridge initializers, keyboard and Disk BASIC drives A/B passed.");
         return 0;
     }
@@ -218,6 +241,7 @@ int main(int argc, char** argv)
     std::vector<unsigned char> rom(A1ST_FIRMWARE_BYTES + 1);
     for (unsigned bank = 0; bank < 512; ++bank)
         std::memset(rom.data() + bank * 8192, bank & 255, 8192);
+    std::memcpy(rom.data() + 11 * 8192, rom.data() + 10 * 8192, 8192);
     writeFixture("synthetic-kanji.rom", rom.data(), A1ST_KANJI_BYTES);
     for (size_t length : {size_t(A1ST_FIRMWARE_BYTES - 1), size_t(A1ST_FIRMWARE_BYTES + 1)}) {
         writeFixture("synthetic.rom", rom.data(), length);
@@ -246,8 +270,22 @@ int main(int argc, char** argv)
     require(a1stCreate("synthetic.rom", "synthetic-kanji.rom", "synthetic-state", &host, error, sizeof(error)), error);
     require(!interruptRomRead && romBytesRead == 0x200000 + A1ST_KANJI_BYTES,
             "Retry interrupted/short reads and load exactly the mapped ROM and Kanji bytes.");
-    romReadFragment = SIZE_MAX;
+    int detected;
+    for (int failure : {EIO, 0}) {
+        romBytesRead = 0;
+        romReadLimit = 8192;
+        romReadError = failure;
+        require(!a1stInspectCartridge("synthetic.rom", &detected, error, sizeof(error)),
+                "Streaming inspection rejects partial reads.");
+        require(std::strstr(error, failure ? "ROM read failed at 8192/4194304" :
+                                             "ROM ended after 8192/4194304"),
+                "Streaming inspection preserves byte-offset I/O diagnostics.");
+    }
+    romReadLimit = SIZE_MAX;
+    romReadError = 0;
     a1stMediaTests();
+    a1stAudioTests();
+    romReadFragment = SIZE_MAX;
     a1stWritePort(0xa0, 7);
     a1stWritePort(0xa1, 0x40);
     for (unsigned port = 0; port < 2; ++port) {
@@ -273,6 +311,12 @@ int main(int argc, char** argv)
     require(a1stReadMemory(0) == 7, "Panasonic bank selection.");
     a1stWriteMemory(0x7ff9, 0x1c);
     require(a1stReadMemory(0x7ff0) == 7, "Panasonic bank readback.");
+    for (unsigned bank : {10U, 11U}) {
+        a1stWriteMemory(0x6000, bank);
+        require(a1stReadMemory(0x1234) == 10, "Identical firmware banks retain their logical bank mapping.");
+        a1stWriteMemory(0x1234, 0x5a);
+        require(a1stReadMemory(0x1234) == 10, "Shared firmware pages remain read-only.");
+    }
     a1stWriteMemory(0x6000, 0x80);
     a1stWriteMemory(0x1234, 0xa5);
     a1stWriteMemory(0x7000, 0x80);

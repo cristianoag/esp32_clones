@@ -4,7 +4,7 @@
 enum MsxMapper : uint8_t
 {
     MsxGeneric8, MsxGeneric16, MsxKonamiScc, MsxKonami, MsxAscii8, MsxAscii16,
-    MsxGameMaster2, MsxFmPac, MsxMapperAuto
+    MsxGameMaster2, MsxFmPac, MsxMapperAuto, MsxAscii16X, MsxMapperCount
 };
 
 struct MsxCartridgeInfo
@@ -13,7 +13,7 @@ struct MsxCartridgeInfo
     const char *source;
 };
 
-inline bool MsxValidMapper(unsigned mapper) { return mapper <= MsxMapperAuto; }
+inline bool MsxValidMapper(unsigned mapper) { return mapper < MsxMapperCount; }
 
 inline const char *MsxMapperName(int mapper)
 {
@@ -29,9 +29,9 @@ inline const char *MsxMapperName(int mapper)
     case MsxGameMaster2: return "GameMaster2";
     case MsxFmPac: return "FM-PAC";
     case MsxMapperAuto: return "Auto";
+    case MsxAscii16X: return "ASCII16-X";
     case -8: return "NEO8 (unsupported)";
     case -9: return "NEO16 (unsupported)";
-    case -12: return "ASCII16-X (unsupported)";
     case -14: return "Manbow2 (unsupported)";
     default: return "Unknown";
     }

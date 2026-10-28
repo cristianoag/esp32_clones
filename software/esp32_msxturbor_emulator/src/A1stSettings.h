@@ -20,13 +20,13 @@ struct A1stSettingsV1
 
 struct A1stSettings
 {
-    uint32_t version = 4;
+    uint32_t version = 5;
     char disks[2][MsxSdPathCapacity] = {};
     char cartridges[2][MsxSdPathCapacity] = {};
     uint8_t sound = 1;
     uint8_t autoBoot = 1;
     uint8_t firmware = 0;
-    uint8_t drawEvery = 2;
+    uint8_t drawEvery = 6;
     uint8_t mappers[2] = {MsxMapperAuto, MsxMapperAuto};
     uint8_t vgaFit = 90;
     uint8_t audioOptions = A1ST_SOUND_ALL | A1stAudioDefaultGain;
@@ -39,6 +39,7 @@ inline bool A1stDecodeSettings(const void* data, size_t size, A1stSettings& resu
 {
     if (!data) return false;
     A1stSettings candidate;
+    bool migrateInterval = false;
     if (size == sizeof(A1stSettingsV1)) {
         A1stSettingsV1 old;
         memcpy(&old, data, size);
@@ -48,20 +49,28 @@ inline bool A1stDecodeSettings(const void* data, size_t size, A1stSettings& resu
         candidate.autoBoot = old.autoBoot;
         candidate.firmware = old.firmware;
         candidate.drawEvery = old.drawEvery;
+        migrateInterval = true;
     }
     else if (size == sizeof(A1stSettings)) memcpy(&candidate, data, size);
     else return false;
     if (candidate.version == 2) {
         if (candidate.audioOptions) return false;
-        candidate.version = 4;
+        candidate.version = 5;
         candidate.audioOptions = A1ST_SOUND_ALL | A1stAudioDefaultGain;
+        migrateInterval = true;
     }
     if (candidate.version == 3) {
         if (candidate.audioOptions & ~(A1ST_SOUND_ALL | A1stAudioDiagnostics)) return false;
-        candidate.version = 4;
+        candidate.version = 5;
         candidate.audioOptions |= A1stAudioDefaultGain;
+        migrateInterval = true;
     }
-    if (candidate.version != 4 || candidate.sound > 1 || candidate.autoBoot > 1 ||
+    if (candidate.version == 4) {
+        candidate.version = 5;
+        migrateInterval = true;
+    }
+    if (migrateInterval && candidate.drawEvery == 2) candidate.drawEvery = 6;
+    if (candidate.version != 5 || candidate.sound > 1 || candidate.autoBoot > 1 ||
         candidate.firmware > 1 || candidate.drawEvery < 1 || candidate.drawEvery > 6 ||
         candidate.vgaFit < 80 || candidate.vgaFit > 100 || candidate.vgaFit % 5 ||
         !MsxValidMapper(candidate.mappers[0]) ||

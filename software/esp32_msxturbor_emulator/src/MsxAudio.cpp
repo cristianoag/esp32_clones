@@ -7,6 +7,7 @@
 #include <soc/ledc_struct.h>
 #include <esp_timer.h>
 #include <cmath>
+#include <cstring>
 
 static constexpr unsigned BufferSize = 4096;
 static constexpr unsigned Prefill = 1024;
@@ -187,6 +188,9 @@ void MsxAudioSubmit(const int16_t *source, unsigned count)
     const uint32_t start = millis();
     while (position < count)
     {
+        alignas(4) int16_t staging[32];
+        const unsigned batch = count - position < 32 ? count - position : 32;
+        std::memcpy(staging, source + position, batch * sizeof(staging[0]));
         portENTER_CRITICAL(&audioLock);
         if (!enabled)
         {
@@ -194,9 +198,10 @@ void MsxAudioSubmit(const int16_t *source, unsigned count)
             return;
         }
         unsigned copied = 0;
-        while (position < count && (writeIndex + 1) % BufferSize != readIndex && copied < 32)
+        while (position < count && (writeIndex + 1) % BufferSize != readIndex && copied < batch)
         {
-            int scaled = int(source[position++]) * int(outputGain);
+            int scaled = int(staging[copied]) * int(outputGain);
+            ++position;
             if (scaled < -32768 || scaled > 32767)
             {
                 if (diagnosticsEnabled) ++diagnostic.pwmClipped;

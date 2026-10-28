@@ -48,10 +48,18 @@ typedef struct {
     unsigned refreshRate;
 } A1stStats;
 
+typedef struct {
+    uint32_t samples;
+    uint64_t coreUs, videoUs, audioUs;
+    unsigned cpuBytes;
+} A1stWorkStats;
+
 bool a1stCreate(const char* firmware, const char* kanji, const char* stateDirectory,
                 const A1stHost* host, char* error, size_t errorSize);
 void a1stDestroy(void);
 void a1stRunFrame(void);
+void a1stRunFrameWithVideo(bool renderPixels);
+bool a1stFrameRendering(void);
 void a1stSetKeyboard(const uint8_t matrix[16]);
 void a1stSetJoysticks(uint16_t activeHigh);
 void a1stSetFirmwareEnabled(bool enabled);
@@ -60,6 +68,7 @@ void a1stGetAudioDebug(A1stAudioDebug* stats);
 const uint16_t* a1stPixels(void);
 unsigned a1stLineWidth(unsigned line);
 void a1stGetStats(A1stStats* stats);
+void a1stGetWorkStats(A1stWorkStats* stats);
 bool a1stMountDisk(const char* path, char* error, size_t errorSize);
 // Drives and slots use zero-based indices. Empty paths eject.
 bool a1stAttachDisk(unsigned drive, const char* path, char* error, size_t errorSize);

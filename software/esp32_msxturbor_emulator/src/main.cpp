@@ -30,6 +30,9 @@ const char* const BiosDirectory = "/sdcard/msxturbor/bios/fs-a1st";
 int64_t wallAnchor, reportStart, lastYield;
 uint64_t tickAnchor, reportTicks;
 uint32_t presented;
+uint32_t videoFrame;
+uint64_t blitUs;
+constexpr const char* BuildTag = "default-6-buffered";
 bool pacingReady;
 static_assert(static_cast<int>(MsxMapperAuto) == A1ST_MAPPER_AUTO &&
               static_cast<int>(MsxFmPac) == A1ST_FMPAC &&
@@ -292,6 +295,7 @@ bool coldBoot()
         if (!a1stAttachDisk(drive, path, status, sizeof(status))) { a1stDestroy(); return false; }
     }
     running = true;
+    videoFrame = 0;
     if (!applySoundSettings()) { a1stDestroy(); running = false; return false; }
     pacingReady = false;
     status[0] = 0;
@@ -607,7 +611,7 @@ bool menu()
         snprintf(labels[Sound], 64, "Sound / sources / diagnostics: %s", settings.sound ? "On" : "Off");
         snprintf(labels[Firmware], 64, "Built-in firmware: %s (cold boot)", settings.firmware ? "On" : "Off");
         snprintf(labels[AutoBoot], 64, "Auto boot: %s", settings.autoBoot ? "On" : "Off");
-        snprintf(labels[DrawEvery], 64, "Present every %u frame(s)", settings.drawEvery);
+        snprintf(labels[DrawEvery], 64, "Render / present every %u frame(s)", settings.drawEvery);
         snprintf(labels[VgaFit], 64, "VGA fit: %u%% (both picture and menus)", settings.vgaFit);
         snprintf(labels[Save], 64, "Save boot configuration");
         snprintf(labels[Boot], 64, "Cold boot with selected configuration");
@@ -653,9 +657,11 @@ bool menu()
 }
 void present()
 {
+    const int64_t start = esp_timer_get_time();
     const uint16_t* pixels = a1stPixels();
     const A1stViewport viewport(settings.vgaFit);
     uint8_t row[320];
+    uintptr_t cacheFirst = UINTPTR_MAX, cacheLast = 0;
     for (unsigned y = 0; y < 240; ++y) {
         if (!viewport.containsRow(y)) memset(row, 0, sizeof(row));
         else {
@@ -664,9 +670,20 @@ void present()
         }
         uint8_t* destination = video.dmaBuffer->getLineAddr8(y);
         memcpy(destination, row, sizeof(row));
-        Cache_WriteBack_Addr(reinterpret_cast<uint32_t>(destination), sizeof(row));
+        const uintptr_t address = reinterpret_cast<uintptr_t>(destination);
+        if (address < cacheFirst) cacheFirst = address;
+        if (address + sizeof(row) > cacheLast) cacheLast = address + sizeof(row);
+        if ((y & 7) == 7) {
+            if (Cache_WriteBack_Addr(cacheFirst, cacheLast - cacheFirst)) {
+                reportError("VGA cache writeback failed: invalid framebuffer range.");
+                return;
+            }
+            cacheFirst = UINTPTR_MAX;
+            cacheLast = 0;
+        }
     }
     ++presented;
+    blitUs += esp_timer_get_time() - start;
 }
 void pace(const A1stStats& stats)
 {
@@ -675,6 +692,9 @@ void pace(const A1stStats& stats)
         wallAnchor = reportStart = lastYield = now;
         tickAnchor = reportTicks = stats.masterTicks;
         presented = 0;
+        blitUs = 0;
+        A1stWorkStats discarded;
+        a1stGetWorkStats(&discarded);
         pacingReady = true;
     }
     const int64_t target = wallAnchor + (stats.masterTicks - tickAnchor) * 1000000 / 21477270;
@@ -690,6 +710,17 @@ void pace(const A1stStats& stats)
                       stats.dram, heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                       audio.rate, audio.queued, audio.underruns);
         if (settings.audioOptions & A1stAudioDiagnostics) {
+            A1stWorkStats work;
+            a1stGetWorkStats(&work);
+            if (work.samples) {
+                const double scale = 1.0 / (1000.0 * work.samples);
+                const uint64_t measured = work.videoUs + work.audioUs;
+                const uint64_t other = work.coreUs > measured ? work.coreUs - measured : 0;
+                Serial.printf("A1ST work[%s]: samples=%u core=%.2f cpu/other=%.2f vdp=%.2f audio=%.2f ms/frame blit=%.2f ms/present cpuBytes=%u\n",
+                              BuildTag, work.samples, work.coreUs * scale, other * scale,
+                              work.videoUs * scale, work.audioUs * scale,
+                              presented ? blitUs / (1000.0 * presented) : 0.0, work.cpuBytes);
+            }
             A1stAudioDebug source;
             a1stGetAudioDebug(&source);
             Serial.printf("A1ST audio debug: mask=%02x in=%u range=%d..%d mean=%d rms=%u clip=%u played=%u late=%u maxGap=%uus PSG7=%02x vol=%02x/%02x/%02x period=%u/%u/%u PCM=%02x clicks=%u gain=%ux pwmclip=%u\n",
@@ -700,17 +731,32 @@ void pace(const A1stStats& stats)
                           source.psg[4] | (source.psg[5] << 8), source.pcmStatus, source.clickEdges,
                           audio.gain, audio.pwmClippedSamples);
         }
-        reportStart = now; reportTicks = stats.masterTicks; presented = 0;
+        else {
+            A1stWorkStats discarded;
+            a1stGetWorkStats(&discarded);
+        }
+        reportStart = now; reportTicks = stats.masterTicks; presented = 0; blitUs = 0;
     }
 }
 }
 
 void msxReportError(const char* message) { reportError(message); }
 
+bool startBufferedSerial()
+{
+    const size_t accepted = Serial.setTxBufferSize(2048);
+    Serial.begin(115200);
+    if (accepted != 2048 || !Serial) {
+        Serial.println("A1ST: buffered UART initialization failed.");
+        return false;
+    }
+    return true;
+}
+
 void setup()
 {
-    Serial.begin(115200);
-    Serial.printf("\nESP32 MSX TurboR / A1ST %s\n", FW_VERSION);
+    if (!startBufferedSerial()) fatal("Buffered UART output could not start.");
+    Serial.printf("\nESP32 MSX TurboR / A1ST %s [%s]\n", FW_VERSION, BuildTag);
     if (!psramFound()) fatal("8 MiB OPI PSRAM is required. Select the N16R8 board.");
     heap_caps_malloc_extmem_enable(16384);
     video.bufferCount = 1;
@@ -773,9 +819,10 @@ void loop()
     MsxKeyboardMatrix(matrix);
     a1stSetKeyboard(matrix);
     a1stSetJoysticks(MsxJoysticksRead());
-    a1stRunFrame();
+    const bool renderPixels = (++videoFrame % settings.drawEvery) == 0;
+    a1stRunFrameWithVideo(renderPixels);
     A1stStats stats;
     a1stGetStats(&stats);
-    if (stats.frames % settings.drawEvery == 0) present();
+    if (renderPixels) present();
     pace(stats);
 }

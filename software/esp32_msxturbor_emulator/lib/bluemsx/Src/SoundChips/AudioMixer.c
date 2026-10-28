@@ -26,6 +26,7 @@
 ******************************************************************************
 */
 #include "AudioMixer.h"
+#include "A1stProfile.h"
 #include "Board.h"
 #include "ArchTimer.h"
 #include "ArchMidi.h"
@@ -461,7 +462,16 @@ void mixerLoadState(Mixer* mixer)
     saveStateClose(state);
 }
 
+static void mixerSyncImpl(Mixer* mixer);
+
 void mixerSync(Mixer* mixer)
+{
+    A1ST_WORK_BEGIN(A1ST_WORK_AUDIO);
+    mixerSyncImpl(mixer);
+    A1ST_WORK_END(A1ST_WORK_AUDIO);
+}
+
+static void mixerSyncImpl(Mixer* mixer)
 {
     int i;
     UInt32 count;

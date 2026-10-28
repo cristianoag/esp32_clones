@@ -5,17 +5,25 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ## 1.04 - Unreleased
 
+### Changed
+
+- Changed the default render/presentation interval to six frames and migrated saved records still using the previous two-frame default, while retaining other intervals and allowing two to be saved explicitly afterward.
+
 ### Fixed
 
+- Buffered UART transmission so periodic multi-line diagnostics did not block emulation while bytes were sent, and staged PSRAM PCM reads outside the audio interrupt lock.
 - Amplified the quiet mixer signal before rounding it to 8-bit PWM, with saturating output and a default 8x gain, so low-level game music no longer collapsed to only a few duty levels.
 - Excluded intentional audio-timer sleep from late-interrupt gap diagnostics.
 - Corrected PSG tone, noise and envelope clocks for 22050 Hz synthesis; MSX1 music previously played at half its intended pitch.
 - Restored fixed 22050 Hz PWM playback, matching the ordinary MSX firmware instead of lowering music pitch when emulation ran slowly, while retaining buffering and explicit underrun reporting.
 - Preferred internal SRAM for CPU state with a 64 KiB reserve, and skipped inactive FM/silent DAC work to reduce unnecessary emulation overhead.
 - Removed per-pixel VGA divisions and replaced repeated PSG phase loops with mathematically equivalent averaging to reduce frame cost and native-rate audio starvation without changing pixels or sound samples.
+- Skipped VDP pixel composition on undisplayed frames while retaining every guest frame, sprite collision/overflow evaluation, VBlank and VDP command progress.
+- Grouped VGA cache writeback into aligned eight-row spans, reducing cache calls from 240 to 30 per presentation without changing output pixels.
 
 ### Added
 
+- Added sampled CPU/VDP/audio work-time and framebuffer-copy reports with a unique build marker to identify the remaining real-time bottleneck on the board.
 - Added saved 1x/2x/4x/8x PWM gain selection and a separate output-clipping diagnostic; the reference tone always used 1x gain.
 - Added saved F12 switches for PSG, MSX-MUSIC, TurboR PCM, SCC and keyboard-click output, retaining chip/register behavior and migrating older settings with all sources enabled.
 - Added a PSG-only diagnostic preset, a source-independent PWM test tone and optional five-second UART reports of signal levels, clipping, ISR timing and sound-chip state to help isolate persistent board-reported noise.

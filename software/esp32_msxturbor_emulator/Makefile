@@ -16,6 +16,8 @@ test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-Audio.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-SoundMenu.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-Frontend.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-Video.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-SerialTiming.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-FileBrowser.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-RomImport.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-FirmwareUpdate.ps1"

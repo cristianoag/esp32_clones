@@ -10,6 +10,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 static char error[200];
@@ -152,6 +153,95 @@ static void machineTests()
     assert(machine->ram[0x401] == 0x10); // NMOS interrupt entry preserves decimal mode.
 }
 
+class RmwCpu : public CPU6502
+{
+public:
+    uint8_t memory[65536] = {};
+    std::vector<std::pair<uint16_t, uint8_t>> writes;
+    RmwCpu()
+    {
+        a = 0x40; x = 1; y = 2; sp = 0xfd; sr = 0x24; pc = 0x200;
+        cflag = zflag = dflag = bflag = vflag = nflag = false;
+        iflag = true;
+        numofcycles = 0;
+        cpuhalted = false;
+    }
+    uint8_t getMem(uint16_t address) override { return memory[address]; }
+    void setMem(uint16_t address, uint8_t value) override
+    {
+        writes.emplace_back(address, value);
+        memory[address] = value;
+    }
+    void run() override { execute(getMem(pc++)); }
+};
+
+static void rmwTests()
+{
+    const uint8_t opcodes[][11] = {
+        {0x06,0x16,0x0e,0x1e,0x03,0x07,0x0f,0x13,0x17,0x1b,0x1f},
+        {0x46,0x56,0x4e,0x5e,0x43,0x47,0x4f,0x53,0x57,0x5b,0x5f},
+        {0x26,0x36,0x2e,0x3e,0x23,0x27,0x2f,0x33,0x37,0x3b,0x3f},
+        {0x66,0x76,0x6e,0x7e,0x63,0x67,0x6f,0x73,0x77,0x7b,0x7f},
+        {0xe6,0xf6,0xee,0xfe,0xe3,0xe7,0xef,0xf3,0xf7,0xfb,0xff},
+        {0xc6,0xd6,0xce,0xde,0xc3,0xc7,0xcf,0xd3,0xd7,0xdb,0xdf}
+    };
+    const uint8_t results[] = {2,0x40,2,0x40,0x82,0x80};
+    for (unsigned family = 0; family < 6; ++family)
+        for (uint8_t opcode : opcodes[family])
+        {
+            std::unique_ptr<RmwCpu> cpu(new RmwCpu);
+            cpu->memory[0x200] = opcode;
+            uint16_t address = 0;
+            unsigned cycles = 0;
+            switch (opcode & 31)
+            {
+            case 6: case 7:
+                cpu->memory[0x201] = 0x60; address = 0x60; cycles = 5; break;
+            case 0x16: case 0x17:
+                cpu->memory[0x201] = 0x60; address = 0x61; cycles = 6; break;
+            case 3:
+                cpu->memory[0x201] = 0x60;
+                cpu->memory[0x61] = 0x56; cpu->memory[0x62] = 0x34;
+                address = 0x3456; cycles = 8; break;
+            case 0x13:
+                cpu->memory[0x201] = 0x60;
+                cpu->memory[0x60] = 0x56; cpu->memory[0x61] = 0x34;
+                address = 0x3458; cycles = 8; break;
+            default:
+                cpu->memory[0x201] = 0x56; cpu->memory[0x202] = 0x34;
+                address = 0x3456;
+                cycles = 6;
+                if ((opcode & 31) == 0x1b) { address += 2; cycles = 7; }
+                else if (opcode & 0x10) { ++address; cycles = 7; }
+                break;
+            }
+            cpu->memory[address] = 0x81;
+            cpu->run();
+            assert(cpu->writes.size() == 2);
+            assert(cpu->writes[0].first == address && cpu->writes[0].second == 0x81);
+            assert(cpu->writes[1].first == address && cpu->writes[1].second == results[family]);
+            assert(cpu->memory[address] == results[family] && cpu->numofcycles == cycles);
+        }
+    for (uint8_t opcode : {0x0a,0x2a,0x4a,0x6a})
+    {
+        std::unique_ptr<RmwCpu> cpu(new RmwCpu);
+        cpu->memory[0x200] = opcode;
+        cpu->run();
+        assert(cpu->writes.empty() && cpu->numofcycles == 2);
+    }
+    for (uint8_t opcode : {0x0e,0x4e,0x2e,0x6e,0xee,0xce})
+    {
+        std::unique_ptr<C64Core> machine(new C64Core);
+        const uint8_t program[] = {opcode,0x19,0xd0,0xad,0x19,0xd0,0x8d,1,4,0x4c,9,0xe0};
+        fixture(*machine, program, sizeof(program));
+        machine->setMem(0xd01a, 1);
+        machine->vic.vicreg[0x19] = 0x81;
+        machine->runFrame();
+        assert(!(machine->ram[0x401] & 0x81));
+    }
+    puts("NMOS RMW: 66 memory opcodes, original/final write order, cycle counts, accumulator forms and VIC IRQ acknowledgment passed.");
+}
+
 static void mediaTests()
 {
     std::vector<uint8_t> image(C64D64::ImageSize);
@@ -259,6 +349,7 @@ static bool smoke(const char *directory)
 int main(int argc, char **argv)
 {
     inputTests();
+    rmwTests();
     machineTests();
     mediaTests();
     C64Settings settings, decoded;

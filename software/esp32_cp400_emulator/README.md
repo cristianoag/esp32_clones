@@ -40,7 +40,7 @@ Packaging requires Python; host tests require PowerShell and native G++.
 Set the upload and monitor ports in [platformio.ini](platformio.ini) to
 the board's UART port before using `make upload`.
 
-`make firmware` builds and verifies `dist\ESP32_CP400-1.15.FLH`.
+`make firmware` builds and verifies `dist\ESP32_CP400-1.16.FLH`.
 The board definition, libraries and updater are local, so this folder
 remains independently buildable. The updater follows the same validated
 FLH/OTA implementation as the other clone-series firmware projects.
@@ -71,6 +71,21 @@ including the leading `/`) are saved and restored on restart.
 Delete ejects the selected disk and saves the empty assignment.
 F12 also provides Disk ROM selection, artifact
 colors, joystick calibration, reboot and firmware updates.
+
+### F12 menu alignment
+
+The F12 menu is centered independently of the 256x192 emulated computer
+display. Text, highlights, separators, disk previews and progress bars share
+one 266x224-pixel layout centered in the active VGA resolution; the emulated
+computer's positioning is unchanged.
+
+Run `.\tools\Test-MenuLayout.ps1` (also included in `make test`) to render
+the production menu into mock VGA buffers for all four video modes. It checks
+equal left/right margins (within one pixel), text clipping, submenu/progress
+alignment and restoration of both complete display buffers.
+On the board, open F12 and compare the margins at the ends of the green
+header separator, then check Disk drives and Firmware update. Press Esc
+to confirm the emulated display returns intact without shifting.
 
 ## Firmware updates and switching emulators
 
@@ -118,6 +133,7 @@ message alone does not establish that a keyboard is connected.
 
 See the [firmware change log](docs/log.md) for version history.
 
-`make test` covers nested firmware browsing, pagination and updater failures.
+`make test` covers nested firmware browsing, pagination, updater failures,
+startup and F12 menu alignment.
 From `software`, `.\Test-FirmwareCompatibility.ps1` verifies all 64
 cross-emulator installation combinations using the built FLH files and mock OTA.

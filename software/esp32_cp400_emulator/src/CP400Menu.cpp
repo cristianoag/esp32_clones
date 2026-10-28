@@ -31,11 +31,20 @@ extern DriveStruct Disk_Drive;
 
 void WaitForMenuKeyRelease(void);
 
-constexpr uint8_t MENU_X_ORIGIN = 6;
-constexpr uint8_t MENU_Y_ORIGIN = 8;
-constexpr uint16_t MENU_RIGHT_EDGE = 271;
-constexpr uint16_t MENU_BOTTOM_EDGE = 239;
+constexpr uint8_t MENU_TEXT_COLUMNS = 44;
+constexpr uint16_t MENU_WIDTH = MENU_TEXT_COLUMNS * 6 + 2; // The last 8-pixel glyph overlaps its 6-pixel cell.
+constexpr uint16_t MENU_HEIGHT = 28 * 8;
 constexpr uint16_t MENU_CONTENT_RIGHT = 264;
+
+static uint16_t MenuOriginX(void)
+{
+    return vga->mode.hRes > MENU_WIDTH ? (vga->mode.hRes - MENU_WIDTH) / 2 : 0;
+}
+
+static uint16_t MenuOriginY(void)
+{
+    return vga->mode.vRes > MENU_HEIGHT ? (vga->mode.vRes - MENU_HEIGHT) / 2 : 0;
+}
 
 #ifdef PSRAM_EMU
 extern uint8_t *rom;
@@ -71,12 +80,13 @@ bool IsSDCardAvailable(void)
 
 void DrawMenuLine(int x0, int y0, int x1, int y1, int color)
 {
-    line(x0 + MENU_X_ORIGIN, y0 + MENU_Y_ORIGIN,
-         x1 + MENU_X_ORIGIN, y1 + MENU_Y_ORIGIN,
+    const uint16_t originX = MenuOriginX();
+    const uint16_t originY = MenuOriginY();
+    line(x0 + originX, y0 + originY,
+         x1 + originX, y1 + originY,
          RGB332ToVGAPacked(color));
 }
 
-constexpr uint8_t MENU_TEXT_COLUMNS = 44;
 constexpr uint8_t MENU_CONTENT_ROW = 3;
 constexpr uint8_t MENU_ACCENT_COLOR = 0b00011100;
 constexpr uint8_t MENU_TEXT_COLOR = 255;
@@ -267,8 +277,8 @@ void MENU_DisplayGIMEchar(uint8_t charNum, uint8_t ODDbyte, uint16_t Xpos, uint1
     // uint32_t BlinkPhase = (sf.GIME_BLINK_COUTER_COPY & 0b00010000);
     uint32_t BlinkPhase = 0;
 
-    uint32_t loop1, loop2;
-    uint16_t XposLoop, YposLoop;
+    uint32_t loop1;
+    uint16_t YposLoop;
     uint8_t tmpChar, loopArray;
     uint8_t Underline, Blink;
 
@@ -340,19 +350,21 @@ void MENU_DisplayGIMEchar(uint8_t charNum, uint8_t ODDbyte, uint16_t Xpos, uint1
 void DrawText(const char *text, uint8_t Xpos, uint8_t Ypos, uint8_t XpixOffset, uint8_t YpixOffset, uint8_t ForeColor, uint8_t BackColor)
 {
     uint16_t X, Y;
-    X = (uint16_t)Xpos * 6 + XpixOffset + MENU_X_ORIGIN;
-    Y = (uint16_t)Ypos * 8 + YpixOffset + MENU_Y_ORIGIN;
+    X = (uint16_t)Xpos * 6 + XpixOffset;
+    Y = (uint16_t)Ypos * 8 + YpixOffset;
+    const uint16_t originX = MenuOriginX();
+    const uint16_t originY = MenuOriginY();
     ForeColor = RGB332ToVGAPacked(ForeColor);
     BackColor = RGB332ToVGAPacked(BackColor);
 
-    if (Y + 7 > MENU_BOTTOM_EDGE)
+    if (Y + 8 > MENU_HEIGHT || Y + originY + 8u > vga->mode.vRes)
     {
         return;
     }
 
-    while (*text != '\0' && X + 7 <= MENU_RIGHT_EDGE)
+    while (*text != '\0' && X + 8 <= MENU_WIDTH && X + originX + 8u <= vga->mode.hRes)
     {
-        MENU_DisplayGIMEchar(*text, 0, X, Y, ForeColor, BackColor); 
+        MENU_DisplayGIMEchar(*text, 0, X + originX, Y + originY, ForeColor, BackColor);
         text++;
         X +=6;
     }
@@ -369,10 +381,9 @@ void BackDisplay(void)
 {
     uint32_t loopBack = 0;
     uint16_t X, Y;
-    vga->show();    //Swap Buffer
-    for (Y=0; Y!=240;Y++)
+    for (Y = 0; Y < vga->mode.vRes; Y++)
     {
-        for (X=0; X!=320;X++)
+        for (X = 0; X < vga->mode.hRes; X++)
         {
             MENU_Backup[loopBack++] = vga->getPixel(X, Y);
         }
@@ -380,15 +391,16 @@ void BackDisplay(void)
     }
     loopBack = 0;
     vga->show();    //Swap Buffer
-    for (Y=0; Y!=240;Y++)
+    for (Y = 0; Y < vga->mode.vRes; Y++)
     {
-        for (X=0; X!=320;X++)
+        for (X = 0; X < vga->mode.hRes; X++)
         {
             MENU_BackupPage2[loopBack++] = vga->getPixel(X, Y);
         }
 
     }
 
+    vga->show();    //Return to the first saved buffer.
     vga->clear(0);
     vga->show();
     vga->clear(0);
@@ -403,18 +415,18 @@ void RestoreDisplay(void)
     uint16_t X, Y;
 
 
-    for (Y = 0; Y < 240; Y++)
+    for (Y = 0; Y < vga->mode.vRes; Y++)
     {
-        for (X = 0; X < 320; X++)
+        for (X = 0; X < vga->mode.hRes; X++)
         {
             vga->dot(X, Y, MENU_Backup[loopBack++]);
         }
     }
     vga->show();
     loopBack = 0;
-    for (Y = 0; Y < 240; Y++)
+    for (Y = 0; Y < vga->mode.vRes; Y++)
     {
-        for (X = 0; X < 320; X++)
+        for (X = 0; X < vga->mode.hRes; X++)
         {
             vga->dot(X, Y, MENU_BackupPage2[loopBack++]);
         }

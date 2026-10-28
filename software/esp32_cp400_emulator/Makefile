@@ -9,7 +9,7 @@ endif
 
 PYTHON ?= python
 PIO_ENV ?= esp32-s3-devkitc-1-Modded
-FW_VERSION ?= 1.15
+FW_VERSION ?= 1.16
 OUTPUT_DIR ?= dist
 UPDATE_FILE ?= $(OUTPUT_DIR)/ESP32_CP400-$(FW_VERSION).FLH
 
@@ -40,6 +40,7 @@ test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-FirmwareBrowser.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-FirmwareBackend.ps1
 	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Startup.ps1
+	powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-MenuLayout.ps1
 
 clean:
 	$(PIO) run -e "$(PIO_ENV)" -t clean
@@ -48,7 +49,7 @@ clean:
 help:
 	@echo make firmware  - Build and create the F12 update package
 	@echo make upload    - Build and upload through the configured PC USB port
-	@echo make test      - Run firmware-update host regression tests
+	@echo make test      - Run firmware, startup and menu host regression tests
 	@echo make clean     - Clean PlatformIO output and the update package
 	@echo PlatformIO: $(PIO)
 	@echo Firmware version: $(FW_VERSION)

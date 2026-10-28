@@ -3,6 +3,17 @@
 This log tracks user-visible changes to the ESP32 CP400 emulator firmware.
 Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
+## 1.16 - Unreleased
+
+### Fixed
+
+- Centered every F12 menu screen within the active VGA frame, including text, selection highlights, disk previews and firmware progress bars, without moving the emulated computer display.
+- Restored the complete emulated display in both VGA buffers when closing F12, including pixels beyond the first 320 columns in wider video modes.
+
+### Added
+
+- Added host regression checks for balanced menu margins, text clipping and complete display restoration in all four VGA modes.
+
 ## 1.15 - Unreleased
 
 ### Changed

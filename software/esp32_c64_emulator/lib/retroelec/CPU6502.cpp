@@ -152,6 +152,8 @@ void CPU6502::sbcbase(uint8_t r1) {
 
 void CPU6502::incbase() {
   uint8_t r = getMem(z);
+  // NMOS RMW instructions write the original value before the result.
+  setMem(z, r);
   r++;
   setMem(z, r);
   setNZ(r);
@@ -159,6 +161,7 @@ void CPU6502::incbase() {
 
 void CPU6502::decbase() {
   uint8_t r = getMem(z);
+  setMem(z, r);
   r--;
   setMem(z, r);
   setNZ(r);
@@ -187,6 +190,7 @@ uint8_t CPU6502::aslbase0(uint8_t r) {
 
 void CPU6502::aslbase() {
   uint8_t r = getMem(z);
+  setMem(z, r);
   r = aslbase0(r);
   setMem(z, r);
 }
@@ -200,6 +204,7 @@ uint8_t CPU6502::lsrbase0(uint8_t r) {
 
 void CPU6502::lsrbase() {
   uint8_t r = getMem(z);
+  setMem(z, r);
   r = lsrbase0(r);
   setMem(z, r);
 }
@@ -220,6 +225,7 @@ uint8_t CPU6502::rolbase0(uint8_t r) {
 
 void CPU6502::rolbase() {
   uint8_t r = getMem(z);
+  setMem(z, r);
   r = rolbase0(r);
   setMem(z, r);
 }
@@ -237,6 +243,7 @@ uint8_t CPU6502::rorbase0(uint8_t r) {
 
 void CPU6502::rorbase() {
   uint8_t r = getMem(z);
+  setMem(z, r);
   r = rorbase0(r);
   setMem(z, r);
 }
@@ -1507,6 +1514,7 @@ void CPU6502::cmd6502saxIndirectX() {
 
 uint8_t CPU6502::isbincbase() {
   uint8_t r = getMem(z);
+  setMem(z, r);
   r++;
   setMem(z, r);
   return r;

@@ -3,6 +3,13 @@
 This log tracks user-visible changes to the Commodore 64 firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.04 - Unreleased
+
+### Fixed
+
+- Corrected NMOS CPU read-modify-write bus behavior so games using these instructions to acknowledge raster interrupts no longer became stuck on intro screens with unresponsive controls.
+- Preserved the original-value write before the final-value write for documented and undocumented memory read-modify-write instructions without adding emulated CPU cycles or changing accumulator-only instructions.
+
 ## 1.03 - Unreleased
 
 ### Fixed

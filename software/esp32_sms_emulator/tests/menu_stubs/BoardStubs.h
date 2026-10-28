@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,13 @@
 extern std::vector<std::string> MenuText;
 extern uint32_t MenuTime;
 extern bool MenuWriteFailure, MenuReadFailure;
+extern bool MenuSdOpenFailure;
+extern unsigned MenuSdOpens, MenuEntryOpens, MenuDirectoryReads;
+extern int MenuAllocationBudget, MenuDirectoryReadBudget;
+extern size_t MenuBrowserBytes, MenuBrowserMaxBytes;
+extern size_t MenuInternalFreeBytes;
+extern bool MenuFailInternalCore, MenuFailExternalCore;
+extern unsigned MenuInternalCoreAllocations, MenuExternalCoreAllocations;
 struct MenuNode { bool directory; std::vector<uint8_t> data; };
 extern std::map<std::string, MenuNode> MenuFiles;
 
@@ -27,11 +35,43 @@ inline uint32_t millis() { return MenuTime; }
 inline uint32_t micros() { return MenuTime * 1000; }
 inline void delay(unsigned value) { MenuTime += value; }
 inline void delayMicroseconds(unsigned) { ++MenuTime; }
-constexpr unsigned INPUT = 0, MALLOC_CAP_SPIRAM = 0, SDMMC_FREQ_DEFAULT = 20000;
+constexpr unsigned INPUT = 0, MALLOC_CAP_SPIRAM = 1, MALLOC_CAP_INTERNAL = 2,
+                   MALLOC_CAP_8BIT = 4, SDMMC_FREQ_DEFAULT = 20000;
 inline void pinMode(unsigned, unsigned) {}
 inline void neopixelWrite(unsigned, unsigned, unsigned, unsigned) {}
 inline bool psramFound() { return true; }
-inline void *heap_caps_calloc(size_t count, size_t size, unsigned) { return calloc(count, size); }
+inline size_t heap_caps_get_free_size(unsigned) { return MenuInternalFreeBytes; }
+inline void *heap_caps_calloc(size_t count, size_t size, unsigned caps)
+{
+    if (caps & MALLOC_CAP_INTERNAL)
+    {
+        ++MenuInternalCoreAllocations;
+        if (MenuFailInternalCore) return nullptr;
+    }
+    else if (caps & MALLOC_CAP_SPIRAM)
+    {
+        ++MenuExternalCoreAllocations;
+        if (MenuFailExternalCore) return nullptr;
+    }
+    return calloc(count, size);
+}
+inline void *heap_caps_realloc(void *memory, size_t size, unsigned)
+{
+    if (!MenuAllocationBudget) return nullptr;
+    if (MenuAllocationBudget > 0) --MenuAllocationBudget;
+    void *result = realloc(memory, size);
+    if (result)
+    {
+        MenuBrowserBytes = size;
+        MenuBrowserMaxBytes = std::max(MenuBrowserMaxBytes, size);
+    }
+    return result;
+}
+inline void heap_caps_free(void *memory)
+{
+    if (memory) MenuBrowserBytes = 0;
+    free(memory);
+}
 struct TestEsp { void restart() {} };
 extern TestEsp ESP;
 
@@ -55,6 +95,24 @@ public:
     }
     File openNextFile()
     {
+        const std::string path = nextPath();
+        if (path.empty()) return File();
+        ++MenuEntryOpens;
+        return File(path);
+    }
+    std::string getNextFileName(bool *directory)
+    {
+        const std::string path = nextPath();
+        if (!path.empty()) *directory = MenuFiles.at(path).directory;
+        return path;
+    }
+    void close() { opened_ = false; }
+private:
+    std::string nextPath()
+    {
+        ++MenuDirectoryReads;
+        if (!MenuDirectoryReadBudget) { errno = EIO; return {}; }
+        if (MenuDirectoryReadBudget > 0) --MenuDirectoryReadBudget;
         const std::string prefix = path_ == "/" ? "/" : path_ + "/";
         size_t index = 0;
         for (const auto &node : MenuFiles)
@@ -62,12 +120,10 @@ public:
             if (node.first.compare(0, prefix.size(), prefix) ||
                 node.first.size() == prefix.size() ||
                 node.first.find('/', prefix.size()) != std::string::npos) continue;
-            if (index++ == child_) { ++child_; return File(node.first); }
+            if (index++ == child_) { ++child_; return node.first; }
         }
-        return File();
+        return {};
     }
-    void close() { opened_ = false; }
-private:
     std::string path_;
     bool opened_ = false;
     size_t position_ = 0, child_ = 0;
@@ -78,7 +134,7 @@ struct TestSd
     void setPins(unsigned, unsigned, unsigned) {}
     bool begin(const char *, bool, bool, unsigned, unsigned) { return true; }
     bool exists(const char *path) { return MenuFiles.count(path) != 0; }
-    File open(const char *path) { return File(path); }
+    File open(const char *path) { ++MenuSdOpens; return MenuSdOpenFailure ? File() : File(path); }
 };
 extern TestSd SD_MMC;
 
@@ -109,8 +165,9 @@ struct Mode { template<typename... Args> explicit Mode(Args...) {} };
 struct TestDma
 {
     uint8_t lines[240][320] = {};
+    unsigned flushes = 0;
     uint8_t *getLineAddr8(unsigned y) { return lines[y]; }
-    void flush(unsigned, unsigned) {}
+    void flush(unsigned, unsigned) { ++flushes; }
 };
 struct VGA
 {

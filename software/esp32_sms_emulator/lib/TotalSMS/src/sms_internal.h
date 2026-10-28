@@ -139,9 +139,7 @@ SMS_STATIC void z80_set_reg_main(struct SMS_Core* sms, uint8_t value, uint8_t id
 SMS_STATIC void z80_set_reg_alt(struct SMS_Core* sms, uint8_t value, uint8_t idx);
 
 // [BUS]
-SMS_STATIC uint8_t SMS_read8(struct SMS_Core* sms, uint16_t addr);
 SMS_STATIC void SMS_write8(struct SMS_Core* sms, uint16_t addr, uint8_t value);
-SMS_STATIC uint16_t SMS_read16(struct SMS_Core* sms, uint16_t addr);
 SMS_STATIC void SMS_write16(struct SMS_Core* sms, uint16_t addr, uint16_t value);
 SMS_STATIC uint8_t SMS_read_io(struct SMS_Core* sms, uint8_t addr);
 SMS_STATIC void SMS_write_io(struct SMS_Core* sms, uint8_t addr, uint8_t value);
@@ -194,6 +192,18 @@ static inline uint32_t mem_read32(const uint8_t* array)
     r = array[0] | (array[1] << 8) | (array[2] << 16) | (array[3] << 24);
 #endif
     return r;
+}
+
+static FORCE_INLINE uint8_t SMS_read8(struct SMS_Core* sms, uint16_t addr)
+{
+    assert(sms->rmap[addr >> 10] && "NULL ptr in rmap!");
+    return sms->rmap[addr >> 10][addr & 0x3FF];
+}
+
+static FORCE_INLINE uint16_t SMS_read16(struct SMS_Core* sms, uint16_t addr)
+{
+    assert(sms->rmap[addr >> 10] && "NULL ptr in rmap!");
+    return mem_read16(sms->rmap[addr >> 10] + (addr & 0x3FF));
 }
 
 #pragma GCC visibility pop

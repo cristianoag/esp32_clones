@@ -811,7 +811,7 @@ void mapper_init_internal(struct SMS_Core* sms, struct SMS_CartRom* cart)
 
 void mapper_init(struct SMS_Core* sms)
 {
-    memset(sms->cart_ram.ram, 0, sizeof(sms->cart_ram.ram));
+    memset(sms->cart_ram.ram, 0, SMS_SRAM_SIZE_MAX);
     sms->cart_ram.used = false;
 
     mapper_init_internal(sms, &sms->cart);
@@ -825,23 +825,11 @@ bool mapper_is_sram_mapped(const struct SMS_Core* sms)
     return sms->cart_selected && sms->cart_selected->mapper_type == MAPPER_TYPE_SEGA && sega_mapper_control_ram_enable_80000(sms->cart_selected);
 }
 
-uint8_t SMS_read8(struct SMS_Core* sms, const uint16_t addr)
-{
-    assert(sms->rmap[addr >> 10] && "NULL ptr in rmap!");
-    return sms->rmap[addr >> 10][addr & 0x3FF];
-}
-
 void SMS_write8(struct SMS_Core* sms, const uint16_t addr, const uint8_t value)
 {
     mapper_write(sms, addr, value);
     assert(sms->wmap[addr >> 10] && "NULL ptr in wmap!");
     sms->wmap[addr >> 10][addr & 0x3FF] = value;
-}
-
-uint16_t SMS_read16(struct SMS_Core* sms, const uint16_t addr)
-{
-    assert(sms->rmap[addr >> 10] && "NULL ptr in rmap!");
-    return mem_read16(sms->rmap[addr >> 10] + (addr & 0x3FF));
 }
 
 void SMS_write16(struct SMS_Core* sms, const uint16_t addr, const uint16_t value)

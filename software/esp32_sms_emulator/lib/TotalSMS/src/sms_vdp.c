@@ -874,6 +874,20 @@ static void vdp_render_background(struct SMS_Core* sms, pixel_width_t* scanline,
         const uint32_t palette = horizontal_flip ? cpal.flipped : cpal.normal;
         const uint8_t pal_base = palette_select ? 16 : 0;
 
+        const unsigned start = ((col * 8) + fine_scrollx) & 255;
+        if (start >= region.startx && start + 8 <= region.endx)
+        {
+            // Interior tiles need neither per-pixel clipping nor horizontal wraparound.
+            #pragma GCC unroll 8
+            for (unsigned x = 0; x < 8; ++x)
+            {
+                const uint8_t palette_index = (palette >> (28 - 4 * x)) & 0xF;
+                prio->array[start + x] = priority && palette_index != 0;
+                scanline[start + x] = VDP.colour[pal_base + palette_index];
+            }
+            continue;
+        }
+
         for (uint8_t x = 0; x < 8; ++x)
         {
             const uint8_t x_index = ((col * 8) + x + fine_scrollx) % SMS_SCREEN_WIDTH;
@@ -1542,7 +1556,10 @@ void vdp_on_event(void* user, unsigned id, unsigned late)
 
 void vdp_init(struct SMS_Core* sms)
 {
+    struct CachedPalette* cached_palette = VDP.cached_palette;
     memset(&VDP, 0, sizeof(VDP));
+    VDP.cached_palette = cached_palette;
+    memset(cached_palette, 0, sizeof(VDP.vram) / 4 * sizeof(*cached_palette));
     // update palette
     vdp_mark_palette_dirty(sms);
 

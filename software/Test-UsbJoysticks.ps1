@@ -36,10 +36,14 @@ try {
             (Section $source 'void fsm_Mashine()' 'void IRAM_ATTR setPins'),
             $source.Substring($source.IndexOf('void printState()')).Replace('#pragma GCC diagnostic pop', '')
         )
+        if ($project -eq 'esp32_c64_emulator') {
+            $logic += Section $source 'void timerCallBack()' 'void Request( '
+        }
         [IO.File]::WriteAllText((Join-Path $root 'UsbLogic.inc'), ($logic -join "`n"))
         $output = Join-Path $root 'usb.exe'
         $mode = @()
         if ($project -eq 'esp32_macplus_emulator') { $mode = @('-DMACPLUS_MOUSE') }
+        if ($project -eq 'esp32_c64_emulator') { $mode = @('-DC64_USB_CONTROL') }
         & $compiler -std=c11 -Wall -Wextra -Werror "-I$root" "-I$usb" @mode `
             (Join-Path $PSScriptRoot 'tests\UsbHostEnumerationTests.c') -o $output
         if ($LASTEXITCODE -ne 0) { throw "USB state-machine test compilation failed: $project" }

@@ -365,6 +365,7 @@ typedef struct
   uint32_t inputDue[4];
   uint32_t tick;
   bool unsupportedLogged;
+  uint8_t failedEnumerationState;
   uint32_t nextDiagnostic;
   unsigned setupAcks;
   unsigned controlFailures;
@@ -1048,7 +1049,13 @@ void timerCallBack()
     if(res==T_ACK) {
       current->cb_Cmd = CB_6;
       current->in_data_flip_flop = 1;
+#ifdef MSX_SOFT_USB
+      // No-data requests may take 50 ms to complete. Four 1 ms polls are not
+      // a sufficient status-stage timeout for SET_ADDRESS/CONFIGURATION/IDLE.
+      current->numb_reps_errors_allowed = current->rq.wLen ? 4 : 100;
+#else
       current->numb_reps_errors_allowed = 4;
+#endif
       current->counterAck ++;
       return ;
     } else {
@@ -1092,11 +1099,12 @@ void timerCallBack()
       for(unsigned i = 0; i < bytes; ++i)
         current->acc_decoded_resp[current->acc_decoded_resp_counter++] = rev8(decoded_receive_buffer_get());
       current->asckedReceiveBytes -= bytes;
-      current->numb_reps_errors_allowed = 4;
+      current->numb_reps_errors_allowed = current->rq.wLen ? 4 : 100;
       current->cb_Cmd = CB_7;
     } else {
       ++current->controlFailures;
       msxSaveControlTrace();
+      if(res == T_STALL) current->numb_reps_errors_allowed = 1;
       if(--current->numb_reps_errors_allowed <= 0) {
         current->cb_Cmd = CB_TICK;
         current->bComplete = 1;
@@ -1176,6 +1184,12 @@ void timerCallBack()
     sendRecieveNParse();
     msxAcknowledgeReplay = false;
     if(!msxReplayAcked) {
+      current->lastCaptureEdges = received_NRZI_buffer_bytesCnt;
+      current->lastControlResult = parse_received_NRZI_buffer();
+      current->lastControlCommand = CB_7;
+      ++current->controlFailures;
+      msxSaveControlTrace();
+      if(current->lastControlResult == T_STALL) current->numb_reps_errors_allowed = 1;
       if(--current->numb_reps_errors_allowed > 0) return;
       current->acc_decoded_resp_counter = 0;
       current->cb_Cmd = CB_TICK;
@@ -1494,6 +1508,7 @@ void fsm_Mashine()
 #ifdef MSX_SOFT_USB
     current->inputCount = 0;
     current->reportDescriptorLength = 0;
+    current->failedEnumerationState = 0;
     current->ufPrintDesc = 0;
     memset(current->inputToggle, 0, sizeof(current->inputToggle));
     memset(current->inputDue, 0, sizeof(current->inputDue));
@@ -1529,6 +1544,7 @@ void fsm_Mashine()
 #ifdef MSX_SOFT_USB
       if(current->desc.bLength != 18 || current->desc.bDescriptorType != 1 ||
          current->desc.bMaxPacketSize0 != 8 || !current->desc.bNumConfigurations) {
+        current->failedEnumerationState = 5;
         current->fsm_state = 104;
         current->cb_Cmd = CB_TICK;
         return;
@@ -1558,6 +1574,7 @@ void fsm_Mashine()
 #ifdef MSX_SOFT_USB
       // The inherited control accumulator and descriptor length are eight-bit.
       if(current->cfg.wLength < 9 || current->cfg.wLength > 255) {
+        current->failedEnumerationState = 8;
         current->fsm_state = 104;
         return;
       }
@@ -1588,6 +1605,7 @@ void fsm_Mashine()
       return;
     }
     if(!current->inputCount) {
+      current->failedEnumerationState = 97;
       current->fsm_state = 104;
       current->cb_Cmd = CB_TICK;
       return;
@@ -1600,6 +1618,7 @@ void fsm_Mashine()
   } else if(current->fsm_state==98) {
 #ifdef MSX_SOFT_USB
     if(current->numb_reps_errors_allowed <= 0) {
+      current->failedEnumerationState = 98;
       current->inputCount = 0;
       current->fsm_state = 104;
       current->cb_Cmd = CB_TICK;
@@ -1930,10 +1949,10 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
         msxBitCycles = msx_usb_bit_cycles(out_config.freq_mhz);
         msxTimingValid = msxBitCycles != 0;
         if(msxTimingValid)
-          printf("MSX joystick USB: cycle-timed TX, %lu cycles/bit at %u MHz (target 1.5 Mbit/s)\n",
+          printf("C64 joystick USB: cycle-timed TX, %lu cycles/bit at %u MHz (target 1.5 Mbit/s)\n",
                  (unsigned long)msxBitCycles, out_config.freq_mhz);
         else
-          printf("MSX joystick USB: unsupported CPU clock %u MHz for cycle-timed TX\n", out_config.freq_mhz);
+          printf("C64 joystick USB: unsupported CPU clock %u MHz for cycle-timed TX\n", out_config.freq_mhz);
         calibrated = 1;
         if(msxTimingValid) {
           transmit_NRZI_buffer_cnt = 0;
@@ -2040,8 +2059,10 @@ void printState()
   if(pcurrent->controlFailures != pcurrent->loggedControlFailures &&
      pcurrent->loggedControlFailures < 8) {
     pcurrent->loggedControlFailures = pcurrent->controlFailures;
-    printf("MSX joystick USB port %u: control cmd=%u result=%02x (%s) edges=%u setup-acks=%u\n",
-           ref + 1, pcurrent->lastControlCommand, pcurrent->lastControlResult,
+    printf("C64 joystick USB port %u: control state=%u cmd=%u request=%02x/%02x value=%04x index=%u length=%u result=%02x (%s) edges=%u setup-acks=%u\n",
+           ref + 1, pcurrent->fsm_state, pcurrent->lastControlCommand,
+           pcurrent->rq.bmRequestType, pcurrent->rq.bmRequest, pcurrent->rq.wValue,
+           pcurrent->rq.wIndex, pcurrent->rq.wLen, pcurrent->lastControlResult,
            pcurrent->lastControlResult == T_ACK ? "ACK" :
            pcurrent->lastControlResult == T_NACK ? "NAK" :
            pcurrent->lastControlResult == T_STALL ? "STALL" :
@@ -2051,7 +2072,7 @@ void printState()
     if(pcurrent->loggedControlFailures <= 2) {
       const unsigned capacity = sizeof(pcurrent->lastControlTrace) / sizeof(pcurrent->lastControlTrace[0]);
       const unsigned count = pcurrent->lastCaptureEdges < capacity ? pcurrent->lastCaptureEdges : capacity;
-      printf("MSX joystick USB RX edges (%u/%u):", count, pcurrent->lastCaptureEdges);
+      printf("C64 joystick USB RX edges (%u/%u):", count, pcurrent->lastCaptureEdges);
       for(unsigned i = 0; i < count; ++i)
         printf(" %04x", pcurrent->lastControlTrace[i]);
       printf("\n");
@@ -2060,7 +2081,7 @@ void printState()
   if(pcurrent->connected && pcurrent->fsm_state != 100 && pcurrent->fsm_state != 101 &&
      (int32_t)(pcurrent->tick - pcurrent->nextDiagnostic) >= 0) {
     pcurrent->nextDiagnostic = pcurrent->tick + 5000;
-    printf("MSX joystick USB port %u: enumeration state=%u command=%u received=%u retries=%d wires=%04x\n",
+    printf("C64 joystick USB port %u: enumeration state=%u command=%u received=%u retries=%d wires=%04x\n",
            ref + 1, pcurrent->fsm_state, pcurrent->cb_Cmd,
            pcurrent->acc_decoded_resp_counter, pcurrent->numb_reps_errors_allowed,
            pcurrent->wires_last_state);
@@ -2068,9 +2089,15 @@ void printState()
   if(pcurrent->connected && !pcurrent->unsupportedLogged &&
      (pcurrent->fsm_state == 104 || pcurrent->wires_last_state == P_ONE)) {
     pcurrent->unsupportedLogged = true;
-    printf("MSX joystick USB port %u: %s\n", ref + 1,
+    printf("C64 joystick USB port %u: %s; failed-state=%u configuration=%u/%u bytes inputs=%u; unplug to retry\n", ref + 1,
            pcurrent->wires_last_state == P_ONE ? "full-speed devices are not supported" :
-           "unsupported HID gamepad descriptor or failed configuration; unplug to retry");
+           pcurrent->failedEnumerationState == 5 ? "invalid low-speed device descriptor" :
+           pcurrent->failedEnumerationState == 8 ? "unsupported configuration length" :
+           pcurrent->failedEnumerationState == 97 ? "no usable nonboot HID interrupt-IN interface" :
+           pcurrent->failedEnumerationState == 98 ? "SET_CONFIGURATION control transfer failed" :
+           "enumeration failed",
+           pcurrent->failedEnumerationState, pcurrent->descrBufferLen,
+           pcurrent->cfg.wLength, pcurrent->inputCount);
   }
 #endif
   if((cntl%800)<NUM_USB) {
@@ -2108,7 +2135,7 @@ void printState()
   if(pcurrent->ufPrintDesc&1) {
     pcurrent->ufPrintDesc &= ~(uint32_t)1;
 #ifdef MSX_SOFT_USB
-    printf("MSX joystick USB port %u: device VID=%04x PID=%04x; reading configuration\n",
+    printf("C64 joystick USB port %u: device VID=%04x PID=%04x; reading configuration\n",
            ref + 1, pcurrent->desc.idVendor, pcurrent->desc.idProduct);
 #else
     if( onDetectCB ) {

@@ -1,9 +1,15 @@
 param(
     [string]$Firmware,
     [string]$Kanji,
+    [string]$Cartridge,
+    [string]$Game,
     [switch]$Rebuild
 )
 $ErrorActionPreference = 'Stop'
+if (($Cartridge -or $Game) -and (!$Firmware -or !$Kanji)) {
+    throw '-Cartridge/-Game require both -Firmware and -Kanji.'
+}
+if ($Cartridge -and $Game) { throw 'Choose either -Cartridge or -Game.' }
 $root = Split-Path $PSScriptRoot -Parent
 $core = Join-Path $root 'lib\bluemsx'
 $build = Join-Path $root 'tests\build'
@@ -45,11 +51,17 @@ foreach ($source in $sources) {
 }
 $test = Join-Path $root 'tests\CoreTests.cpp'
 $executable = Join-Path $build 'a1st-tests.exe'
-& g++ '-O2' '-g' '-Wl,--gc-sections' @includes $test (Join-Path $root 'tests\MediaTests.cpp') @objects '-o' $executable
+& g++ '-O2' '-g' '-Wl,--gc-sections,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free' `
+    @includes $test (Join-Path $root 'tests\MediaTests.cpp') `
+    (Join-Path $root 'tests\AudioCoreTests.cpp') `
+    (Join-Path $root 'tests\GameAudioTests.cpp') `
+    (Join-Path $root 'tests\MemoryHooks.cpp') @objects '-o' $executable
 if ($LASTEXITCODE -ne 0) { throw 'Host core link failed.' }
 Push-Location $build
 try {
-    if ($Firmware -and $Kanji) { & $executable $Firmware $Kanji }
+    if ($Game) { & $executable $Firmware $Kanji '--game' $Game }
+    elseif ($Firmware -and $Kanji -and $Cartridge) { & $executable $Firmware $Kanji $Cartridge }
+    elseif ($Firmware -and $Kanji) { & $executable $Firmware $Kanji }
     else { & $executable }
     if ($LASTEXITCODE -ne 0) { throw "Core tests failed ($LASTEXITCODE)." }
 } finally { Pop-Location }

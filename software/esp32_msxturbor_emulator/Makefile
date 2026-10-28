@@ -1,6 +1,6 @@
 WINDOWS_USERPROFILE := $(subst \,/,$(USERPROFILE))
 PIO ?= $(WINDOWS_USERPROFILE)/.platformio/penv/Scripts/pio.exe
-FW_VERSION := 1.03
+FW_VERSION := 1.04
 PIO_ENV := esp32-s3-devkitc-1-n16r8
 
 .PHONY: all firmware build upload test clean help
@@ -13,7 +13,10 @@ firmware: build
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Package-Firmware.ps1" -Version "$(FW_VERSION)"
 test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-Core.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-Audio.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-SoundMenu.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-Frontend.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-FileBrowser.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-RomImport.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-FirmwareUpdate.ps1"
 	powershell -NoProfile -ExecutionPolicy Bypass -File "tools\Test-Joysticks.ps1"

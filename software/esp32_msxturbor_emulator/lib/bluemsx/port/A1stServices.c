@@ -53,6 +53,28 @@ void* a1stAllocate(size_t size)
     if (!pointer) a1stPanic("A1ST memory allocation failed.");
     return pointer;
 }
+void* a1stAllocateCpu(size_t size)
+{
+#ifdef ESP_PLATFORM
+    const unsigned caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    void* pointer = NULL;
+    char message[128];
+    if (size <= 65536 && heap_caps_get_free_size(caps) >= size + 65536)
+        pointer = heap_caps_malloc(size, caps);
+    if (pointer) {
+        snprintf(message, sizeof(message), "A1ST CPU state: %u bytes in internal SRAM.", (unsigned)size);
+        a1stLog(message);
+        return pointer;
+    }
+    snprintf(message, sizeof(message),
+             "A1ST CPU state: %u bytes in PSRAM; internal free=%u largest=%u (64 KiB reserve).",
+             (unsigned)size, (unsigned)heap_caps_get_free_size(caps),
+             (unsigned)heap_caps_get_largest_free_block(caps));
+    a1stLog(message);
+#endif
+    return a1stAllocate(size);
+}
+
 void* a1stCalloc(size_t count, size_t size)
 {
     void* pointer;

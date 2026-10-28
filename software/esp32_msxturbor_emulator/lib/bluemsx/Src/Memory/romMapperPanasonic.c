@@ -44,8 +44,13 @@ enum {
 };
 
 typedef struct {
+    UInt8* data;
+    int owned;
+} RomPage;
+
+typedef struct {
     int deviceHandle;
-    UInt8* romData;
+    RomPage* romData;
     UInt8* sram;
     int    readSection;
     int    readOffset;
@@ -127,13 +132,14 @@ static void loadState(RomMapperPanasonic* rm)
         }
         break;
     case READ_ROM:
-        rm->readBlock = rm->romData + rm->readOffset;
+        rm->readBlock = rm->romData[rm->readOffset / 0x2000].data;
         break;
     }
 }
 
 static void destroy(RomMapperPanasonic* rm)
 {
+    int page;
     sramSave(rm->sramFilename, rm->sram, rm->sramSize, NULL, 0);
 
     slotUnregister(rm->slot, rm->sslot, rm->startPage);
@@ -143,6 +149,8 @@ static void destroy(RomMapperPanasonic* rm)
     panasonicDramUnregister(rm->dramHandle);
 
     free(rm->sram);
+    for (page = 0; page < rm->romSize / 0x2000; ++page)
+        if (rm->romData[page].owned) free(rm->romData[page].data);
     free(rm->romData);
     free(rm);
 }
@@ -180,7 +188,7 @@ static void changeBank(RomMapperPanasonic* rm, int region, int bank)
 	} 
     else {
 		int offset = bank * 0x2000 & (rm->romSize - 1);
-        UInt8* data = rm->romData + offset;
+        UInt8* data = rm->romData[offset / 0x2000].data;
         /* The same BIOS/sub-ROM DRAM overlays are visible through this mapper. */
         if (rm->dramMode && ((bank >= 0x28 && bank < 0x2c) ||
                              (bank >= 0x38 && bank < 0x3c)))
@@ -233,7 +241,7 @@ static UInt8 read(RomMapperPanasonic* rm, UInt16 address)
 
 	bank = rm->romMapper[address >> 13];
     if (bank < SRAM_BASE) {
-        return rm->romData[(bank * 0x2000 & (rm->romSize - 1))  + (address & 0x1fff)];
+        return rm->romData[(bank * 0x2000 & (rm->romSize - 1)) / 0x2000].data[address & 0x1fff];
     }
     if (rm->sramSize > 0 && bank >= SRAM_BASE && bank < rm->maxSRAMBank) {
 		int offset = (bank - SRAM_BASE) * 0x2000 & (rm->sramSize - 1);
@@ -312,7 +320,7 @@ static void reset(RomMapperPanasonic* rm)
     
     for (i = 0; i < rm->mappedSlots; i++) {
         rm->romMapper[i] = 0;
-        slotMapPage(rm->slot, rm->sslot, i, rm->romData, i != 3, 0);
+        slotMapPage(rm->slot, rm->sslot, i, rm->romData[0].data, i != 3, 0);
     }
 }
 
@@ -324,8 +332,9 @@ int romMapperPanasonicCreate(const char* filename, UInt8* romData,
     RomMapperPanasonic* rm;
     RomType romType;
     char suffix[16];
+    int page;
 
-    if (size < 0x8000 || startPage != 0) {
+    if (size < 0x8000 || size % 0x2000 || startPage != 0) {
         return 0;
     }
 
@@ -355,14 +364,28 @@ int romMapperPanasonicCreate(const char* filename, UInt8* romData,
     rm->deviceHandle = deviceManagerRegister(romType, &callbacks, rm);
     slotRegister(slot, sslot, 0, rm->mappedSlots, read, read, write, destroy, rm);
 
-    rm->romData = malloc(size);
-    memcpy(rm->romData, romData, size);
+    rm->romData = calloc(size / 0x2000, sizeof(RomPage));
+    for (page = 0; page < size / 0x2000; ++page) {
+        int previous;
+        const UInt8* source = romData + page * 0x2000;
+        for (previous = 0; previous < page; ++previous) {
+            if (!memcmp(source, rm->romData[previous].data, 0x2000)) {
+                rm->romData[page].data = rm->romData[previous].data;
+                break;
+            }
+        }
+        if (previous == page) {
+            rm->romData[page].data = malloc(0x2000);
+            memcpy(rm->romData[page].data, source, 0x2000);
+            rm->romData[page].owned = 1;
+        }
+    }
     rm->romSize = size;
     rm->sramSize = sramSize;
     rm->sram = malloc(sramSize);
     memset(rm->sram, 0xff, sramSize);
     memset(rm->romMapper, 0, sizeof(rm->romMapper));
-    rm->readBlock = rm->romData;
+    rm->readBlock = rm->romData[0].data;
     rm->slot  = slot;
     rm->sslot = sslot;
     rm->startPage  = startPage;

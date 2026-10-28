@@ -41,6 +41,7 @@ typedef enum { DAC_CH_MONO = 0, DAC_CH_LEFT = 0, DAC_CH_RIGHT = 1 } DacChannel;
 
 /* Constructor and destructor */
 DAC* dacCreate(Mixer* mixer, DacMode mode);
+DAC* dacCreateTyped(Mixer* mixer, DacMode mode, MixerAudioType type);
 void dacDestroy(DAC* dac);
 void dacReset(DAC* dac);
 
@@ -54,4 +55,3 @@ void dacLoadState(DAC* dac, const char* section);
 void dacWrite(DAC* dac, DacChannel channel, UInt8 value);
 
 #endif
-

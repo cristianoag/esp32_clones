@@ -17,10 +17,15 @@
 #endif
 
 #undef malloc
+#undef calloc
 
 typedef struct {
-    UInt8* rom;
+    UInt8* pages[512];
     size_t size;
+} CartridgeRom;
+
+typedef struct {
+    CartridgeRom* rom;
     int mapper;
     unsigned slot;
     unsigned banks[4];
@@ -34,6 +39,19 @@ typedef struct {
 
 static Cartridge carts[2];
 
+static UInt8 romByte(const CartridgeRom* rom, size_t offset)
+{
+    return rom->pages[offset / 8192][offset & 8191];
+}
+
+static void freeRom(CartridgeRom* rom)
+{
+    unsigned page;
+    if (!rom) return;
+    for (page = 0; page < rom->size / 8192; ++page) free(rom->pages[page]);
+    free(rom);
+}
+
 static bool fail(char* error, size_t capacity, const char* message)
 {
     snprintf(error, capacity, "%s", message);
@@ -41,17 +59,34 @@ static bool fail(char* error, size_t capacity, const char* message)
     return false;
 }
 
-static int detect(const UInt8* rom, size_t size)
+typedef struct {
+    size_t size;
+    UInt8 header[32];
+    UInt8 secondHeader[2];
+    UInt8 lastHeader[2];
+    UInt8 previous[2];
+    unsigned scores[6];
+} CartridgeInspection;
+
+static void inspectBytes(void* context, size_t offset, const UInt8* bytes, size_t count)
 {
-    unsigned scores[6] = {0};
+    CartridgeInspection* inspection = context;
+    unsigned* scores = inspection->scores;
     size_t i;
-    int best = A1ST_GENERIC8;
-    if (size == 65536 && !memcmp(rom + 0x18, "PAC2", 4)) return A1ST_FMPAC;
-    if (size <= 32768 || (size <= 65536 && rom[0x4000] == 'A' && rom[0x4001] == 'B')) return -1;
-    for (i = 0; i + 2 < size; ++i) {
+    for (i = 0; i < count; ++i) {
+        const size_t position = offset + i;
         unsigned address;
-        if (rom[i] != 0x32) continue; /* LD (nn),A bank-register writes. */
-        address = rom[i + 1] | (rom[i + 2] << 8);
+        bool bankWrite = position >= 2 && inspection->previous[0] == 0x32;
+        address = inspection->previous[1] | (bytes[i] << 8);
+        inspection->previous[0] = inspection->previous[1];
+        inspection->previous[1] = bytes[i];
+        if (position < sizeof(inspection->header)) inspection->header[position] = bytes[i];
+        if (position >= 0x4000 && position < 0x4002)
+            inspection->secondHeader[position - 0x4000] = bytes[i];
+        if (inspection->size >= 0x4000 && position >= inspection->size - 0x4000 &&
+            position < inspection->size - 0x3ffe)
+            inspection->lastHeader[position - (inspection->size - 0x4000)] = bytes[i];
+        if (!bankWrite) continue; /* LD (nn),A bank-register writes. */
         if (address == 0x5000 || address == 0x9000 || address == 0xb000)
             scores[A1ST_KONAMI_SCC] += 3;
         if (address == 0x8000 || address == 0xa000) scores[A1ST_KONAMI] += 2;
@@ -60,39 +95,93 @@ static int detect(const UInt8* rom, size_t size)
         if (address == 0x7000) { ++scores[A1ST_ASCII8]; ++scores[A1ST_ASCII16]; ++scores[A1ST_KONAMI_SCC]; }
         if (address == 0x77ff) scores[A1ST_ASCII16] += 3;
     }
+}
+
+static int detect(const CartridgeInspection* inspection)
+{
+    const size_t size = inspection->size;
+    const unsigned* scores = inspection->scores;
+    int best = A1ST_GENERIC8;
+    unsigned i;
+    if (!memcmp(inspection->header + 0x10, "ASCII16X", 8)) return A1ST_ASCII16X;
+    if (size == 65536 && !memcmp(inspection->header + 0x18, "PAC2", 4)) return A1ST_FMPAC;
+    if (size <= 32768 || (size <= 65536 && inspection->secondHeader[0] == 'A' &&
+                                         inspection->secondHeader[1] == 'B')) return -1;
     for (i = 1; i < 6; ++i) if (scores[i] > scores[best]) best = (int)i;
     return best;
 }
 
-static UInt8* load(const char* path, size_t* size, char* error, size_t capacity)
+static int detectRom(const CartridgeRom* rom)
+{
+    CartridgeInspection inspection = {0};
+    unsigned page;
+    inspection.size = rom->size;
+    for (page = 0; page < rom->size / 8192; ++page)
+        inspectBytes(&inspection, page * 8192, rom->pages[page], 8192);
+    return detect(&inspection);
+}
+
+static size_t romSize(const char* path, char* error, size_t capacity)
 {
     struct stat info;
-    UInt8* rom;
-    bool signature;
     if (!path || !*path || stat(path, &info) || !S_ISREG(info.st_mode)) {
         fail(error, capacity, "Cartridge ROM is missing or is not a regular file.");
-        return NULL;
+        return 0;
     }
-    if (info.st_size < 8192 || info.st_size > 2097152 || info.st_size % 8192) {
-        fail(error, capacity, "ROM must use 8 KiB multiples, from 8 KiB to 2 MiB.");
-        return NULL;
+    if (info.st_size < 8192 || info.st_size > 4194304 || info.st_size % 8192) {
+        fail(error, capacity, "ROM must use 8 KiB multiples, from 8 KiB to 4 MiB.");
+        return 0;
     }
-    *size = (size_t)info.st_size;
-#ifdef ESP_PLATFORM
-    rom = heap_caps_malloc(*size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-#else
-    rom = malloc(*size);
-#endif
+    return (size_t)info.st_size;
+}
+
+static CartridgeRom* load(const char* path, char* error, size_t capacity)
+{
+    const size_t size = romSize(path, error, capacity);
+    CartridgeRom* rom;
+    unsigned page;
+    bool signature;
+    if (!size) return NULL;
+    rom = calloc(1, sizeof(*rom));
     if (!rom) {
-        fail(error, capacity, "Not enough memory for cartridge ROM; previous slot retained.");
+        fail(error, capacity, "Cartridge page table allocation failed; previous slot retained.");
         return NULL;
     }
-    if (!a1stReadRom(path, *size, rom, *size, error, capacity)) { free(rom); return NULL; }
-    signature = rom[0] == 'A' && rom[1] == 'B';
-    if (*size >= 0x4002) signature |= rom[0x4000] == 'A' && rom[0x4001] == 'B';
-    if (*size >= 0x4000) signature |= rom[*size - 0x4000] == 'A' && rom[*size - 0x3fff] == 'B';
+    rom->size = size;
+    /* Bank-sized allocations fit the holes left by A1ST startup in 8 MiB PSRAM. */
+    for (page = 0; page < rom->size / 8192; ++page) {
+#ifdef ESP_PLATFORM
+        rom->pages[page] = heap_caps_malloc(8192, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+        rom->pages[page] = malloc(8192);
+#endif
+        if (!rom->pages[page]) {
+            char message[192];
+#ifdef ESP_PLATFORM
+            snprintf(message, sizeof(message),
+                     "Cartridge PSRAM exhausted: need %u bytes, allocated %u; free %u, largest %u. Previous slot retained.",
+                     (unsigned)size, page * 8192,
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
+            snprintf(message, sizeof(message),
+                     "Cartridge PSRAM exhausted: need %u bytes, allocated %u. Previous slot retained.",
+                     (unsigned)size, page * 8192);
+#endif
+            fail(error, capacity, message);
+            freeRom(rom);
+            return NULL;
+        }
+    }
+    if (!a1stReadRomBlocks(path, rom->size, rom->pages, 8192, rom->size, error, capacity)) {
+        freeRom(rom); return NULL;
+    }
+    signature = romByte(rom, 0) == 'A' && romByte(rom, 1) == 'B';
+    if (rom->size >= 0x4002) signature |= romByte(rom, 0x4000) == 'A' && romByte(rom, 0x4001) == 'B';
+    if (rom->size >= 0x4000) signature |= romByte(rom, rom->size - 0x4000) == 'A' &&
+                                                       romByte(rom, rom->size - 0x3fff) == 'B';
     if (!signature) {
-        free(rom);
+        freeRom(rom);
         fail(error, capacity, "Invalid cartridge ROM: AB header not found.");
         return NULL;
     }
@@ -101,11 +190,16 @@ static UInt8* load(const char* path, size_t* size, char* error, size_t capacity)
 
 bool a1stInspectCartridge(const char* path, int* detected, char* error, size_t capacity)
 {
-    size_t size;
-    UInt8* rom = load(path, &size, error, capacity);
-    if (!rom) return false;
-    *detected = detect(rom, size);
-    free(rom);
+    CartridgeInspection inspection = {0};
+    inspection.size = romSize(path, error, capacity);
+    if (!inspection.size) return false;
+    if (!a1stReadRomStream(path, inspection.size, inspection.size, inspectBytes, &inspection,
+                           error, capacity)) return false;
+    if (!((inspection.header[0] == 'A' && inspection.header[1] == 'B') ||
+          (inspection.secondHeader[0] == 'A' && inspection.secondHeader[1] == 'B') ||
+          (inspection.lastHeader[0] == 'A' && inspection.lastHeader[1] == 'B')))
+        return fail(error, capacity, "Invalid cartridge ROM: AB header not found.");
+    *detected = detect(&inspection);
     error[0] = 0;
     return true;
 }
@@ -119,6 +213,16 @@ static void mapBank(Cartridge* cart, unsigned window, unsigned bank)
 {
     unsigned page = window + 2;
     bool scc = cart->mapper == A1ST_KONAMI_SCC && window == 2 && (bank & 63) == 63;
+    if (cart->mapper == A1ST_ASCII16X) {
+        /* The cartridge's 8 MiB flash connects nine 16 KiB bank address bits. */
+        bank &= 1023;
+        cart->banks[window] = bank;
+        slotMapPage(cart->slot, 0, page, cart->rom->pages[bank % (cart->rom->size / 8192)],
+                    bank < cart->rom->size / 8192, 0);
+        slotMapPage(cart->slot, 0, page ^ 4, cart->rom->pages[bank % (cart->rom->size / 8192)],
+                    bank < cart->rom->size / 8192, 0);
+        return;
+    }
     cart->banks[window] = bank;
     if (cart->mapper == A1ST_GAMEMASTER2 && (bank & 0x10)) {
         /* Each 4 KiB SRAM bank is mirrored inside its 8 KiB window. */
@@ -127,7 +231,7 @@ static void mapBank(Cartridge* cart, unsigned window, unsigned bank)
     else {
         if (cart->mapper == A1ST_GAMEMASTER2) bank &= 15;
         slotMapPage(cart->slot, 0, page,
-                    cart->rom + (bank % (cart->size / 8192)) * 8192, !scc, 0);
+                    cart->rom->pages[bank % (cart->rom->size / 8192)], !scc, 0);
     }
 }
 
@@ -136,11 +240,16 @@ static UInt8 readCart(void* ref, UInt16 address)
     Cartridge* cart = ref;
     unsigned window;
     unsigned bank;
+    if (cart->mapper == A1ST_ASCII16X) {
+        window = ((address >> 13) ^ 2) & 3;
+        bank = cart->banks[window];
+        return bank < cart->rom->size / 8192 ? cart->rom->pages[bank][address & 8191] : 0xff;
+    }
     if (cart->mapper == A1ST_FMPAC) {
         if (address < 0x4000 || address >= 0x8000) return 0xff;
         if (address == 0x7ff6) return cart->fmEnable;
         if (address == 0x7ff7) return cart->banks[0];
-        if (!sramEnabled(cart)) return cart->rom[cart->banks[0] * 16384 + (address & 0x3fff)];
+        if (!sramEnabled(cart)) return romByte(cart->rom, cart->banks[0] * 16384 + (address & 0x3fff));
         if (address == 0x5ffe || address == 0x5fff) return cart->fmKey[address & 1];
         return address < 0x6000 ? cart->sram[address & 0x1fff] : 0xff;
     }
@@ -152,13 +261,22 @@ static UInt8 readCart(void* ref, UInt16 address)
         return sccRead(cart->scc, address & 255);
     if (cart->mapper == A1ST_GAMEMASTER2 && (bank & 0x10))
         return cart->sram[((bank & 0x20) ? 4096 : 0) + (address & 4095)];
-    return cart->rom[(bank % (cart->size / 8192)) * 8192 + (address & 8191)];
+    return cart->rom->pages[bank % (cart->rom->size / 8192)][address & 8191];
 }
 
 static void writeCart(void* ref, UInt16 address, UInt8 value)
 {
     Cartridge* cart = ref;
     unsigned window;
+    if (cart->mapper == A1ST_ASCII16X) {
+        if ((address & 0x3fff) >= 0x2000) {
+            unsigned bank = ((address & 0x0f00) | value) * 2;
+            window = (address & 0x1000) ? 2 : 0;
+            mapBank(cart, window, bank);
+            mapBank(cart, window + 1, bank + 1);
+        }
+        return;
+    }
     if (address < 0x4000 || address >= 0xc000) return;
     window = (address - 0x4000) / 8192;
     switch (cart->mapper) {
@@ -248,7 +366,7 @@ static void closeCart(Cartridge* cart)
     if (!cart->rom) return;
     slotUnregister(cart->slot, 0, 0);
     if (cart->scc) sccDestroy(cart->scc);
-    free(cart->rom);
+    freeRom(cart->rom);
     memset(cart, 0, sizeof(*cart));
 }
 
@@ -262,31 +380,32 @@ bool a1stAttachCartridge(unsigned slot, const char* path, unsigned mapper,
                          char* error, size_t capacity)
 {
     Cartridge* cart;
-    UInt8* rom;
+    CartridgeRom* rom;
     size_t size;
     int resolved;
     unsigned page;
     UInt8 saved[8192];
     char statePath[512];
-    if (slot > 1 || mapper > A1ST_MAPPER_AUTO)
+    if (slot > 1 || mapper >= A1ST_MAPPER_COUNT)
         return fail(error, capacity, "Invalid cartridge slot or mapper.");
     cart = &carts[slot];
     if (!flushCart(cart, error, capacity)) return false;
     if (!path || !*path) { closeCart(cart); error[0] = 0; return true; }
     if (!boardGetMixer()) return fail(error, capacity, "Boot the A1ST core before attaching a cartridge.");
-    rom = load(path, &size, error, capacity);
+    rom = load(path, error, capacity);
     if (!rom) return false;
-    resolved = mapper == A1ST_MAPPER_AUTO ? detect(rom, size) : (int)mapper;
+    size = rom->size;
+    resolved = mapper == A1ST_MAPPER_AUTO ? detectRom(rom) : (int)mapper;
     if (resolved == A1ST_FMPAC && size != 65536) {
-        free(rom);
+        freeRom(rom);
         return fail(error, capacity, "FM-PAC requires a 64 KiB ROM.");
     }
     if (resolved == A1ST_GAMEMASTER2 && size != 131072) {
-        free(rom);
+        freeRom(rom);
         return fail(error, capacity, "GameMaster2 requires a 128 KiB ROM.");
     }
     if (snprintf(statePath, sizeof(statePath), "%s.slot%u.sram", path, slot + 1) >= (int)sizeof(statePath)) {
-        free(rom);
+        freeRom(rom);
         return fail(error, capacity, "Cartridge SRAM path is too long.");
     }
     memset(saved, 0xff, sizeof(saved));
@@ -294,27 +413,27 @@ bool a1stAttachCartridge(unsigned slot, const char* path, unsigned mapper,
         struct stat info;
         if (!stat(statePath, &info)) {
             if (!a1stReadRom(statePath, sizeof(saved), saved, sizeof(saved), error, capacity)) {
-                free(rom); return false;
+                freeRom(rom); return false;
             }
         }
         else if (errno != ENOENT) {
-            free(rom);
+            freeRom(rom);
             return fail(error, capacity, "Cannot inspect cartridge SRAM; previous slot retained.");
         }
     }
     closeCart(cart);
     cart->rom = rom;
-    cart->size = size;
     cart->mapper = resolved;
     cart->slot = slot + 1;
     memcpy(cart->sram, saved, sizeof(saved));
     strcpy(cart->statePath, statePath);
     if (resolved == A1ST_KONAMI_SCC) cart->scc = sccCreate(boardGetMixer());
     slotRegister(cart->slot, 0, 0, 8, readCart, readCart, writeCart, NULL, cart);
-    for (page = 0; page < 8; ++page) slotMapPage(cart->slot, 0, page, rom, 0, 0);
+    for (page = 0; page < 8; ++page) slotMapPage(cart->slot, 0, page, rom->pages[0], 0, 0);
     if (resolved < 0) {
         unsigned pages = size / 8192;
-        bool basic = rom[0] == 'A' && rom[1] == 'B' && !rom[2] && !rom[3] && (rom[8] || rom[9]);
+        const UInt8* header = rom->pages[0];
+        bool basic = header[0] == 'A' && header[1] == 'B' && !header[2] && !header[3] && (header[8] || header[9]);
         for (page = 0; page < 8; ++page) {
             unsigned bank;
             if (basic && pages <= 2 && (page < 4 || page > 5)) continue;
@@ -324,12 +443,12 @@ bool a1stAttachCartridge(unsigned slot, const char* path, unsigned mapper,
                 if (bank >= pages) bank = pages - 1;
             }
             else bank = page < pages ? page : page - 4;
-            slotMapPage(cart->slot, 0, page, rom + bank * 8192, 1, 0);
+            slotMapPage(cart->slot, 0, page, rom->pages[bank], 1, 0);
         }
     }
     else if (resolved == A1ST_FMPAC) {
-        slotMapPage(cart->slot, 0, 2, rom, 0, 0);
-        slotMapPage(cart->slot, 0, 3, rom, 0, 0);
+        slotMapPage(cart->slot, 0, 2, rom->pages[0], 0, 0);
+        slotMapPage(cart->slot, 0, 3, rom->pages[0], 0, 0);
     }
     else for (page = 0; page < 4; ++page) {
         unsigned bank = page;

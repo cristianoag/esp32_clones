@@ -52,7 +52,6 @@ struct DAC
     Int32   ctrlVolume[2];
     Int32   daVolume[2];
 
-    Int32   defaultBuffer[AUDIO_STEREO_BUFFER_SIZE];
     Int32   buffer[AUDIO_STEREO_BUFFER_SIZE];
 };
 
@@ -119,6 +118,11 @@ void dacLoadState(DAC* dac, const char* section)
 
 DAC* dacCreate(Mixer* mixer, DacMode mode)
 {
+    return dacCreateTyped(mixer, mode, MIXER_CHANNEL_PCM);
+}
+
+DAC* dacCreateTyped(Mixer* mixer, DacMode mode, MixerAudioType type)
+{
     DAC* dac = (DAC*)calloc(1, sizeof(DAC));
 
     dac->mixer = mixer;
@@ -127,10 +131,10 @@ DAC* dacCreate(Mixer* mixer, DacMode mode)
     dacReset(dac);
 
     if (mode == DAC_MONO) {
-        dac->handle = mixerRegisterChannel(mixer, MIXER_CHANNEL_PCM, 0, dacSyncMono, NULL, dac);
+        dac->handle = mixerRegisterChannel(mixer, type, 0, dacSyncMono, NULL, dac);
     }
     else {
-        dac->handle = mixerRegisterChannel(mixer, MIXER_CHANNEL_PCM, 1, dacSyncStereo, NULL, dac);
+        dac->handle = mixerRegisterChannel(mixer, type, 1, dacSyncStereo, NULL, dac);
     }
     return dac;
 }
@@ -156,7 +160,7 @@ void dacWrite(DAC* dac, DacChannel channel, UInt8 value)
 static Int32* dacSyncMono(DAC* dac, UInt32 count)
 {
     if (!dac->enabled || count == 0) {
-        return dac->defaultBuffer;
+        return NULL;
     }
 
     dacSyncChannel(dac, count, DAC_CH_MONO, 0, 1);
@@ -169,7 +173,7 @@ static Int32* dacSyncMono(DAC* dac, UInt32 count)
 static Int32* dacSyncStereo(DAC* dac, UInt32 count)
 {
     if (!dac->enabled || count == 0) {
-        return dac->defaultBuffer;
+        return NULL;
     }
 
     dacSyncChannel(dac, count, DAC_CH_LEFT,  0, 2);
@@ -210,4 +214,3 @@ static void dacSyncChannel(DAC* dac, UInt32 count, int ch, UInt32 index, UInt32 
         dac->buffer[index] = 6 * 9 * dac->daVolume[ch] / 10;
     }
 }
-

@@ -32,7 +32,9 @@ uint64_t tickAnchor, reportTicks;
 uint32_t presented;
 bool pacingReady;
 static_assert(static_cast<int>(MsxMapperAuto) == A1ST_MAPPER_AUTO &&
-              static_cast<int>(MsxFmPac) == A1ST_FMPAC, "Keep frontend and core mapper IDs aligned.");
+              static_cast<int>(MsxFmPac) == A1ST_FMPAC &&
+              static_cast<int>(MsxAscii16X) == A1ST_ASCII16X &&
+              static_cast<int>(MsxMapperCount) == A1ST_MAPPER_COUNT, "Keep frontend and core mapper IDs aligned.");
 
 enum MenuItem : unsigned
 {
@@ -173,15 +175,24 @@ bool chooseFile(const char* title, const char* extension, bool eject,
         MsxParentSdPath(directory);
     }
     size_t selected = 0, first = 0;
+    MsxFileEntry entries[MsxBrowserPageSize];
+    size_t count = 0, total = 0, cachedFirst = 0;
+    char cachedDirectory[MsxSdPathCapacity] = {};
+    char warning[160] = {};
     MsxKeyboardClearEvents();
     for (;;) {
-        MsxFileEntry entries[MsxBrowserPageSize];
-        size_t count, total;
-        char warning[160] = {};
-        if (!MsxReadDirectoryPage(directory, extension, eject, first, entries, count, total,
-                                  warning, sizeof(warning))) {
-            reportError(warning);
-            return false;
+        if (cachedFirst != first || strcmp(cachedDirectory, directory)) {
+            frame(title);
+            text(8, 53, "Reading SD directory...");
+            messageLines(directory);
+            showMenu();
+            if (!MsxReadDirectoryPage(directory, extension, eject, first, entries, count, total,
+                                      warning, sizeof(warning))) {
+                reportError(warning);
+                return false;
+            }
+            strcpy(cachedDirectory, directory);
+            cachedFirst = first;
         }
         if (selected >= total && total) { selected = first = 0; continue; }
         frame(title);
@@ -238,6 +249,21 @@ bool flushState()
 {
     return !running || a1stFlushState(status, sizeof(status));
 }
+bool applySoundSettings()
+{
+    if (!MsxAudioSetGain(A1stPwmGain(settings.audioOptions))) return false;
+    MsxAudioSetDiagnostics(settings.audioOptions & A1stAudioDiagnostics);
+    if (running && !a1stSetSoundSources(settings.audioOptions & A1ST_SOUND_ALL, status, sizeof(status))) {
+        reportError(status);
+        return false;
+    }
+    Serial.printf("A1ST audio config: master=%u PSG=%u MSX-MUSIC=%u PCM=%u SCC=%u click=%u debug=%u gain=%ux\n",
+                  settings.sound, !!(settings.audioOptions & A1ST_SOUND_PSG),
+                  !!(settings.audioOptions & A1ST_SOUND_MSXMUSIC), !!(settings.audioOptions & A1ST_SOUND_PCM),
+                  !!(settings.audioOptions & A1ST_SOUND_SCC), !!(settings.audioOptions & A1ST_SOUND_CLICK),
+                  !!(settings.audioOptions & A1stAudioDiagnostics), A1stPwmGain(settings.audioOptions));
+    return true;
+}
 bool coldBoot()
 {
     if (!sdReady) { reportError("Mount the SD card before booting."); return false; }
@@ -266,6 +292,7 @@ bool coldBoot()
         if (!a1stAttachDisk(drive, path, status, sizeof(status))) { a1stDestroy(); return false; }
     }
     running = true;
+    if (!applySoundSettings()) { a1stDestroy(); running = false; return false; }
     pacingReady = false;
     status[0] = 0;
     return true;
@@ -390,7 +417,7 @@ bool mediaMenu()
             if (!settings.cartridges[slot][0]) reportError("Select a cartridge ROM first.");
             else {
                 settings.mappers[slot] = key == 76 ? static_cast<uint8_t>(MsxMapperAuto) :
-                    MsxMoveSelection(settings.mappers[slot], key == 80 ? -1 : 1, MsxMapperAuto + 1);
+                    MsxMoveSelection(settings.mappers[slot], key == 80 ? -1 : 1, MsxMapperCount);
                 snprintf(status, sizeof(status), "Mapper changed. Cold boot to apply; save to retain.");
             }
         }
@@ -509,6 +536,56 @@ void joystickMenu()
         delay(100);
     }
 }
+void soundMenu()
+{
+    unsigned selected = 0;
+    const unsigned masks[] = {0, A1ST_SOUND_PSG, A1ST_SOUND_MSXMUSIC, A1ST_SOUND_PCM,
+                              A1ST_SOUND_SCC, A1ST_SOUND_CLICK, A1stAudioDiagnostics};
+    const char* names[] = {"Master sound", "PSG", "MSX-MUSIC (FM)", "TurboR PCM",
+                           "SCC cartridge", "Keyboard click", "UART audio diagnostics"};
+    MsxKeyboardClearEvents();
+    for (;;) {
+        frame("SOUND - SOURCES / NOISE DIAGNOSTICS");
+        for (unsigned row = 0; row < 11; ++row) {
+            char label[64];
+            if (row < 7) snprintf(label, sizeof(label), "%s: %s", names[row],
+                                 (row ? settings.audioOptions & masks[row] : settings.sound) ? "On" : "Off");
+            else if (row == 7) snprintf(label, sizeof(label), "PWM output gain: %ux", A1stPwmGain(settings.audioOptions));
+            else snprintf(label, sizeof(label), "%s", row == 8 ? "PSG only + diagnostics (isolate noise)" :
+                          row == 9 ? "Enable all sound sources" : "Play PWM test tone (2 seconds)");
+            if (selected == row) display.fillRect(6, 48 + row * 11, 308, 10, 0x48);
+            text(8, 48 + row * 11, label);
+        }
+        text(8, 170, "Changes apply on resume; Save boot to retain.");
+        text(8, 188, "Enter/L/R: toggle or run  Esc/F12: back");
+        messageLines(status);
+        showMenu();
+        const uint8_t key = waitKey();
+        if (key == 41 || key == 69) { MsxKeyboardClearEvents(); return; }
+        if (key == 81 || key == 82) selected = MsxMoveSelection(selected, key == 82 ? -1 : 1, 11);
+        else if (key == 40 || key == 79 || key == 80) {
+            if (selected == 0) settings.sound = !settings.sound;
+            else if (selected < 7) settings.audioOptions ^= masks[selected];
+            else if (selected == 7) {
+                const unsigned step = ((settings.audioOptions >> 6) + (key == 80 ? 3 : 1)) & 3;
+                settings.audioOptions = (settings.audioOptions & ~A1stAudioGainMask) | (step << 6);
+            }
+            else if (selected == 8) {
+                settings.sound = 1;
+                settings.audioOptions = (settings.audioOptions & A1stAudioGainMask) | A1ST_SOUND_PSG | A1stAudioDiagnostics;
+            }
+            else if (selected == 9) { settings.sound = 1; settings.audioOptions |= A1ST_SOUND_ALL; }
+            else {
+                frame("AUDIO OUTPUT TEST - EMULATOR SOURCES BYPASSED");
+                text(8, 53, "A clean steady tone should play for 2 seconds.");
+                showMenu();
+                if (MsxAudioPlayTestTone()) snprintf(status, sizeof(status), "PWM tone test complete. See UART.");
+            }
+            applySoundSettings();
+        }
+    }
+}
+
 void present();
 bool menu()
 {
@@ -527,7 +604,7 @@ bool menu()
         snprintf(labels[Resume], 64, "Resume emulation%s", running ? "" : " (not booted)");
         snprintf(labels[Machine], 64, "Machine: FS-A1ST / 256 KiB / V9958");
         snprintf(labels[Media], 64, "Media: ROM slots 1/2 and drives A/B");
-        snprintf(labels[Sound], 64, "Sound: %s (PSG + MSX-MUSIC + PCM + SCC)", settings.sound ? "On" : "Off");
+        snprintf(labels[Sound], 64, "Sound / sources / diagnostics: %s", settings.sound ? "On" : "Off");
         snprintf(labels[Firmware], 64, "Built-in firmware: %s (cold boot)", settings.firmware ? "On" : "Off");
         snprintf(labels[AutoBoot], 64, "Auto boot: %s", settings.autoBoot ? "On" : "Off");
         snprintf(labels[DrawEvery], 64, "Present every %u frame(s)", settings.drawEvery);
@@ -548,8 +625,9 @@ bool menu()
         const uint8_t key = waitKey();
         if ((key == 41 || key == 69 || (key == 40 && selected == Resume)) && running) break;
         if (key == 82 || key == 81) selected = MsxMoveSelection(selected, key == 82 ? -1 : 1, MenuCount);
+        else if (key == 40 && selected == Sound) soundMenu();
         else if ((key == 40 || key == 79 || key == 80) && selected >= Sound && selected <= VgaFit) {
-            if (selected == Sound) settings.sound = !settings.sound;
+            if (selected == Sound) { settings.sound = !settings.sound; applySoundSettings(); }
             if (selected == Firmware) settings.firmware = !settings.firmware;
             if (selected == AutoBoot) settings.autoBoot = !settings.autoBoot;
             if (selected == DrawEvery) settings.drawEvery = key == 80 ?
@@ -606,9 +684,22 @@ void pace(const A1stStats& stats)
     const int64_t elapsed = now - reportStart;
     if (elapsed >= 5000000) {
         const double speed = (stats.masterTicks - reportTicks) * 100000000.0 / (21477270.0 * elapsed);
-        Serial.printf("A1ST speed: %.1f%%, %.1f presented fps, CPU=%s DRAM=%u, PSRAM free=%u\n",
+        const MsxAudioStats audio = MsxAudioGetStats(true);
+        Serial.printf("A1ST speed: %.1f%%, %.1f presented fps, CPU=%s DRAM=%u, PSRAM free=%u, audio=%u Hz queued=%u underruns=%u\n",
                       speed, presented * 1000000.0 / elapsed, stats.r800 ? "R800" : "Z80",
-                      stats.dram, heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                      stats.dram, heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                      audio.rate, audio.queued, audio.underruns);
+        if (settings.audioOptions & A1stAudioDiagnostics) {
+            A1stAudioDebug source;
+            a1stGetAudioDebug(&source);
+            Serial.printf("A1ST audio debug: mask=%02x in=%u range=%d..%d mean=%d rms=%u clip=%u played=%u late=%u maxGap=%uus PSG7=%02x vol=%02x/%02x/%02x period=%u/%u/%u PCM=%02x clicks=%u gain=%ux pwmclip=%u\n",
+                          source.sources, audio.inputSamples, audio.inputMin, audio.inputMax, audio.inputMean,
+                          audio.inputRms, audio.clippedSamples, audio.playedSamples, audio.lateTicks, audio.maxGapUs,
+                          source.psg[7], source.psg[8], source.psg[9], source.psg[10],
+                          source.psg[0] | (source.psg[1] << 8), source.psg[2] | (source.psg[3] << 8),
+                          source.psg[4] | (source.psg[5] << 8), source.pcmStatus, source.clickEdges,
+                          audio.gain, audio.pwmClippedSamples);
+        }
         reportStart = now; reportTicks = stats.masterTicks; presented = 0;
     }
 }

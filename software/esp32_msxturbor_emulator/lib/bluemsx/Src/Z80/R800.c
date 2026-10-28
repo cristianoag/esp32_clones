@@ -31,8 +31,10 @@
 */
 
 #include "R800.h"
+#include "A1stAllocator.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 typedef void (*Opcode)(R800*);
 typedef void (*OpcodeNn)(R800*, UInt16);
@@ -5832,7 +5834,8 @@ R800* r800Create(UInt32 cpuFlags,
                  R800WriteCb watchpointIoCb,
                  void* ref)
 {
-    R800* r800 = calloc(1, sizeof(R800));
+    R800* r800 = a1stAllocateCpu(sizeof(R800));
+    memset(r800, 0, sizeof(R800));
     
     r800->cpuFlags    = cpuFlags;
 
@@ -6321,4 +6324,3 @@ void r800ExecuteInstruction(R800* r800) {
         break;
     }
 }
-

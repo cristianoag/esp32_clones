@@ -221,9 +221,14 @@ static UInt8 ppiReadB(void* ref) { (void)ref; return keyboard[keyboardRow & 15];
 static UInt8 ppiReadPort(void* ref, UInt16 port) { return i8255Read(ref, port); }
 static void ppiWritePort(void* ref, UInt16 port, UInt8 value) { i8255Write(ref, port, value); }
 static void ppiWriteLow(void* ref, UInt8 value) { (void)ref; keyboardRow = value & 15; }
+static unsigned soundSources = A1ST_SOUND_ALL;
+static UInt8 clickLevel;
+static UInt32 clickEdges;
 static void ppiWriteHigh(void* ref, UInt8 value)
 {
     (void)ref;
+    if ((value & 8) != clickLevel) ++clickEdges;
+    clickLevel = value & 8;
     dacWrite(click, DAC_CH_MONO, (value & 8) ? 255 : 0);
 }
 static UInt8 psgRead(void* ref, UInt16 port)
@@ -256,6 +261,39 @@ void RefreshScreen(int mode)
 
 bool a1stReadRom(const char* path, size_t expected, UInt8* buffer,
                      size_t count, char* error, size_t capacity)
+{
+    return a1stReadRomBlocks(path, expected, &buffer, count, count, error, capacity);
+}
+
+typedef struct {
+    UInt8* const* blocks;
+    size_t blockSize;
+} RomBlocks;
+
+static void copyRomBlocks(void* context, size_t offset, const UInt8* bytes, size_t count)
+{
+    const RomBlocks* output = context;
+    while (count) {
+        size_t blockOffset = offset % output->blockSize;
+        size_t copied = output->blockSize - blockOffset;
+        if (copied > count) copied = count;
+        memcpy(output->blocks[offset / output->blockSize] + blockOffset, bytes, copied);
+        offset += copied;
+        bytes += copied;
+        count -= copied;
+    }
+}
+
+bool a1stReadRomBlocks(const char* path, size_t expected, UInt8* const* blocks,
+                       size_t blockSize, size_t count, char* error, size_t capacity)
+{
+    RomBlocks output = { blocks, blockSize };
+    return a1stReadRomStream(path, expected, count, copyRomBlocks, &output, error, capacity);
+}
+
+bool a1stReadRomStream(const char* path, size_t expected, size_t count,
+                       void (*visit)(void*, size_t, const UInt8*, size_t), void* context,
+                       char* error, size_t capacity)
 {
     int flags = O_RDONLY;
 #ifdef _WIN32
@@ -292,7 +330,7 @@ bool a1stReadRom(const char* path, size_t expected, UInt8* buffer,
                     break;
                 }
                 if (!received) { stage = "EOF"; break; }
-                memcpy(buffer + position, chunk, (size_t)received);
+                visit(context, position, chunk, (size_t)received);
                 position += (size_t)received;
 #ifdef ESP_PLATFORM
                 vTaskDelay(1);
@@ -399,7 +437,10 @@ bool a1stCreate(const char* firmware, const char* kanji, const char* directory,
         a1stPanic("Cannot construct A1ST ROM mappings.");
     free(rom);
     free(font);
-    click = dacCreate(mixer, DAC_MONO);
+    soundSources = A1ST_SOUND_ALL;
+    clickLevel = 0;
+    clickEdges = 0;
+    click = dacCreateTyped(mixer, DAC_MONO, MIXER_CHANNEL_KEYBOARD);
     ppi = i8255Create(NULL, NULL, ppiWriteA, ppiReadB, ppiReadB, NULL,
                       NULL, NULL, ppiWriteLow, NULL, NULL, ppiWriteHigh, NULL, 0);
     for (i = 0xa8; i <= 0xab; ++i)
@@ -442,6 +483,33 @@ void a1stRunFrame(void)
 void a1stSetKeyboard(const uint8_t matrix[16]) { memcpy(keyboard, matrix, 16); }
 void a1stSetJoysticks(uint16_t value) { joysticks = value; }
 void a1stSetFirmwareEnabled(bool enabled) { switchSetFront(enabled ? 1 : 0); }
+bool a1stSetSoundSources(unsigned sources, char* error, size_t capacity)
+{
+    if (!mixer || (sources & ~A1ST_SOUND_ALL)) {
+        snprintf(error, capacity, "Invalid sound sources or A1ST is not running.");
+        a1stLog(error);
+        return false;
+    }
+    mixerSync(mixer);
+    mixerEnableChannelType(mixer, MIXER_CHANNEL_PSG, sources & A1ST_SOUND_PSG);
+    mixerEnableChannelType(mixer, MIXER_CHANNEL_MSXMUSIC, !!(sources & A1ST_SOUND_MSXMUSIC));
+    mixerEnableChannelType(mixer, MIXER_CHANNEL_PCM, !!(sources & A1ST_SOUND_PCM));
+    mixerEnableChannelType(mixer, MIXER_CHANNEL_SCC, !!(sources & A1ST_SOUND_SCC));
+    mixerEnableChannelType(mixer, MIXER_CHANNEL_KEYBOARD, !!(sources & A1ST_SOUND_CLICK));
+    soundSources = sources;
+    error[0] = 0;
+    return true;
+}
+
+void a1stGetAudioDebug(A1stAudioDebug* stats)
+{
+    memset(stats, 0, sizeof(*stats));
+    if (!cpu) return;
+    ay8910GetRegisters(psg, stats->psg);
+    stats->pcmStatus = ioPortRead(NULL, 0xa5);
+    stats->sources = soundSources;
+    stats->clickEdges = clickEdges;
+}
 uint8_t a1stReadMemory(uint16_t address) { return slotRead(NULL, address); }
 void a1stWriteMemory(uint16_t address, uint8_t value) { slotWrite(NULL, address, value); }
 uint8_t a1stReadPort(uint16_t port) { return ioPortRead(NULL, port); }

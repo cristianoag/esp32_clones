@@ -17,8 +17,21 @@ enum {
 
 typedef enum {
     A1ST_GENERIC8, A1ST_GENERIC16, A1ST_KONAMI_SCC, A1ST_KONAMI,
-    A1ST_ASCII8, A1ST_ASCII16, A1ST_GAMEMASTER2, A1ST_FMPAC, A1ST_MAPPER_AUTO
+    A1ST_ASCII8, A1ST_ASCII16, A1ST_GAMEMASTER2, A1ST_FMPAC, A1ST_MAPPER_AUTO,
+    A1ST_ASCII16X, A1ST_MAPPER_COUNT
 } A1stMapper;
+
+enum {
+    A1ST_SOUND_PSG = 1, A1ST_SOUND_MSXMUSIC = 2, A1ST_SOUND_PCM = 4,
+    A1ST_SOUND_SCC = 8, A1ST_SOUND_CLICK = 16, A1ST_SOUND_ALL = 31
+};
+
+typedef struct {
+    uint8_t psg[16];
+    uint8_t pcmStatus;
+    uint8_t sources;
+    uint32_t clickEdges;
+} A1stAudioDebug;
 
 typedef struct {
     void (*message)(const char* message);
@@ -42,6 +55,8 @@ void a1stRunFrame(void);
 void a1stSetKeyboard(const uint8_t matrix[16]);
 void a1stSetJoysticks(uint16_t activeHigh);
 void a1stSetFirmwareEnabled(bool enabled);
+bool a1stSetSoundSources(unsigned sources, char* error, size_t errorSize);
+void a1stGetAudioDebug(A1stAudioDebug* stats);
 const uint16_t* a1stPixels(void);
 unsigned a1stLineWidth(unsigned line);
 void a1stGetStats(A1stStats* stats);

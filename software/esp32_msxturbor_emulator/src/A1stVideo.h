@@ -42,6 +42,14 @@ inline void A1stScaleVideoRow(uint8_t destination[320], const uint16_t* source,
     const unsigned scale = width == 544 ? 2 : 1;
     memset(destination, 0, A1stVideoWidth);
     source += 8 * scale;
-    for (unsigned x = 0; x < viewport.width; ++x)
-        destination[viewport.left + x] = A1stVgaColor(source[x * (256 * scale - 1) / (viewport.width - 1)]);
+    const unsigned denominator = viewport.width - 1;
+    const unsigned step = (256 * scale - 1) / denominator;
+    const unsigned increment = (256 * scale - 1) % denominator;
+    unsigned sourceX = 0, fraction = 0;
+    for (unsigned x = 0; x < viewport.width; ++x) {
+        destination[viewport.left + x] = A1stVgaColor(source[sourceX]);
+        sourceX += step;
+        fraction += increment;
+        if (fraction >= denominator) { fraction -= denominator; ++sourceX; }
+    }
 }

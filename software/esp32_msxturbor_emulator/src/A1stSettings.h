@@ -1,6 +1,12 @@
 #pragma once
 #include "MsxSettings.h"
+#include "A1stCore.h"
 #include <string.h>
+
+constexpr uint8_t A1stAudioDiagnostics = 32;
+constexpr uint8_t A1stAudioGainMask = 192;
+constexpr uint8_t A1stAudioDefaultGain = 192;
+inline unsigned A1stPwmGain(uint8_t options) { return 1U << (options >> 6); }
 
 struct A1stSettingsV1
 {
@@ -14,7 +20,7 @@ struct A1stSettingsV1
 
 struct A1stSettings
 {
-    uint32_t version = 2;
+    uint32_t version = 4;
     char disks[2][MsxSdPathCapacity] = {};
     char cartridges[2][MsxSdPathCapacity] = {};
     uint8_t sound = 1;
@@ -23,7 +29,7 @@ struct A1stSettings
     uint8_t drawEvery = 2;
     uint8_t mappers[2] = {MsxMapperAuto, MsxMapperAuto};
     uint8_t vgaFit = 90;
-    uint8_t reserved = 0;
+    uint8_t audioOptions = A1ST_SOUND_ALL | A1stAudioDefaultGain;
 };
 
 static_assert(sizeof(A1stSettingsV1) == 248, "Preserve the original A1ST NVS layout.");
@@ -45,10 +51,20 @@ inline bool A1stDecodeSettings(const void* data, size_t size, A1stSettings& resu
     }
     else if (size == sizeof(A1stSettings)) memcpy(&candidate, data, size);
     else return false;
-    if (candidate.version != 2 || candidate.sound > 1 || candidate.autoBoot > 1 ||
+    if (candidate.version == 2) {
+        if (candidate.audioOptions) return false;
+        candidate.version = 4;
+        candidate.audioOptions = A1ST_SOUND_ALL | A1stAudioDefaultGain;
+    }
+    if (candidate.version == 3) {
+        if (candidate.audioOptions & ~(A1ST_SOUND_ALL | A1stAudioDiagnostics)) return false;
+        candidate.version = 4;
+        candidate.audioOptions |= A1stAudioDefaultGain;
+    }
+    if (candidate.version != 4 || candidate.sound > 1 || candidate.autoBoot > 1 ||
         candidate.firmware > 1 || candidate.drawEvery < 1 || candidate.drawEvery > 6 ||
         candidate.vgaFit < 80 || candidate.vgaFit > 100 || candidate.vgaFit % 5 ||
-        candidate.reserved || !MsxValidMapper(candidate.mappers[0]) ||
+        !MsxValidMapper(candidate.mappers[0]) ||
         !MsxValidMapper(candidate.mappers[1])) return false;
     for (const auto& disk : candidate.disks)
         if (!MsxValidSdPath(disk, true) || (disk[0] && !MsxHasExtension(disk, ".dsk"))) return false;

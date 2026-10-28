@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 void* a1stAllocate(size_t size);
+void* a1stAllocateCpu(size_t size);
 void* a1stCalloc(size_t count, size_t size);
 void* a1stReallocate(void* pointer, size_t size);
 void a1stPanic(const char* message);

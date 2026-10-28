@@ -26,6 +26,7 @@
 ******************************************************************************
 */
 #include "AY8910.h"
+#include "Ay8910Phase.h"
 #include "DetTablesAy8910.h"
 #include "IoPort.h"
 #include "SaveState.h"
@@ -47,6 +48,7 @@ static const UInt8 regMask[16] = {
 };
 
 static Int32* ay8910Sync(void* ref, UInt32 count);
+static void setSampleRate(void* ref, UInt32 rate);
 static void updateRegister(AY8910* ay8910, UInt8 address, UInt8 data);
 
 struct AY8910 {
@@ -65,6 +67,7 @@ struct AY8910 {
 
     UInt32 tonePhase[3];
     UInt32 toneStep[3];
+    UInt32 phaseStep;
 
     UInt32 noisePhase;
     UInt32 noiseStep;
@@ -247,7 +250,8 @@ AY8910* ay8910Create(Mixer* mixer, Ay8910Connector connector, PsgType type, Int3
     ay8910->pan[1] = pan?pan[1]:0;
     ay8910->pan[2] = pan?pan[2]:0;
 
-    ay8910->handle = mixerRegisterChannel(mixer, MIXER_CHANNEL_PSG, stereo, ay8910Sync, NULL, ay8910);
+    ay8910->handle = mixerRegisterChannel(mixer, MIXER_CHANNEL_PSG, stereo, ay8910Sync, setSampleRate, ay8910);
+    setSampleRate(ay8910, mixerGetSampleRate(mixer));
 
     ay8910Reset(ay8910);
     for (i = 0; i < 16; i++) {
@@ -362,6 +366,27 @@ UInt8 ay8910ReadData(AY8910* ay8910, UInt16 ioPort)
     return ay8910->regs[address];
 }
 
+void ay8910GetRegisters(AY8910* ay8910, UInt8 registers[16])
+{
+    memcpy(registers, ay8910->regs, 16);
+}
+
+static void setSampleRate(void* ref, UInt32 rate)
+{
+    AY8910* ay8910 = ref;
+    unsigned channel;
+    UInt32 period;
+    ay8910->phaseStep = (UInt64)BASE_PHASE_STEP * 44100 / rate;
+    for (channel = 0; channel < 3; ++channel) {
+        period = ay8910->regs[channel * 2] | ((UInt32)ay8910->regs[channel * 2 + 1] << 8);
+        ay8910->toneStep[channel] = period ? ay8910->phaseStep / period : 1U << 31;
+    }
+    period = ay8910->regs[6];
+    ay8910->noiseStep = ay8910->phaseStep / (period ? period : 1);
+    period = 16 * (ay8910->regs[11] | ((UInt32)ay8910->regs[12] << 8));
+    ay8910->envStep = ay8910->phaseStep / (period ? period : 8);
+}
+
 static void updateRegister(AY8910* ay8910, UInt8 regIndex, UInt8 data)
 {
     UInt32 period;
@@ -384,12 +409,12 @@ static void updateRegister(AY8910* ay8910, UInt8 regIndex, UInt8 data)
     case 5:
         period = ay8910->regs[regIndex & 6] | ((Int32)(ay8910->regs[regIndex | 1]) << 8);
 //        period *= (~ay8910->enable >> (address >> 1)) & 1;
-        ay8910->toneStep[regIndex >> 1] = period > 0 ? BASE_PHASE_STEP / period : 1 << 31;
+        ay8910->toneStep[regIndex >> 1] = period > 0 ? ay8910->phaseStep / period : 1U << 31;
         break;
         
     case 6:
         period = data ? data : 1;
-        ay8910->noiseStep = period > 0 ? BASE_PHASE_STEP / period : 1 << 31;
+        ay8910->noiseStep = period > 0 ? ay8910->phaseStep / period : 1U << 31;
         break;
         
     case 7:
@@ -405,7 +430,7 @@ static void updateRegister(AY8910* ay8910, UInt8 regIndex, UInt8 data)
     case 11:
     case 12:
         period = 16 * (ay8910->regs[11] | ((UInt32)ay8910->regs[12] << 8));
-        ay8910->envStep = BASE_PHASE_STEP / (period ? period : 8);
+        ay8910->envStep = ay8910->phaseStep / (period ? period : 8);
         break;
         
     case 13:
@@ -481,27 +506,19 @@ static Int32* ay8910Sync(void* ref, UInt32 count)
             UInt32 phaseStep = (~enable & 1) * ay8910->toneStep[channel];
             UInt32 tonePhase = ay8910->tonePhase[channel];
             UInt32 tone = 0;
-            Int32  count = 16;
-
-            /* Perform 16x oversampling */
-            while (count--) {
-                /* Update phase of tone */
-                tonePhase += phaseStep;
-     
-                /* Calculate if tone is on or off */
-                tone += (enable | (tonePhase >> 31)) & noiseEnable;
+            const Int16 amplitude = (ay8910->ampVolume[channel] & 0x10) ?
+                voltEnvTable[envVolume] : voltTable[ay8910->ampVolume[channel]];
+            if (!noiseEnable || !amplitude || (enable & 1)) {
+                tonePhase += phaseStep * 16;
+                tone = ((enable & 1) && noiseEnable) ? 16 : 0;
             }
+            else tone = ay8910ToneSamples(&tonePhase, phaseStep);
 
             /* Store phase */
             ay8910->tonePhase[channel] = tonePhase;
 
             /* Amplify sample using either envelope volume or channel volume */
-            if (ay8910->ampVolume[channel] & 0x10) {
-                sampleVolume[channel] += (Int16)tone * voltEnvTable[envVolume] / 16;
-            }
-            else {
-                sampleVolume[channel] += (Int16)tone * voltTable[ay8910->ampVolume[channel]] / 16;
-            }
+            sampleVolume[channel] += (Int16)tone * amplitude / 16;
         }
 
         if (ay8910->stereo) {

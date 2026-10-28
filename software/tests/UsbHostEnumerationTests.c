@@ -36,6 +36,51 @@ static void received(uint8_t port, uint8_t endpoint, uint8_t length, const uint8
 static void (*onDetectCB)(uint8_t, void *) = detected;
 static void (*onDisconnectCB)(uint8_t);
 static void (*usbRaw)(uint8_t, uint8_t, uint8_t, const uint8_t *) = received;
+#ifdef C64_USB_CONTROL
+#define SET_I ((void)0)
+#define SET_O ((void)0)
+#define SE_0 ((void)0)
+#define SE_J ((void)0)
+#define READ_BOTH_PINS (M_ONE << 8)
+#define SMALL_NO_DATA 36
+static bool hid_device_connected, msxAcknowledgeReplay, msxReplayAcked;
+static unsigned received_NRZI_buffer_bytesCnt;
+static unsigned traceSaves, decodedIndex;
+static int wireResult;
+static bool wireReplayAck;
+static uint8_t decoded[] = {T_START, T_DATA1, 0, 0};
+static void SOF(void) {}
+static void pu_Addr(uint8_t cmd, uint8_t addr, uint8_t ep)
+{ (void)cmd; (void)addr; (void)ep; }
+static void pu_Cmd(uint8_t pid, uint8_t type, uint8_t request,
+                   uint16_t value, uint16_t index, uint16_t length)
+{ (void)pid; (void)type; (void)request; (void)value; (void)index; (void)length; }
+static void pu_MSB(uint32_t value, int bits) { (void)value; (void)bits; }
+static void pu_LSB(uint32_t value, int bits) { (void)value; (void)bits; }
+static uint32_t cal16(void) { return 0; }
+static void repack(void) {}
+static void sendOnly(void) {}
+static void ACK(void) {}
+static void pu_ShortCmd(uint8_t pid) { (void)pid; }
+static uint8_t rev8(uint8_t value)
+{
+    uint8_t result = 0;
+    for (unsigned i = 0; i < 8; ++i) {
+        result = (uint8_t)((result << 1) | (value & 1));
+        value >>= 1;
+    }
+    return result;
+}
+static void decoded_receive_buffer_clear(void) { decodedIndex = 0; }
+static unsigned decoded_receive_buffer_size(void) { return sizeof(decoded); }
+static uint8_t decoded_receive_buffer_get(void)
+{ assert(decodedIndex < sizeof(decoded)); return decoded[decodedIndex++]; }
+static int parse_received_NRZI_buffer(void) { return wireResult; }
+static void sendRecieveNParse(void)
+{ msxReplayAcked = msxAcknowledgeReplay && wireReplayAck; }
+static int sendRecieve(void) { sendRecieveNParse(); return wireResult; }
+static void msxSaveControlTrace(void) { ++traceSaves; }
+#endif
 #include "UsbLogic.inc"
 
 static uint8_t config[] = {
@@ -118,8 +163,92 @@ static void enumerate(unsigned port, bool stallIdle)
     step();
     assert(current->fsm_state == 0 && current->cb_Cmd == CB_CHECK);
 }
+#ifdef C64_USB_CONTROL
+static void poll(int result, bool replayAck)
+{
+    wireResult = result;
+    wireReplayAck = replayAck;
+    received_NRZI_buffer_bytesCnt = result == T_NEED_ACK ? 28 : 12;
+    ++current->tick;
+    timerCallBack();
+    fsm_Mashine();
+}
+static void configure(unsigned port)
+{
+    prepare(port);
+    parse();
+    step();
+    assert(current->fsm_state == 98 && current->cb_Cmd == CB_5);
+    poll(T_ACK, false);
+    assert(current->fsm_state == 98 && current->cb_Cmd == CB_6);
+}
+static void controlStatusRegression(void)
+{
+    for (unsigned port = 0; port < 2; ++port) {
+        configure(port);
+        for (unsigned i = 0; i < 50; ++i) {
+            poll(T_NACK, false); // SET_CONFIGURATION may need time to finish.
+            assert(current->fsm_state == 98 && detectedPort == 99);
+        }
+        poll(T_NEED_ACK, false); // CRC-valid DATA1 ZLP, not yet acknowledged.
+        assert(current->cb_Cmd == CB_7 && detectedPort == 99);
+        const unsigned failures = current->controlFailures;
+        const unsigned traces = traceSaves;
+        for (unsigned i = 0; i < 50; ++i) {
+            poll(T_NACK, false); // Retry the status replay, not SETUP.
+            assert(current->fsm_state == 98 && detectedPort == 99);
+        }
+        assert(current->controlFailures > failures && traceSaves > traces);
+        assert(current->lastControlCommand == CB_7);
+        poll(T_NEED_ACK, true);
+        assert(current->fsm_state == 90 && current->rq.bmRequest == 0x0a);
+        assert(detectedPort == 99); // Configuration status ACK is mandatory.
+        poll(T_ACK, false);
+        poll(T_STALL, false); // SET_IDLE remains optional.
+        assert(current->fsm_state == 100 && detectedPort == port);
+
+        for (unsigned replay = 0; replay < 2; ++replay) {
+            configure(port);
+            if (replay) poll(T_NEED_ACK, false);
+            for (unsigned i = 0; i < 99; ++i) {
+                poll(T_NACK, false);
+                assert(current->fsm_state == 98 && detectedPort == 99);
+            }
+            poll(T_NACK, false);
+            assert(current->fsm_state == 104 && detectedPort == 99);
+            assert(current->failedEnumerationState == 98);
+        }
+        configure(port);
+        poll(T_STALL, false);
+        assert(current->fsm_state == 104 && detectedPort == 99);
+        configure(port);
+        poll(T_NEED_ACK, false);
+        poll(T_STALL, false);
+        assert(current->fsm_state == 104 && detectedPort == 99);
+        configure(port);
+        for (unsigned i = 0; i < 200 && current->fsm_state == 98; ++i)
+            poll(T_CHK_ERR, false); // Corruption can never enable input.
+        assert(current->fsm_state == 104 && detectedPort == 99);
+
+        prepare(port);
+        current->fsm_state = 8;
+        Request(T_SETUP, ASSIGNED_USB_ADDRESS, 0, T_DATA0, 0x80, 6, 0x0200, 0, 9, 9);
+        poll(T_ACK, false);
+        for (unsigned i = 0; i < 3; ++i) {
+            poll(T_NACK, false);
+            assert(current->fsm_state == 8);
+        }
+        poll(T_NACK, false);
+        assert(current->fsm_state == 0); // Descriptor-read retry policy is unchanged.
+    }
+    puts("PASS: delayed configuration status/replay, bounded timeouts, STALL, CRC rejection and replay diagnostics on both ports.");
+}
+#endif
 int main(void)
 {
+#ifdef C64_USB_CONTROL
+    controlStatusRegression();
+#endif
 #ifdef MACPLUS_MOUSE
     config[15] = 1;
     config[16] = 2;

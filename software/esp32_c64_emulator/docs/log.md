@@ -3,6 +3,14 @@
 This log tracks user-visible changes to the Commodore 64 firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.03 - Unreleased
+
+### Fixed
+
+- Allowed low-speed joystick control requests enough status-polling time to complete instead of rejecting controllers after only four attempts.
+- Applied the longer bounded polling window to status replays as well, while still rejecting STALL responses and invalid packets and keeping HID idle mode optional.
+- Reported control replay failures, the USB request and the exact enumeration stage on UART instead of treating every failure as an unsupported gamepad descriptor.
+
 ## 1.02 - Unreleased
 
 ### Changed

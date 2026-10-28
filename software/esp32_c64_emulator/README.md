@@ -1,6 +1,6 @@
 # ESP32 Commodore 64
 
-Standalone **1.00** firmware for the shared Retro Hacker Clone Series
+Standalone **1.03** firmware for the shared Retro Hacker Clone Series
 ESP32-S3 N16R8 board. Other emulator folders are not required to build it.
 The CPU, CIA, VIC-II and SID are adapted from
 [retroelec/T-HMI-C64](https://github.com/retroelec/T-HMI-C64), revision
@@ -60,6 +60,10 @@ The smoke directory must contain the three canonical filenames below.
 Host tests cover banking, CPU execution, VIC/CIA registers, SID audio,
 keyboard scanning in both directions, simultaneous joystick input,
 PRG/D64 validation, settings, calibration, mute and FLH error handling.
+From the parent software directory, run
+`.\Test-UsbJoysticks.ps1 -Projects esp32_c64_emulator` to also exercise
+production USB control handling, delayed configuration status/replay,
+bounded timeouts, STALL responses and packet capture on both connectors.
 Physical VGA, audio, USB enumeration, sustained emulation speed and actual
 flash/reboot switching still require on-board validation.
 
@@ -157,6 +161,12 @@ lines. Button B is captured by calibration but has no extra C64 fire line.
 Both ports and the keyboard stay active together; keyboard scans are
 not suppressed when a joystick is held. Calibrations are bound to the
 device identity/report format and are released on disconnect or mismatch.
+
+Control requests without a data stage use bounded 100-poll status and replay
+windows rather than four polls, allowing controllers time to finish configuration.
+UART identifies the failed request and enumeration stage, including replay/ACK
+failures; a configuration-transfer failure is not reported as an unsupported HID
+report descriptor. If enumeration fails, unplug and reconnect the controller.
 
 ## Programs and limitations
 

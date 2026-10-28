@@ -54,7 +54,9 @@ firmware's independent copy:
 - `romMapperTurboRTimer.c`: used the exact master-clock/84 E6 frequency,
   preserved oscillator phase on reset, and ignored E7 writes.
 - `VDP.c`: reset the cached scanline offset at a new frame, avoiding a
-  stale last-row pointer overflowing the compact single framebuffer.
+  stale last-row pointer overflowing the compact single framebuffer; allowed
+  pixel composition to be skipped while retaining renderer-specific sprite
+  evaluation points, interrupts and command execution.
 - `RTC.c/.h`: avoided an ESP-IDF header-name/guard collision and exposed
   checked binary CMOS writes and synchronization.
 - `OpenMsxYM2413_2.cpp/.h`: placed the two large shared lookup tables in

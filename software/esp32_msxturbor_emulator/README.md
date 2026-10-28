@@ -131,8 +131,14 @@ firmwares. Use arrows and Enter; Esc or F12 resumes a booted machine.
 - **Built-in firmware:** controls the original firmware switch; cold-boot
   to apply it. Off is the default for normal BASIC/DOS startup.
 - **Auto boot** and **Present every N frames:** independent host settings.
-  Presentation skipping does not accelerate the guest CPU or skip VDP
-  state/sprite evaluation.
+  The render/presentation interval defaults to **6** while audio/performance
+  investigation continues. Older records using the previous default of 2
+  migrate once to 6; other saved intervals are retained. Choosing 2 again
+  and saving with the new settings version keeps that explicit choice.
+  The interval now skips pixel composition as well as presentation, matching
+  the normal MSX approach to reducing drawing work. CPU execution, VDP timing,
+  commands, VBlank and sprite collision/overflow processing continue on every
+  guest frame; only undisplayed pixels are omitted.
 - **VGA fit:** Left/Right or Enter selects 80%, 85%, 90%, 95% or 100%.
   The default 90% centers the entire picture and every menu inside a safe
   area, keeping the 4:3 aspect ratio on monitors that clip the edges.
@@ -259,6 +265,10 @@ when at most one half-cycle boundary is crossed, with the original loop retained
 for larger steps. Silent/noise-gated channels still advance phase correctly.
 These reduce CPU work without changing VGA pixels, VDP/sprite behavior or PSG
 sample values.
+Only selected frames compose pixels; sprite status is evaluated at the same
+renderer-specific scanline positions on skipped frames. VGA cache writeback
+uses aligned spans of eight rows (30 calls per presentation instead of 240),
+keeping the existing single-buffer DMA driver. Cache errors are reported.
 
 Not claimed: A1GT/MIDI, cassette selection,
 microphone recording, printer output, save states, reverse
@@ -286,6 +296,16 @@ boot. `gain` reports pre-quantization amplification; `pwmclip` counts output-gai
 saturation separately from input `clip`. Intentional timer sleep is not an
 ISR service gap. Logs are never printed
 inside the audio interrupt, and detailed measurement is off by default.
+The `default-6-buffered` build marker is shown at startup and in `A1ST work[...]`
+reports. Like ordinary MSX, the core samples one frame in 17 and reports total
+core time split into CPU/other, VDP and audio-mixer work in milliseconds per
+guest frame. Framebuffer-copy time is measured separately in milliseconds per
+presentation. The report also includes the core's actual CPU-state size; this
+distinguishes a small CPU object from larger mixer allocations.
+UART output uses a 2048-byte transmit queue configured before startup, so a
+multi-line diagnostic burst does not wait synchronously for 115200-baud
+transmission and drain the audio queue. PCM input is staged in small aligned
+stack blocks before entering the audio interrupt lock.
 Measure these on the board before drawing performance
 conclusions.
 
@@ -312,6 +332,8 @@ make test
 # Or add -Game 'C:\path\to\KMARE.ROM' for a 1800-frame audio smoke test.
 .\tools\Test-Audio.ps1
 .\tools\Test-SoundMenu.ps1
+.\tools\Test-Video.ps1
+.\tools\Test-SerialTiming.ps1
 .\tools\Test-RomImport.ps1 -PanasonicDirectory 'C:\path\to\panasonic'
 ```
 
@@ -341,6 +363,16 @@ Fast PSG math is checked against the original 16-step loop for 200000 random
 cases and every valid tone period at phase boundaries. Fast VGA sampling is
 compared pixel-for-pixel against the original formula at every supported fit
 and both source widths.
+Work-profiler tests use deterministic timestamps to verify section durations,
+the 1-in-17 sampling policy, CPU-state layout reporting and window reset.
+Video-state tests compare sprite overflow/index, collision coordinates, VBlank,
+guest frame clocks and command completion with/without pixel composition in
+SCREEN 1-8/10/12. The actual presentation routine is checked pixel-for-pixel,
+including aligned cache coverage and error reporting. Optional game tests also
+compare every PCM sample and guest clock with drawing intervals 1 and 6.
+Serial tests execute the actual performance-report code and verify that the
+diagnostic burst fits the TX queue without waiting; unbuffered transmission
+reproduces a delay longer than 25 ms. UART initialization failures are explicit.
 Media regressions cover both external cartridge slots, all mapper choices,
 SCC wave RAM, SRAM persistence, 4 MiB ASCII16/ASCII16-X banks, mirrored
 ASCII16-X registers/windows, unpopulated flash, invalid-size/header rejection,

@@ -8,6 +8,9 @@ namespace
 bool nvsReady = true, sdReady = true, running = true;
 bool paused, pauseFailure, writeFailure, installFailure, restarted;
 unsigned writes, installs, frames, menus, errors;
+unsigned presentations;
+bool lastRendered;
+uint32_t videoFrame;
 uint16_t controls, coreControls;
 uint8_t menuKey;
 char status[160];
@@ -44,9 +47,9 @@ void MsxKeyboardMatrix(uint8_t *matrix) { memset(matrix, 0xff, 16); }
 void a1stSetKeyboard(const uint8_t *) {}
 uint16_t MsxJoysticksRead() { return controls; }
 void a1stSetJoysticks(uint16_t value) { coreControls = value; }
-void a1stRunFrame() { ++frames; }
+void a1stRunFrameWithVideo(bool render) { lastRendered = render; ++frames; }
 void a1stGetStats(A1stStats *stats) { stats->frames = frames; }
-void present() {}
+void present() { ++presentations; }
 void pace(const A1stStats &) {}
 #include "JoystickFrontend.inc"
 }
@@ -62,6 +65,13 @@ int main()
     menuKey = 69;
     loop();
     assert(menus == 1 && frames == 2);
+    menuKey = 0;
+    settings.drawEvery = 2;
+    videoFrame = 0;
+    loop();
+    assert(!lastRendered && presentations == 2);
+    loop();
+    assert(lastRendered && presentations == 3);
     assert(saveSettings() && writes == 1 && !paused);
     writeFailure = true;
     assert(!saveSettings() && writes == 2 && !paused);

@@ -26,6 +26,7 @@
 ******************************************************************************
 */
 #include "VDP.h"
+#include "A1stProfile.h"
 #include "V9938.h"
 #include "Board.h"
 #include "Board.h"
@@ -1371,8 +1372,35 @@ void vdpForceSync(void)
         vdp_sync(theVdp, boardSystemTime());
 }
 
+static void refreshFrameLine(VDP* vdp, int line, int first, int last)
+{
+    if (a1stFrameRendering()) {
+        vdp->RefreshLine(vdp, line, first, last);
+        return;
+    }
+    /* Preserve each renderer's sprite-evaluation point, even when pixels are skipped. */
+    if (vdp->RefreshLine == RefreshLine1 || vdp->RefreshLine == RefreshLine2 ||
+        vdp->RefreshLine == RefreshLine3) {
+        if (first < 33 && last >= 33) spritesLine(vdp, line);
+    }
+    else if (vdp->RefreshLine == RefreshLine4) {
+        if (first < 33 && last >= 33) colorSpritesLine(vdp, line, 0);
+    }
+    else if (vdp->RefreshLine == RefreshLine5 || vdp->RefreshLine == RefreshLine6 ||
+             vdp->RefreshLine == RefreshLine7 || vdp->RefreshLine == RefreshLine8 ||
+             vdp->RefreshLine == RefreshLine10 || vdp->RefreshLine == RefreshLine12) {
+        int boundary = 24;
+#ifdef MAX_VIDEO_WIDTH_320
+        if (vdp->RefreshLine == RefreshLine6 || vdp->RefreshLine == RefreshLine7) boundary = 33;
+#endif
+        if (first < boundary && last >= boundary)
+            colorSpritesLine(vdp, line, vdp->RefreshLine == RefreshLine6);
+    }
+}
+
 static void vdp_sync(void *data, UInt32 systemTime) 
 {
+    A1ST_WORK_BEGIN(A1ST_WORK_VIDEO);
     VDP *vdp      = (VDP*)data;
     int frameTime = systemTime - vdp->frameStartTime;
     int scanLine  = frameTime / HPERIOD;
@@ -1382,25 +1410,28 @@ static void vdp_sync(void *data, UInt32 systemTime)
     if (vdp->vdpVersion == VDP_V9938 || vdp->vdpVersion == VDP_V9958)
         vdpCmdExecute(vdp->cmdEngine, boardSystemTime());
 
-    if (!vdp->videoEnabled || !displayEnable || frameBufferGetDrawFrame() == NULL)
+    if (!vdp->videoEnabled || !displayEnable || frameBufferGetDrawFrame() == NULL) {
+        A1ST_WORK_END(A1ST_WORK_VIDEO);
         return;
+    }
 
     if (vdp->curLine < scanLine) {
         if (vdp->lineOffset <= 32) {
             if (vdp->curLine >= vdp->displayOffest && vdp->curLine < vdp->displayOffest + SCREEN_HEIGHT)
-                vdp->RefreshLine(vdp, vdp->curLine, vdp->lineOffset, 33);
+                refreshFrameLine(vdp, vdp->curLine, vdp->lineOffset, 33);
         }
         vdp->lineOffset = -1;
         vdp->curLine++;
         while (vdp->curLine < scanLine) {
             if (vdp->curLine >= vdp->displayOffest && vdp->curLine < vdp->displayOffest + SCREEN_HEIGHT) {
-                vdp->RefreshLine(vdp, vdp->curLine, -1, 33);
+                refreshFrameLine(vdp, vdp->curLine, -1, 33);
             }
             vdp->curLine++;
         }
     }
 
     if (vdp->lineOffset > 32 || lineTime < -1) {
+        A1ST_WORK_END(A1ST_WORK_VIDEO);
         return;
     }
 
@@ -1411,10 +1442,11 @@ static void vdp_sync(void *data, UInt32 systemTime)
 
     if (vdp->lineOffset < curLineOffset) {
         if (vdp->curLine >= vdp->displayOffest && vdp->curLine < vdp->displayOffest + SCREEN_HEIGHT) {
-            vdp->RefreshLine(vdp, vdp->curLine, vdp->lineOffset, curLineOffset);
+            refreshFrameLine(vdp, vdp->curLine, vdp->lineOffset, curLineOffset);
         }
         vdp->lineOffset = curLineOffset;
     }
+    A1ST_WORK_END(A1ST_WORK_VIDEO);
 }
 #if 0
 static void saveState(VDP* vdp)
@@ -2307,4 +2339,3 @@ void vdpCreate(VdpConnector connector, VdpVersion version, VdpSyncMode sync, int
         break;
     }
 }
-

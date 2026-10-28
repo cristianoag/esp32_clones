@@ -55,6 +55,7 @@ static void message(const char* value) { std::fprintf(stderr, "A1ST: %s\n", valu
 static unsigned audioSamples;
 void a1stMediaTests();
 void a1stAudioTests();
+void a1stVideoStateTests();
 void a1stGameAudioTests(const char* firmware, const char* kanji, const char* game);
 void a1stCartridgeFileTests(const char* path);
 static void audio(const int16_t*, unsigned count) { audioSamples += count; }
@@ -378,6 +379,7 @@ int main(int argc, char** argv)
     file = std::fopen("synthetic.dsk", "rb");
     require(file && std::fgetc(file) == 0x69, "FDC sector writes persist before success.");
     std::fclose(file);
+    a1stVideoStateTests();
     require(a1stFlushState(error, sizeof(error)), error);
     a1stDestroy();
     std::remove("synthetic.rom");

@@ -64,6 +64,7 @@ int main()
         }
     }
     A1stSettings defaults, decoded;
+    require(defaults.drawEvery == 6, "Fresh TurboR settings default to a six-frame render interval.");
     for (unsigned width : {272U, 544U}) {
         const unsigned scale = width / 272;
         for (unsigned x = 0; x < source.size(); ++x) source[x] = uint16_t(x * 19937);
@@ -94,7 +95,7 @@ int main()
     legacy.sound = 0;
     legacy.drawEvery = 5;
     require(A1stDecodeSettings(&legacy, sizeof(legacy), decoded), "Migrate existing A1ST NVS settings.");
-    require(decoded.version == 4 && decoded.sound == 0 && decoded.drawEvery == 5 &&
+    require(decoded.version == 5 && decoded.sound == 0 && decoded.drawEvery == 5 &&
             !std::strcmp(decoded.disks[0], legacy.disk) && decoded.vgaFit == 90 &&
             !decoded.disks[1][0] && !decoded.cartridges[0][0],
             "Migration retains boot preferences and starts with empty added slots.");
@@ -116,7 +117,7 @@ int main()
     legacyV2.version = 2;
     legacyV2.audioOptions = 0;
     require(A1stDecodeSettings(&legacyV2, sizeof(legacyV2), decoded) &&
-            decoded.version == 4 && decoded.audioOptions == (A1ST_SOUND_ALL | A1stAudioDefaultGain) &&
+            decoded.version == 5 && decoded.audioOptions == (A1ST_SOUND_ALL | A1stAudioDefaultGain) &&
             decoded.mappers[1] == MsxAscii16X && !std::strcmp(decoded.cartridges[0], full.cartridges[0]),
             "Version 2 settings migrate without losing media or disabling sound sources.");
     legacyV2.audioOptions = 1;
@@ -125,11 +126,41 @@ int main()
     legacyV3.version = 3;
     legacyV3.audioOptions = A1ST_SOUND_PSG | A1stAudioDiagnostics;
     require(A1stDecodeSettings(&legacyV3, sizeof(legacyV3), decoded) &&
-            decoded.version == 4 && (decoded.audioOptions & A1ST_SOUND_ALL) == A1ST_SOUND_PSG &&
+            decoded.version == 5 && (decoded.audioOptions & A1ST_SOUND_ALL) == A1ST_SOUND_PSG &&
             (decoded.audioOptions & A1stAudioDiagnostics) && A1stPwmGain(decoded.audioOptions) == 8,
             "Version 3 source/debug choices migrate with corrected default PWM gain.");
     legacyV3.audioOptions = 64;
     require(!A1stDecodeSettings(&legacyV3, sizeof(legacyV3), decoded), "Reject unknown legacy audio bits.");
+    auto legacyV4 = full;
+    legacyV4.version = 4;
+    legacyV4.drawEvery = 2;
+    require(A1stDecodeSettings(&legacyV4, sizeof(legacyV4), decoded) &&
+            decoded.version == 5 && decoded.drawEvery == 6 &&
+            decoded.audioOptions == legacyV4.audioOptions &&
+            !std::strcmp(decoded.cartridges[0], legacyV4.cartridges[0]),
+            "The previous saved default migrates once to six without losing sound or media choices.");
+    legacyV4.drawEvery = 3;
+    require(A1stDecodeSettings(&legacyV4, sizeof(legacyV4), decoded) && decoded.drawEvery == 3,
+            "Other saved presentation intervals remain unchanged.");
+    auto explicitTwo = full;
+    explicitTwo.drawEvery = 2;
+    require(A1stDecodeSettings(&explicitTwo, sizeof(explicitTwo), decoded) && decoded.drawEvery == 2,
+            "An explicit interval two saved with the new settings version is retained.");
+    for (unsigned interval = 1; interval <= 6; ++interval) {
+        legacy.drawEvery = interval;
+        const unsigned expected = interval == 2 ? 6 : interval;
+        require(A1stDecodeSettings(&legacy, sizeof(legacy), decoded) && decoded.drawEvery == expected,
+                "Version 1 interval migration changes only the previous default.");
+        for (unsigned version : {2U, 3U, 4U}) {
+            auto saved = full;
+            saved.version = version;
+            saved.drawEvery = interval;
+            if (version == 2) saved.audioOptions = 0;
+            if (version == 3) saved.audioOptions = A1ST_SOUND_PSG | A1stAudioDiagnostics;
+            require(A1stDecodeSettings(&saved, sizeof(saved), decoded) && decoded.drawEvery == expected,
+                    "Every older settings version migrates interval two and preserves all other choices.");
+        }
+    }
     full.audioOptions = A1ST_SOUND_PSG | A1stAudioDiagnostics | A1stAudioDefaultGain;
     require(A1stDecodeSettings(&full, sizeof(full), decoded) && decoded.audioOptions == full.audioOptions,
             "Per-source switches and UART diagnostics persist without changing the NVS record size.");

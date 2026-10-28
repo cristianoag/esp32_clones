@@ -1,6 +1,7 @@
 #include "A1stCore.h"
 #include "OpenMsxYM2413_2.h"
 #include "Ay8910Phase.h"
+#include "A1stProfile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -63,6 +64,26 @@ static unsigned peak(const std::vector<int16_t>& samples)
 
 void a1stAudioTests()
 {
+    a1stProfileReset();
+    for (unsigned frame = 0; frame < 17; ++frame) {
+        const uint64_t start = frame * 1000;
+        a1stProfileStart(start);
+        if (a1stProfileActive) {
+            a1stProfileBegin(A1ST_WORK_VIDEO, start + 100);
+            a1stProfileEnd(A1ST_WORK_VIDEO, start + 300);
+            a1stProfileBegin(A1ST_WORK_AUDIO, start + 400);
+            a1stProfileEnd(A1ST_WORK_AUDIO, start + 450);
+        }
+        a1stProfileFinish(start + 900);
+    }
+    A1stWorkStats work;
+    a1stGetWorkStats(&work);
+    require(work.samples == 1 && work.coreUs == 900 && work.videoUs == 200 && work.audioUs == 50,
+            "Sampled work profiler reports exact non-overlapping section durations.");
+    require(work.cpuBytes > 0 && work.cpuBytes < 2048, "Configured CPU state size is reported from the core's actual layout.");
+    a1stGetWorkStats(&work);
+    require(work.samples == 0 && work.coreUs == 0, "Work-report windows reset after reading.");
+    a1stProfileReset();
     UInt32 random = 0x12345678;
     for (unsigned test = 0; test < 200000; ++test) {
         random = random * 1664525U + 1013904223U;

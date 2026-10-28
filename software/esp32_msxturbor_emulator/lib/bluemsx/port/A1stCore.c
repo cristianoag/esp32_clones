@@ -1,6 +1,7 @@
 /* Embedded A1ST integration; blueMSX and openMSX hardware references are listed
  * in docs/licenses.md. No fMSX core or BIOS patches are used. */
 #include "A1stInternal.h"
+#include "A1stProfile.h"
 #include "R800.h"
 #include "Board.h"
 #include "SlotManager.h"
@@ -222,6 +223,7 @@ static UInt8 ppiReadPort(void* ref, UInt16 port) { return i8255Read(ref, port); 
 static void ppiWritePort(void* ref, UInt16 port, UInt8 value) { i8255Write(ref, port, value); }
 static void ppiWriteLow(void* ref, UInt8 value) { (void)ref; keyboardRow = value & 15; }
 static unsigned soundSources = A1ST_SOUND_ALL;
+static bool renderFrame = true;
 static UInt8 clickLevel;
 static UInt32 clickEdges;
 static void ppiWriteHigh(void* ref, UInt8 value)
@@ -383,6 +385,7 @@ bool a1stCreate(const char* firmware, const char* kanji, const char* directory,
         return false;
     }
     host = *callbacks;
+    a1stProfileReset();
     if (!directory || strlen(directory) >= sizeof(stateDirectory)) {
         snprintf(error, capacity, "Invalid A1ST state directory."); a1stLog(error); return false;
     }
@@ -395,6 +398,7 @@ bool a1stCreate(const char* firmware, const char* kanji, const char* directory,
         free(rom); free(font); return false;
     }
     frames = switches = interrupts = lastTime = 0;
+    renderFrame = true;
     ticks = 0;
     memset(keyboard, 0xff, sizeof(keyboard));
     keyboardRow = psgOutput = 0;
@@ -462,11 +466,20 @@ bool a1stCreate(const char* firmware, const char* kanji, const char* directory,
     return true;
 }
 
+bool a1stFrameRendering(void) { return renderFrame; }
+
 void a1stRunFrame(void)
+{
+    a1stRunFrameWithVideo(true);
+}
+
+void a1stRunFrameWithVideo(bool renderPixels)
 {
     UInt32 count;
     Int16* samples;
     if (!cpu) a1stPanic("A1ST has not been initialized.");
+    renderFrame = renderPixels;
+    a1stProfileStart(a1stProfileNow());
     frameComplete = frameTimedOut = 0;
     boardTimerAdd(frameFence, cpu->systemTime + boardFrequency() / 10);
     cpu->terminate = 0;
@@ -478,6 +491,7 @@ void a1stRunFrame(void)
     mixerSync(mixer);
     samples = mixerGetBuffer(mixer, &count);
     if (host.audio && count) host.audio(samples, count);
+    a1stProfileFinish(a1stProfileNow());
 }
 
 void a1stSetKeyboard(const uint8_t matrix[16]) { memcpy(keyboard, matrix, 16); }
@@ -514,6 +528,12 @@ uint8_t a1stReadMemory(uint16_t address) { return slotRead(NULL, address); }
 void a1stWriteMemory(uint16_t address, uint8_t value) { slotWrite(NULL, address, value); }
 uint8_t a1stReadPort(uint16_t port) { return ioPortRead(NULL, port); }
 void a1stWritePort(uint16_t port, uint8_t value) { ioPortWrite(NULL, port, value); }
+
+void a1stGetWorkStats(A1stWorkStats* stats)
+{
+    a1stProfileTake(stats);
+    stats->cpuBytes = cpu ? sizeof(*cpu) : 0;
+}
 
 void a1stGetStats(A1stStats* stats)
 {

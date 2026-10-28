@@ -54,6 +54,7 @@ $executable = Join-Path $build 'a1st-tests.exe'
 & g++ '-O2' '-g' '-Wl,--gc-sections,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free' `
     @includes $test (Join-Path $root 'tests\MediaTests.cpp') `
     (Join-Path $root 'tests\AudioCoreTests.cpp') `
+    (Join-Path $root 'tests\VideoStateTests.cpp') `
     (Join-Path $root 'tests\GameAudioTests.cpp') `
     (Join-Path $root 'tests\MemoryHooks.cpp') @objects '-o' $executable
 if ($LASTEXITCODE -ne 0) { throw 'Host core link failed.' }

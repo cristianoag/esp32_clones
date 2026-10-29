@@ -14,7 +14,7 @@ enum class AppleModel : uint8_t { IIPlus, IIe };
 class AppleDisk
 {
 public:
-    static constexpr size_t ImageSize = 35 * 6656;
+    static constexpr size_t TrackSize = 6656, ImageSize = 35 * TrackSize;
     bool attach(const uint8_t *data, size_t size, char *error, size_t capacity);
     void eject();
     void reset();
@@ -22,8 +22,16 @@ public:
     APPLE_IRAM uint8_t read(uint64_t cycles);
     bool loaded() const { return data_ != nullptr; }
     unsigned track() const { return (halfTrack_ + 1) / 2; }
+    void clearActivity() { hasActivity_ = false; }
+    bool active(uint64_t cycles) const
+    {
+        return data_ && hasActivity_ && cycles - lastRead_ < 1023000 / 5;
+    }
 private:
     const uint8_t *data_ = nullptr;
+    alignas(4) uint8_t trackData_[TrackSize];
+    unsigned cachedTrack_ = 35;
+    bool hasActivity_ = false;
     unsigned nibble_ = 0;
     int halfTrack_ = 0;
     bool phases_[4] = {}, previous_[4] = {}, beforePrevious_[4] = {};
@@ -59,6 +67,10 @@ public:
     void key(uint8_t ascii) { keyboard_ = (ascii & 127) | 128; }
     bool keyPending() const { return keyboard_ & 128; }
     void input(bool anyKey, uint8_t modifiers, uint16_t joysticks);
+    uint8_t diskActivity() const
+    {
+        return unsigned(disks[0].active(cycles)) | (unsigned(disks[1].active(cycles)) << 1);
+    }
     APPLE_IRAM uint8_t floatingBus() const;
     uint8_t ram[2][65536] = {};
     uint8_t rom[16384] = {};
@@ -73,7 +85,7 @@ public:
 private:
     unsigned bank(uint16_t address, bool write) const;
     unsigned languageAddress(uint16_t address) const;
-    void updateMemoryMap();
+    void updateMemoryMap(unsigned first = 0, unsigned end = 256);
     uint8_t readCycle(uint16_t address);
     void writeCycle(uint16_t address, uint8_t value);
     uint64_t clockCpu(uint64_t pins);

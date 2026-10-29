@@ -3,6 +3,24 @@
 This log tracks user-visible changes to the ESP32 Apple II emulator firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.06 - Unreleased
+
+### Added
+
+- Added pulsing green drive-1 and drive-2 disk-activity icons in the lower-right border, which remained responsive on unchanged screens and skipped video frames without covering the Apple picture.
+- Added native performance workloads and regressions for disk-track caching, activity expiry and audio timing.
+
+### Changed
+
+- Reduced CPU emulation overhead with indexed instruction dispatch and batched work between audio samples, while retaining the original CPU clock and sample timing.
+- Avoided rebuilding unchanged memory maps and limited bank-switch updates to the affected pages, reducing overhead during disk loading and language-card use.
+- Cached each drive's current track in internal RAM to reduce contention between disk reads and VGA output, while preserving disk-byte timing, write protection and the motor-stop delay.
+- Bumped the firmware and update-package version to 1.06.
+
+### Notes
+
+- Sustained frame rate and disk-loading improvements still required measurements on the physical ESP32-S3 board.
+
 ## 1.05 - Unreleased
 
 ### Changed

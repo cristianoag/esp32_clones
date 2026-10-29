@@ -1,7 +1,7 @@
 # ESP32 Apple II+ / original Apple IIe
 
 Standalone firmware for the shared Retro Hacker Clone Series ESP32-S3 N16R8
-board. Firmware version: **1.03**. The CP400, MSX and TK firmware folders are
+board. Firmware version: **1.06**. The CP400, MSX and TK firmware folders are
 not needed to build or run it.
 
 The initial profiles are **generic Apple II+** (48 KiB RAM plus a 16 KiB
@@ -63,7 +63,7 @@ PlatformIO is pinned to `espressif32@6.11.0`. `make` finds PlatformIO's
 usual Windows virtual environment. Native tests require G++ and
 PowerShell on PATH. All libraries and the board definition are local.
 
-`make firmware` packages and verifies `dist\ESP32_APPLE2-1.05.FLH` using
+`make firmware` packages and verifies `dist\ESP32_APPLE2-1.06.FLH` using
 the shared decimal checksum + `-~` + ESP32-S3 application format.
 Install over UART first to install the dual 4 MiB OTA partition layout.
 Later updates use **F12 > Firmware update** and any compatible `.FLH`
@@ -124,6 +124,12 @@ spinning between sector reads. Firmware 1.00 stopped it immediately,
 causing repeated spin-up waits that made games such as Karateka appear
 frozen. Update to 1.01 or later if you encounter that symptom. Loading
 still takes emulated disk time rather than starting instantly.
+
+The lower-right border shows a pulsing green floppy icon numbered **1**
+or **2** while that drive delivers disk data. Each icon clears 200 ms of
+emulated time after its last read. It also updates on unchanged screens
+and skipped video frames, without covering the Apple picture. A spinning
+motor or an empty drive alone does not light it.
 
 ## F12 workflow
 
@@ -232,13 +238,23 @@ does not contribute to the cached screen no longer force a redraw; this
 avoids repainting text while DOS loads graphics into unrelated RAM.
 Resolution and 80-column support are unchanged.
 
+Version 1.06 restores indexed dispatch for the large 6502 decoder on the
+ESP32 (without changing compiler options for interrupt handlers), batches
+CPU work between the original audio sample boundaries, and rebuilds only
+the affected memory-map pages when banking actually changes. Each drive
+caches its current 6.5 KiB track in internal RAM, so repeated Disk II data
+reads do not compete with VGA for PSRAM access. Track changes and remounts
+invalidate the cache. The CPU clock, 32-cycle disk-byte interval, motor-stop
+delay and read-only media behavior remain unchanged; this removes host
+overhead rather than bypassing game loaders or accelerating guest timing.
+
 UART logs now split average time per emulated frame into **CPU**, **video**,
 **copy** and **audio** milliseconds, and include actual redraw count,
 CPU PC, drive-1 track and elapsed emulated time. Video/copy averages include
 skipped frames, not just rendered ones. Startup also reports internal
 heap headroom. Capture several steady-state lines; the initial boot phase
 is not representative of game speed. Version 1.03 still requires fresh
-on-board measurements before claiming full-speed operation.
+on-board measurements before claiming full-speed operation, as does 1.06.
 
 ## Validation
 
@@ -246,6 +262,17 @@ on-board measurements before claiming full-speed operation.
 selection, language-card write protection, keyboard/paddles, bounded NIB
 access, write-protected media, video layout, audio sample counts, settings,
 joystick calibration and FLH validation/failure paths.
+Core regressions also cover track-cache wrap/seek/remount behavior,
+drive-specific activity expiry and border placement, and sample-for-sample
+audio equivalence with individual CPU ticks.
+
+For repeatable synthetic CPU, disk-polling and language-card host timings:
+
+```powershell
+.\tools\Test-Core.ps1 -Benchmark
+```
+
+These are native-host comparisons, not measurements of ESP32 real-time speed.
 
 With user-supplied ROMs in the default SD layout, run `make test-roms`.
 Alternative paths can be passed to `tools\Test-Roms.ps1` with

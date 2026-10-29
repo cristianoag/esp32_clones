@@ -8,6 +8,7 @@
 #include <new>
 #include <algorithm>
 #include "AppleCore.h"
+#include "AppleDiskActivity.h"
 #include "AppleInput.h"
 #include "AppleSettings.h"
 #include "ApplePlatform.h"
@@ -629,6 +630,23 @@ static void menu()
     AppleAudioEnable(audioReady && settings.sound && !audioFailed);
 }
 
+static void presentDiskActivity(bool force = false)
+{
+    static uint8_t previous = 255;
+    const uint8_t drives = machine.diskActivity();
+    const bool bright = !(machine.frames & 8);
+    const uint8_t state = drives | (drives && bright ? 4 : 0);
+    if (!force && previous == state) return;
+    previous = state;
+    for (unsigned y = 0; y < AppleDiskActivity::Height; ++y)
+    {
+        uint8_t *line = video.dmaBuffer->getLineAddr8(AppleDiskActivity::Y + y) + AppleDiskActivity::X;
+        for (unsigned x = 0; x < AppleDiskActivity::Width; ++x)
+            line[x] = AppleDiskActivity::pixel(x, y, drives, bright);
+        video.dmaBuffer->flush(0, AppleDiskActivity::Y + y);
+    }
+}
+
 static uint32_t present()
 {
     uint32_t copyTime = 0;
@@ -639,6 +657,9 @@ static uint32_t present()
         video.dmaBuffer->flush(0, y);
         *static_cast<uint32_t *>(context) += micros() - start;
     }, &copyTime, settings.monochrome);
+    const uint32_t start = micros();
+    presentDiskActivity(true);
+    copyTime += micros() - start;
     return copyTime;
 }
 
@@ -746,6 +767,7 @@ void loop()
         copyMicros += copied;
         ++renderedFrames;
     }
+    presentDiskActivity();
     const uint32_t audioStart = micros();
     if (audioReady && settings.sound)
     {

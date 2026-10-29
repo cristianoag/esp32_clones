@@ -1,4 +1,5 @@
 #include "AppleCore.h"
+#include "AppleDiskActivity.h"
 #include "AppleInput.h"
 #include "AppleSettings.h"
 #include <assert.h>
@@ -6,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+#include <chrono>
 
 static AppleCore core;
 static uint8_t rom[16384], slot[256];
@@ -186,15 +188,35 @@ static void frameStepTests()
     memcpy(stepped.rom + 4096, program, sizeof(program));
     int16_t audio[AppleCore::MaxSamples];
     unsigned samples;
+    unsigned phase = 0;
+    bool speaker = false;
+    const auto step = [&speaker]()
+    {
+        stepped.tick();
+        const uint16_t address = M6502_GET_ADDR(stepped.cpu.PINS);
+        if (address >= 0xc030 && address < 0xc040) speaker = !speaker;
+    };
     for (unsigned frame = 0; frame < 4; ++frame)
     {
         core.runFrame(nullptr, audio, samples, false);
-        for (unsigned i = 0; i < AppleCore::FrameCycles; ++i) stepped.tick();
+        unsigned expectedSamples = 0;
+        for (unsigned i = 0; i < AppleCore::FrameCycles; ++i)
+        {
+            step();
+            phase += AppleCore::AudioRate;
+            if (phase >= AppleCore::ClockRate)
+            {
+                phase -= AppleCore::ClockRate;
+                assert(expectedSamples < samples);
+                assert(audio[expectedSamples++] == (speaker ? 10000 : -10000));
+            }
+        }
+        assert(expectedSamples == samples);
         assert(core.cycles == stepped.cycles);
         assert(!memcmp(&core.cpu, &stepped.cpu, sizeof(core.cpu)));
         assert(!memcmp(core.ram, stepped.ram, sizeof(core.ram)));
         core.tick();
-        stepped.tick();
+        step();
         assert(!memcmp(&core.cpu, &stepped.cpu, sizeof(core.cpu)));
     }
 }
@@ -273,6 +295,99 @@ static void diskMotorTests()
     assert(core.read(0xc0ec) == 0);
     core.disks[0].eject();
     core.disks[1].eject();
+}
+
+static void diskCacheTests()
+{
+    std::vector<uint8_t> image(AppleDisk::ImageSize);
+    for (unsigned track = 0; track < 35; ++track)
+        for (unsigned nibble = 0; nibble < AppleDisk::TrackSize; ++nibble)
+            image[track * AppleDisk::TrackSize + nibble] = 0x80 | ((track * 13 + nibble) & 127);
+    AppleDisk disk;
+    assert(disk.attach(image.data(), image.size(), error, sizeof(error)));
+    uint64_t cycles = 0;
+    assert(!disk.read(31));
+    for (unsigned nibble = 0; nibble < AppleDisk::TrackSize * 2 + 3; ++nibble)
+    {
+        cycles += 32;
+        assert(disk.read(cycles) == image[nibble % AppleDisk::TrackSize]);
+        assert(!disk.read(cycles + 31));
+    }
+    for (unsigned step = 0; step < 16 && !disk.track(); ++step)
+    {
+        disk.phase((step % 4) * 2 + 1);
+        disk.phase(((step + 3) % 4) * 2);
+    }
+    assert(disk.track() > 0);
+    cycles += 32;
+    assert(disk.read(cycles) == image[disk.track() * AppleDisk::TrackSize + 3]);
+    disk.reset();
+    assert(disk.read(cycles + 32) == image[0]);
+    std::vector<uint8_t> replacement(AppleDisk::ImageSize, 0xee);
+    assert(disk.attach(replacement.data(), replacement.size(), error, sizeof(error)));
+    cycles += uint64_t(1) << 32;
+    assert(disk.read(cycles) == 0xee); // Remount invalidates even a cached track zero.
+    disk.eject();
+    assert(!disk.read(cycles + 32));
+}
+
+static void diskActivityTests()
+{
+    boot();
+    assert(!core.diskActivity());
+    std::vector<uint8_t> image(AppleDisk::ImageSize, 0xff);
+    for (auto &disk : core.disks)
+        assert(disk.attach(image.data(), image.size(), error, sizeof(error)));
+    core.cycles = 32;
+    assert(!core.read(0xc0ec) && !core.diskActivity()); // Motor off.
+    core.read(0xc0e9);
+    assert(!core.diskActivity()); // Spinning alone is not data activity.
+    assert(core.read(0xc0ec) == 0xff && core.diskActivity() == 1);
+    core.cycles += 32;
+    core.read(0xc0eb);
+    assert(core.read(0xc0ec) == 0xff && core.diskActivity() == 3);
+    core.read(0xc0ed);
+    core.cycles = 64 + AppleCore::ClockRate / 5 - 1;
+    assert(core.read(0xc0ee) == 0x80 && core.diskActivity() == 2);
+    ++core.cycles;
+    assert(!core.diskActivity()); // Status reads did not extend the 200 ms hold.
+    assert(core.read(0xc0ec) == 0xff && core.diskActivity() == 2);
+    core.write(0xc0ef, 0);
+    core.write(0xc0ec, 0);
+    core.cycles += AppleCore::ClockRate / 5;
+    assert(!core.read(0xc0ec) && !core.diskActivity()); // Write mode is not reading.
+    core.read(0xc0ee);
+    assert(core.diskActivity() == 2);
+    core.reset();
+    assert(!core.diskActivity());
+    core.read(0xc0e9);
+    core.cycles += 32;
+    assert(core.read(0xc0ec) == 0xff && core.diskActivity() == 1);
+    core.disks[0].eject();
+    assert(!core.diskActivity());
+    core.disks[1].eject();
+
+    assert(AppleDiskActivity::Y >= 216);
+    assert(AppleDiskActivity::Y + AppleDiskActivity::Height <= AppleCore::Height);
+    assert(AppleDiskActivity::X + AppleDiskActivity::Width <= AppleCore::Width);
+    for (unsigned drives = 0; drives < 4; ++drives)
+    {
+        unsigned visible[2] = {};
+        bool animated = false;
+        for (unsigned y = 0; y < AppleDiskActivity::Height; ++y)
+            for (unsigned x = 0; x < AppleDiskActivity::Width; ++x)
+            {
+                const uint8_t pixel = AppleDiskActivity::pixel(x, y, drives, true);
+                if (pixel) ++visible[x / 16];
+                animated |= pixel != AppleDiskActivity::pixel(x, y, drives, false);
+                if (x % 16 >= 12) assert(!pixel);
+            }
+        assert(bool(visible[0]) == bool(drives & 1));
+        assert(bool(visible[1]) == bool(drives & 2));
+        assert(animated == bool(drives));
+    }
+    assert(!AppleDiskActivity::pixel(32, 0, 3, true));
+    assert(!AppleDiskActivity::pixel(0, 12, 3, true));
 }
 
 static void videoAudioTests()
@@ -475,7 +590,40 @@ static void inputSettingsTests()
     assert(!AppleValidSettings(settings));
 }
 
-int main()
+static void benchmark()
+{
+    const uint8_t programs[][24] = {
+        {0xee,0x00,0x02,0xad,0x00,0x02,0x69,0x17,0x8d,0x01,0x02,0x4c,0x00,0xd0},
+        {0xad,0xec,0xc0,0x10,0xfb,0x8d,0x00,0x02,0x4c,0x00,0xd0},
+        {0xad,0x83,0xc0,0xad,0x83,0xc0,0xee,0x00,0x02,0x4c,0x00,0xd0}
+    };
+    const char *names[] = {"CPU", "Disk polling", "Language card"};
+    std::vector<uint8_t> disk(AppleDisk::ImageSize, 0xff);
+    for (unsigned test = 0; test < 3; ++test)
+    {
+        boot();
+        memcpy(core.rom + 4096, programs[test], sizeof(programs[test]));
+        // Mirror code into the language card so switching its read view keeps executing it.
+        if (test == 2)
+        {
+            memcpy(core.ram[0] + 0xc000, programs[test], sizeof(programs[test]));
+        }
+        assert(core.disks[0].attach(disk.data(), disk.size(), error, sizeof(error)));
+        core.read(0xc0e9);
+        int16_t audio[AppleCore::MaxSamples];
+        unsigned samples;
+        const unsigned frames = 3600;
+        const auto start = std::chrono::steady_clock::now();
+        for (unsigned frame = 0; frame < frames; ++frame)
+            core.runFrame(nullptr, audio, samples, false);
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        printf("%s: %.3f ms/frame, %.2f million cycles/s (%u frames).\n",
+               names[test], seconds * 1000 / frames, frames * double(AppleCore::FrameCycles) / seconds / 1e6, frames);
+        core.disks[0].eject();
+    }
+}
+
+int main(int argc, char **argv)
 {
 #ifdef _WIN32
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
@@ -486,9 +634,12 @@ int main()
     frameStepTests();
     diskTests();
     diskMotorTests();
+    diskCacheTests();
+    diskActivityTests();
     videoAudioTests();
     renderEquivalenceTests();
     renderInvalidationTests();
     inputSettingsTests();
     puts("Apple II+/IIe core, banking, CPU, media, video, audio, input and settings tests passed.");
+    if (argc == 2 && !strcmp(argv[1], "--benchmark")) benchmark();
 }

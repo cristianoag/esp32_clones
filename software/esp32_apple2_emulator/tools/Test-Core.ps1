@@ -1,3 +1,4 @@
+param([switch]$Benchmark)
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 $compiler = (Get-Command g++ -ErrorAction Stop).Source
@@ -10,7 +11,8 @@ try {
         (Join-Path $project 'src\AppleCore.cpp') (Join-Path $project 'src\AppleVideo.cpp') `
         (Join-Path $project 'tests\AppleTests.cpp') -o $output
     if ($LASTEXITCODE -ne 0) { throw 'Apple regression compilation failed.' }
-    & $output
+    if ($Benchmark) { & $output --benchmark }
+    else { & $output }
     if ($LASTEXITCODE -ne 0) { throw 'Apple regression failed.' }
 } finally {
     $env:PATH = $oldPath

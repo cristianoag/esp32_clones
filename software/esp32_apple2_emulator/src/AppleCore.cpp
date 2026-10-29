@@ -1,7 +1,15 @@
 // Disk stepper adapted from codesafe/ESP32-VGA_AppleII_Emulator.
 // IIe banking informed by Arthur Ferreira's reinetteIIe (MIT; lib/Reinette-LICENSE).
 #define CHIPS_IMPL
+#if defined(ESP_PLATFORM) && defined(__GNUC__)
+// Arduino disables jump tables globally; this large, non-ISR decoder needs them.
+#pragma GCC push_options
+#pragma GCC optimize ("jump-tables", "tree-switch-conversion")
+#endif
 #include "AppleCore.h"
+#if defined(ESP_PLATFORM) && defined(__GNUC__)
+#pragma GCC pop_options
+#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -31,6 +39,8 @@ void AppleDisk::reset()
     nibble_ = phase_ = previousPhase_ = 0;
     halfTrack_ = 0;
     lastRead_ = 0;
+    cachedTrack_ = 35;
+    hasActivity_ = false;
     memset(phases_, 0, sizeof(phases_));
     memset(previous_, 0, sizeof(previous_));
     memset(beforePrevious_, 0, sizeof(beforePrevious_));
@@ -58,9 +68,16 @@ void AppleDisk::phase(unsigned address)
 uint8_t AppleDisk::read(uint64_t cycles)
 {
     if (!data_ || cycles - lastRead_ < 32) return 0;
+    const unsigned currentTrack = track();
+    if (cachedTrack_ != currentTrack)
+    {
+        memcpy(trackData_, data_ + currentTrack * TrackSize, TrackSize);
+        cachedTrack_ = currentTrack;
+    }
     lastRead_ = cycles;
-    const uint8_t value = data_[track() * 6656 + nibble_];
-    nibble_ = (nibble_ + 1) % 6656;
+    hasActivity_ = true;
+    const uint8_t value = trackData_[nibble_];
+    if (++nibble_ == TrackSize) nibble_ = 0;
     return value;
 }
 
@@ -101,6 +118,7 @@ void AppleCore::reset()
     lcWrite_ = lcBank2_ = true;
     speaker_ = anyKey_ = motor_ = q6_ = q7_ = false;
     motorOffCycle_ = 0;
+    for (auto &disk : disks) disk.clearActivity();
     keyboard_ = buttons_ = drive_ = 0;
     paddleStart_ = cycles;
     audioPhase_ = 0;
@@ -124,15 +142,15 @@ unsigned AppleCore::languageAddress(uint16_t address) const
     return address < 0xe000 && lcBank2_ ? address - 0x1000 : address;
 }
 
-void AppleCore::updateMemoryMap()
+void AppleCore::updateMemoryMap(unsigned first, unsigned end)
 {
-    for (unsigned page = 0; page < 0xc0; ++page)
+    for (unsigned page = first; page < end && page < 0xc0; ++page)
     {
         const uint16_t address = page << 8;
         readPages_[page] = ram[bank(address, false)] + address;
         writePages_[page] = ram[bank(address, true)] + address;
     }
-    for (unsigned page = 0xd0; page < 0x100; ++page)
+    for (unsigned page = first < 0xd0 ? 0xd0 : first; page < end; ++page)
     {
         const uint16_t address = page << 8;
         uint8_t *language = ram[bank(address, true)] + languageAddress(address);
@@ -237,16 +255,33 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
             const bool on = address & 1;
             switch (address & 14)
             {
-            case 0: store80 = on; break;
-            case 2: ramRead_ = on; break;
-            case 4: ramWrite_ = on; break;
+            case 0:
+                if (store80 != on)
+                {
+                    store80 = on;
+                    updateMemoryMap(4, 8);
+                    if (hires) updateMemoryMap(0x20, 0x40);
+                }
+                break;
+            case 2:
+                if (ramRead_ != on) { ramRead_ = on; updateMemoryMap(2, 0xc0); }
+                break;
+            case 4:
+                if (ramWrite_ != on) { ramWrite_ = on; updateMemoryMap(2, 0xc0); }
+                break;
             case 6: intCxRom_ = on; break;
-            case 8: altZp_ = on; break;
+            case 8:
+                if (altZp_ != on)
+                {
+                    altZp_ = on;
+                    updateMemoryMap(0, 2);
+                    updateMemoryMap(0xd0, 0x100);
+                }
+                break;
             case 10: slotC3Rom_ = on; break;
             case 12: col80 = on; break;
             case 14: altCharset = on; break;
             }
-            if ((address & 14) <= 4 || (address & 14) == 8) updateMemoryMap();
         }
         return floatingBus();
     }
@@ -288,10 +323,25 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
         {
         case 0: text = on; break;
         case 2: mixed = on; break;
-        case 4: page2 = on; break;
-        case 6: hires = on; break;
+        case 4:
+            if (page2 != on)
+            {
+                page2 = on;
+                if (iie && store80)
+                {
+                    updateMemoryMap(4, 8);
+                    if (hires) updateMemoryMap(0x20, 0x40);
+                }
+            }
+            break;
+        case 6:
+            if (hires != on)
+            {
+                hires = on;
+                if (iie && store80) updateMemoryMap(0x20, 0x40);
+            }
+            break;
         }
-        if (iie && store80 && (address & 4)) updateMemoryMap();
     }
     if (iie && (address == 0xc05e || address == 0xc05f)) doubleHires = !(address & 1);
     if (address >= 0xc061 && address <= 0xc063)
@@ -301,6 +351,7 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
     if (address >= 0xc070 && address <= 0xc07f) paddleStart_ = cycles;
     if (address >= 0xc080 && address <= 0xc08f)
     {
+        const unsigned before = unsigned(lcBank2_) | (unsigned(lcRead_) << 1) | (unsigned(lcWrite_) << 2);
         lcBank2_ = !(address & 8);
         lcRead_ = (address & 3) == 0 || (address & 3) == 3;
         if (!(address & 1)) lcWrite_ = lcPrewrite_ = false;
@@ -309,7 +360,8 @@ uint8_t AppleCore::io(uint16_t address, uint8_t, bool writing)
             if (!writing && lcPrewrite_) lcWrite_ = true;
             lcPrewrite_ = !writing;
         }
-        updateMemoryMap();
+        const unsigned after = unsigned(lcBank2_) | (unsigned(lcRead_) << 1) | (unsigned(lcWrite_) << 2);
+        if (before != after) updateMemoryMap(0xd0, 0x100);
     }
     if (address >= 0xc0e0 && address <= 0xc0ef)
     {
@@ -375,10 +427,14 @@ void AppleCore::runFrame(uint8_t *pixels, int16_t *audio, unsigned &samples, boo
     samples = 0;
     uint64_t pins = pins_;
     uint32_t phase = audioPhase_;
-    for (unsigned i = 0; i < FrameCycles; ++i)
+    unsigned remaining = FrameCycles;
+    while (remaining)
     {
-        pins = clockCpu(pins);
-        phase += AudioRate;
+        unsigned clocks = (ClockRate - phase + AudioRate - 1) / AudioRate;
+        if (clocks > remaining) clocks = remaining;
+        remaining -= clocks;
+        phase += clocks * AudioRate;
+        do { pins = clockCpu(pins); } while (--clocks);
         if (phase >= ClockRate)
         {
             phase -= ClockRate;

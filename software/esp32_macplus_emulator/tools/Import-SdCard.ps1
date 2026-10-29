@@ -64,8 +64,10 @@ if ($Disk) {
 $root = [IO.Path]::GetFullPath($Destination)
 $bios = Join-Path $root 'macplus\bios'
 $disks = Join-Path $root 'macplus\disks'
+$floppies = Join-Path $root 'macplus\floppies'
 [IO.Directory]::CreateDirectory($bios) | Out-Null
 [IO.Directory]::CreateDirectory($disks) | Out-Null
+[IO.Directory]::CreateDirectory($floppies) | Out-Null
 if ($romSource) { Copy-Verified $romSource (Join-Path $bios 'macplus.rom') }
 else { Write-Warning 'ROM not imported. Supply your authorized local copy with -Rom.' }
 
@@ -87,4 +89,4 @@ if ($diskSource) {
     Write-Output "Created $BlankDiskMiB MiB blank disk: $targetDisk"
     Write-Warning 'Blank disk is NOT bootable: install a partition map, SCSI driver and Macintosh system in another emulator.'
 }
-Write-Output 'The project sdcard folder, ROMs and IMG files are git-excluded. Never force-add Apple software.'
+Write-Output 'The project sdcard folder and ROM/IMG/DSK files are git-excluded. Never force-add Apple software.'

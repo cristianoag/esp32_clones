@@ -35,6 +35,7 @@ static uint8_t peripheral(unsigned address, unsigned value, int write)
         if (write) sccWrite(address, value);
         else return sccRead(address);
     } else if (address >= 0xc00000 && address < 0xe00000) {
+        if (!(address & 1)) return 0xff;
         if (write) iwmWrite((address >> 9) & 15, value);
         else return iwmRead((address >> 9) & 15);
     } else if (address >= 0xe80000 && address < 0xf00000) {
@@ -157,6 +158,7 @@ void tmeRunFrame(void)
     for (unsigned line = 0; line < 370; ++line) {
         const int executed = m68k_execute(352 - cycleDebt);
         cycleDebt += executed - 352;
+        iwmStep(executed);
         viaRemainder += executed;
         viaStep(viaRemainder / 10);
         viaRemainder %= 10;

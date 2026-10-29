@@ -7,3 +7,5 @@ sdcard/
 *.BIN
 *.img
 *.IMG
+*.dsk
+*.DSK

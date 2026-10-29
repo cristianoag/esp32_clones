@@ -18,6 +18,7 @@ extern "C" {
 }
 
 static unsigned reportedErrors = 0;
+void testFloppy(const char *path);
 void macReportError(const char *) { ++reportedErrors; }
 extern "C" void saveRtcMem(char *) {}
 
@@ -129,7 +130,7 @@ static void testDiskActivity()
     activity.record(UINT32_MAX - 99);
     assert(activity.active(UINT32_MAX) && activity.active(99) && !activity.active(100));
 
-    static_assert(MacDiskActivity::X == 600 && MacDiskActivity::Y == 456,
+    static_assert(MacDiskActivity::X == 584 && MacDiskActivity::Y == 456,
                   "Disk activity belongs in the lower-right VGA border.");
     static_assert(MacDiskActivity::X + MacDiskActivity::Width <= 640 - 24 &&
                   MacDiskActivity::Y + MacDiskActivity::Height <= 480 - 12,
@@ -149,7 +150,13 @@ static void testDiskActivity()
     assert(MacDiskActivity::pixel(2, 5, true, false) == 0x18);
     assert(MacDiskActivity::pixel(5, 5, true, true) == 255);
     assert(MacDiskActivity::pixel(6, 5, true, true) == 255);
-    assert(MacDiskActivity::pixel(7, 5, true, true) == 0x38);
+    assert(MacDiskActivity::pixel(7, 5, MacDiskActivity::Floppy, true) == 255);
+    assert(MacDiskActivity::pixel(16, 0, MacDiskActivity::Floppy, true) == 0);
+    assert(MacDiskActivity::pixel(0, 0, MacDiskActivity::Scsi, true) == 0);
+    assert(MacDiskActivity::pixel(16, 0, MacDiskActivity::Scsi, true) == 255);
+    assert(MacDiskActivity::pixel(23, 5, MacDiskActivity::Scsi, true) == 0x38);
+    assert(MacDiskActivity::pixel(16, 0, 3, true) == 255);
+    assert(MacDiskActivity::pixel(0, 0, 3, true) == 255);
 }
 
 static void put16(std::vector<uint8_t> &rom, size_t offset, uint16_t value)
@@ -351,5 +358,6 @@ int main(int argc, char **argv)
     testDiskActivity();
     testCore();
     testDisk(argv[1]);
-    puts("Mac Plus CPU, bus, video, audio, keyboard, mouse, settings, SCSI and disk activity tests passed.");
+    testFloppy(argv[1]);
+    puts("Mac Plus CPU, bus, video, audio, input, settings, SCSI, floppy GCR/controller and activity tests passed.");
 }

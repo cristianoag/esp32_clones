@@ -15,6 +15,9 @@ try {
         throw 'ROM copy differs.'
     }
     $disk = Join-Path $destination 'macplus\disks\hd.img'
+    if (-not (Test-Path -LiteralPath (Join-Path $destination 'macplus\floppies') -PathType Container)) {
+        throw 'Missing floppy directory.'
+    }
     if ((Get-Item -LiteralPath $disk).Length -ne 1MB) { throw 'Wrong blank disk size.' }
     $stream = [IO.File]::OpenWrite($disk)
     try { $stream.WriteByte(90) } finally { $stream.Dispose() }
@@ -27,7 +30,9 @@ try {
     try { & (Join-Path $PSScriptRoot 'Import-SdCard.ps1') -Destination $destination -Rom $rom }
     catch { $rejected = $true }
     if (-not $rejected) { throw 'Invalid ROM was accepted.' }
-    foreach ($path in @('sdcard\macplus\bios\macplus.rom', 'sdcard\macplus\disks\hd.img', 'elsewhere.ROM', 'elsewhere.IMG')) {
+    foreach ($path in @('sdcard\macplus\bios\macplus.rom', 'sdcard\macplus\disks\hd.img',
+                        'sdcard\macplus\floppies\application.dsk', 'elsewhere.ROM', 'elsewhere.IMG',
+                        'elsewhere.dsk', 'elsewhere.DSK')) {
         & git -C $project check-ignore --quiet --no-index -- $path
         if ($LASTEXITCODE -ne 0) { throw "Not git-excluded: $path" }
     }

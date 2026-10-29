@@ -1,9 +1,13 @@
 param(
     [string]$Rom,
-    [string]$Disk
+    [string]$Disk,
+    [string]$Floppy,
+    [string]$SwapFloppy
 )
 $ErrorActionPreference = 'Stop'
 if ([bool]$Rom -ne [bool]$Disk) { throw 'Supply both -Rom and -Disk for the optional native boot test.' }
+if ($Floppy -and -not $Rom) { throw '-Floppy requires -Rom and -Disk.' }
+if ($SwapFloppy -and -not $Floppy) { throw '-SwapFloppy requires -Floppy.' }
 if ($Rom) {
     $romFile = Get-Item -LiteralPath $Rom -ErrorAction Stop
     $diskFile = Get-Item -LiteralPath $Disk -ErrorAction Stop
@@ -33,7 +37,8 @@ try {
     }
     $exe = Join-Path $output 'macplus-tests.exe'
     & $compiler -std=c++11 -O2 -Wall -Wextra -Werror @includes `
-        (Join-Path $project 'tests\MacTests.cpp') (Join-Path $project 'src\MacDisk.cpp') `
+        (Join-Path $project 'tests\MacTests.cpp') (Join-Path $project 'tests\MacFloppyTests.cpp') `
+        (Join-Path $project 'src\MacFloppy.cpp') (Join-Path $project 'src\MacDisk.cpp') `
         (Join-Path $project 'src\MacScsi.cpp') @objects -o $exe
     if ($LASTEXITCODE -ne 0) { throw 'Mac Plus test compilation failed.' }
     & $exe (Join-Path $output 'test-disk.img')
@@ -41,14 +46,29 @@ try {
     if ($Rom) {
         $bootExe = Join-Path $output 'macplus-boot-tests.exe'
         & $compiler -std=c++11 -O2 -Wall -Wextra -Werror @includes `
-            (Join-Path $project 'tests\MacBootTests.cpp') (Join-Path $project 'src\MacDisk.cpp') `
+            (Join-Path $project 'tests\MacBootTests.cpp') (Join-Path $project 'src\MacFloppy.cpp') `
+            (Join-Path $project 'src\MacDisk.cpp') `
             (Join-Path $project 'src\MacScsi.cpp') @objects -o $bootExe
         if ($LASTEXITCODE -ne 0) { throw 'Mac Plus native boot test compilation failed.' }
         $bootDisk = Join-Path $output 'boot-disk.img'
+        $diskHash = (Get-FileHash -LiteralPath $diskFile.FullName).Hash
         Copy-Item -LiteralPath $diskFile.FullName -Destination $bootDisk
         (Get-Item -LiteralPath $bootDisk).IsReadOnly = $false
-        & $bootExe $romFile.FullName $bootDisk
+        $arguments = @($romFile.FullName, $bootDisk)
+        $floppyHashes = @{}
+        foreach ($path in @($Floppy, $SwapFloppy)) {
+            if (-not $path) { continue }
+            $item = Get-Item -LiteralPath $path -ErrorAction Stop
+            $arguments += $item.FullName
+            $floppyHashes[$item.FullName] = (Get-FileHash -LiteralPath $item.FullName).Hash
+        }
+        & $bootExe @arguments
         if ($LASTEXITCODE -ne 0) { throw 'Mac Plus native boot regression failed.' }
+        if ((Get-FileHash -LiteralPath $diskFile.FullName).Hash -ne $diskHash) { throw 'Original SCSI disk was modified.' }
+        foreach ($path in $floppyHashes.Keys) {
+            if ((Get-FileHash -LiteralPath $path).Hash -ne $floppyHashes[$path]) { throw "Original floppy was modified: $path" }
+        }
+        Write-Output 'Verified original SCSI and floppy image hashes are unchanged.'
     }
 }
 finally {

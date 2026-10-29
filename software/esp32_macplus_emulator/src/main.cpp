@@ -14,6 +14,7 @@
 #include "MacFirmwareUpdate.h"
 #include "MacScsi.h"
 #include "MacDiskActivity.h"
+#include "MacFloppy.h"
 #include "MacVideo.h"
 #include "MacRom.h"
 extern "C" {
@@ -22,6 +23,7 @@ extern "C" {
 #include "tme/via.h"
 #include "tme/rtc.h"
 #include "tme/mouse.h"
+#include "tme/iwm.h"
 }
 
 static VGA video;
@@ -29,6 +31,9 @@ static Preferences preferences;
 static MacSettings settings;
 static MacDisk disk;
 static MacDiskActivity::State diskActivity;
+static MacDiskActivity::State floppyActivity;
+static MacFloppy floppy;
+static char floppyPath[MacPathSize] = {};
 static MacMouseState mouseInput;
 static portMUX_TYPE mouseLock = portMUX_INITIALIZER_UNLOCKED;
 static bool acceptMouse = false, mouseConnected = false;
@@ -100,10 +105,10 @@ static void footer(const char *hint = "Arrows: select  Enter: apply  Esc: back")
     video.show();
 }
 
-static void row(unsigned index, bool selected, const char *label)
+static void row(unsigned index, bool selected, const char *label, unsigned spacing = 12)
 {
-    if (selected) display.fillRect(6, 46 + index * 12, 308, 10, 0x48);
-    text(8, 47 + index * 12, label);
+    if (selected) display.fillRect(6, 46 + index * spacing, 308, 10, 0x48);
+    text(8, 47 + index * spacing, label);
 }
 
 static uint8_t key()
@@ -143,7 +148,8 @@ static const char *baseName(const char *path)
     return last ? last + 1 : path;
 }
 
-static bool browse(const char *title, const char *extension, char result[MacPathSize])
+static bool browse(const char *title, const char *extension, char result[MacPathSize],
+                   const char *alternateExtension = nullptr)
 {
     if (!mountSd()) return false;
     char directory[MacPathSize] = "/";
@@ -164,8 +170,13 @@ static bool browse(const char *title, const char *extension, char result[MacPath
             if (++visited % 16 == 0) delay(1);
             const char *name = baseName(file.name());
             if (!strcmp(name, ".") || !strcmp(name, "..") || !strcasecmp(name, "System Volume Information")) continue;
-            const size_t length = strlen(name), suffix = strlen(extension);
-            if (!file.isDirectory() && (length <= suffix || strcasecmp(name + length - suffix, extension))) continue;
+            const size_t length = strlen(name);
+            const auto matches = [name, length](const char *suffix) {
+                if (!suffix) return false;
+                const size_t size = strlen(suffix);
+                return length > size && !strcasecmp(name + length - size, suffix);
+            };
+            if (!file.isDirectory() && !matches(extension) && !matches(alternateExtension)) continue;
             char path[MacPathSize];
             const int used = snprintf(path, sizeof(path), "%s%s%s", directory, strcmp(directory, "/") ? "/" : "", name);
             if (used < 0 || unsigned(used) >= sizeof(path) || !MacValidPath(path)) {
@@ -243,6 +254,9 @@ static bool boot()
     machineFault = false;
     diskActivity.clear();
     disk.takeActivity();
+    floppyActivity.clear();
+    floppy.close();
+    floppyPath[0] = 0;
     if (!mountSd()) return false;
     File file = SD_MMC.open(settings.rom, FILE_READ);
     if (!file || file.isDirectory() || file.size() != TME_ROMSIZE)
@@ -317,16 +331,65 @@ static void presentDiskActivity(bool force = false)
 {
     static uint8_t previous = 255;
     const uint32_t now = millis();
-    const bool active = diskActivity.active(now);
+    const uint8_t drives = (floppyActivity.active(now) ? MacDiskActivity::Floppy : 0) |
+                           (diskActivity.active(now) ? MacDiskActivity::Scsi : 0);
     const bool bright = !(now & 128);
-    const uint8_t state = active ? (bright ? 3 : 1) : 0;
+    const uint8_t state = drives | (drives && bright ? 4 : 0);
     if (!force && previous == state) return;
     previous = state;
     for (unsigned y = 0; y < MacDiskActivity::Height; ++y) {
         uint8_t *line = video.dmaBuffer->getLineAddr8(MacDiskActivity::Y + y) + MacDiskActivity::X;
         for (unsigned x = 0; x < MacDiskActivity::Width; ++x)
-            line[x] = MacDiskActivity::pixel(x, y, active, bright);
+            line[x] = MacDiskActivity::pixel(x, y, drives, bright);
         video.dmaBuffer->flush(0, MacDiskActivity::Y + y);
+    }
+}
+
+static bool ejectFloppy()
+{
+    if (!floppy.inserted()) return error("No floppy is inserted.");
+    Serial.printf("MACPLUS: host ejected floppy %s\n", floppyPath);
+    floppy.close();
+    floppyPath[0] = 0;
+    floppyActivity.clear();
+    snprintf(status, sizeof(status), "Floppy ejected; resuming Macintosh.");
+    return true;
+}
+
+static bool floppyMenu()
+{
+    if (!running) return error("Boot the Macintosh from SCSI before inserting a floppy.");
+    for (;;) {
+        frame("Floppy drive - read-only");
+        char label[52];
+        snprintf(label, sizeof(label), "Inserted: %.40s", floppy.inserted() ? baseName(floppyPath) : "None");
+        text(8, 50, label);
+        text(8, 70, "Raw 400 KB / 800 KB .dsk and .img only.");
+        text(8, 90, "Enter: browse and insert a floppy.");
+        text(8, 104, "Delete: eject and resume Macintosh.");
+        text(8, 124, "Prefer Eject in the Macintosh first.");
+        text(8, 140, "Disks are cached; images never change.");
+        text(8, 156, "Floppies are not saved in boot settings.");
+        footer("Enter: insert  Del: eject  Esc: back");
+        const uint8_t value = key();
+        if (value == 41 || value == 69) return false;
+        if (value == 76 && ejectFloppy()) return true;
+        if (value != 40) continue;
+        if (floppy.inserted()) {
+            error("Eject the current floppy before inserting another.");
+            continue;
+        }
+        char path[MacPathSize] = {}, nativePath[MacPathSize + 8];
+        if (!browse("Insert read-only raw floppy", ".dsk", path, ".img")) continue;
+        snprintf(nativePath, sizeof(nativePath), "/sdcard%s", path);
+        if (!floppy.open(nativePath, status, sizeof(status))) {
+            Serial.printf("MACPLUS: %s\n", status);
+            continue;
+        }
+        strcpy(floppyPath, path);
+        Serial.printf("MACPLUS: inserted floppy %s (read-only)\n", path);
+        status[0] = 0;
+        return true;
     }
 }
 
@@ -335,6 +398,8 @@ static void menu()
     MacAudioEnable(false);
     diskActivity.clear();
     disk.takeActivity();
+    floppyActivity.clear();
+    iwmTakeActivity();
     MacKeyboardEmulation(false);
     mouseEnabled(false);
     mouseMove(0, 0, 0);
@@ -342,25 +407,28 @@ static void menu()
     unsigned selected = 0;
     for (;;) {
         frame("F12 - Macintosh Plus");
-        char labels[11][64];
+        constexpr unsigned rows = 12;
+        char labels[rows][64];
         snprintf(labels[0], 64, "%s", running ? "Resume Macintosh" : "Boot Macintosh");
         snprintf(labels[1], 64, "ROM: %.43s", baseName(settings.rom));
         snprintf(labels[2], 64, "SCSI 6: %.40s", settings.disk[0] ? baseName(settings.disk) : "No disk");
-        snprintf(labels[3], 64, "Disk access: %s (next boot)", settings.readOnly ? "Read-only" : "Read/write");
-        snprintf(labels[4], 64, "Sound: %s", settings.sound ? "On" : "Off");
-        snprintf(labels[5], 64, "Volume: %u%%", settings.volume);
-        snprintf(labels[6], 64, "Auto boot: %s / render 1/%u", settings.autoBoot ? "On" : "Off", settings.frameSkip + 1);
-        snprintf(labels[7], 64, "Save boot configuration");
-        snprintf(labels[8], 64, "Cold boot selected configuration");
-        snprintf(labels[9], 64, "Firmware update (any emulator .FLH)");
-        snprintf(labels[10], 64, "Hardware / keyboard / mouse help");
-        for (unsigned i = 0; i < 11; ++i) row(i, i == selected, labels[i]);
+        snprintf(labels[3], 64, "Floppy: %.43s", floppy.inserted() ? baseName(floppyPath) : "Empty (read-only)");
+        snprintf(labels[4], 64, "Disk access: %s (next boot)", settings.readOnly ? "Read-only" : "Read/write");
+        snprintf(labels[5], 64, "Sound: %s", settings.sound ? "On" : "Off");
+        snprintf(labels[6], 64, "Volume: %u%%", settings.volume);
+        snprintf(labels[7], 64, "Auto boot: %s / render 1/%u", settings.autoBoot ? "On" : "Off", settings.frameSkip + 1);
+        snprintf(labels[8], 64, "Save boot configuration");
+        snprintf(labels[9], 64, "Cold boot selected configuration");
+        snprintf(labels[10], 64, "Firmware update (any emulator .FLH)");
+        snprintf(labels[11], 64, "Hardware / keyboard / mouse help");
+        for (unsigned i = 0; i < rows; ++i) row(i, i == selected, labels[i], 11);
         footer("Enter: apply  L/R: change  Del: eject disk");
         const uint8_t value = key();
         if ((value == 41 || value == 69) && running) break;
-        if (value == 82) selected = (selected + 10) % 11;
-        else if (value == 81) selected = (selected + 1) % 11;
+        if (value == 82) selected = (selected + rows - 1) % rows;
+        else if (value == 81) selected = (selected + 1) % rows;
         else if (value == 76 && selected == 2) settings.disk[0] = 0;
+        else if (value == 76 && selected == 3 && ejectFloppy()) break;
         else if (value == 40 || value == 79 || value == 80) {
             const bool enter = value == 40;
             if (selected == 0 && enter) {
@@ -370,19 +438,21 @@ static void menu()
                 if (browse(selected == 1 ? "Select Macintosh Plus ROM" : "Select whole SCSI disk image",
                            selected == 1 ? ".rom" : ".img", path))
                     strcpy(selected == 1 ? settings.rom : settings.disk, path);
-            } else if (selected == 3) settings.readOnly ^= 1;
-            else if (selected == 4) settings.sound ^= 1;
-            else if (selected == 5) {
+            } else if (selected == 3 && enter) {
+                if (floppyMenu()) break;
+            } else if (selected == 4) settings.readOnly ^= 1;
+            else if (selected == 5) settings.sound ^= 1;
+            else if (selected == 6) {
                 const int next = int(settings.volume) + (value == 80 ? -10 : 10);
                 settings.volume = std::max(0, std::min(100, next));
-            } else if (selected == 6) {
+            } else if (selected == 7) {
                 if (enter) settings.autoBoot ^= 1;
                 else settings.frameSkip = (settings.frameSkip + (value == 80 ? 3 : 1)) % 4;
-            } else if (selected == 7 && enter) saveSettings();
-            else if (selected == 8 && enter && confirm("Cold boot selected configuration?")) {
+            } else if (selected == 8 && enter) saveSettings();
+            else if (selected == 9 && enter && confirm("Cold boot selected configuration?")) {
                 if (persistPram() && boot()) break;
-            } else if (selected == 9 && enter) firmwareUpdate();
-            else if (selected == 10 && enter) {
+            } else if (selected == 10 && enter) firmwareUpdate();
+            else if (selected == 11 && enter) {
                 frame("Hardware / keyboard / mouse");
                 text(8, 48, "4 MiB Mac Plus / 512x342 native display.");
                 text(8, 62, "Native USB keyboard: D-19 / D+20.");
@@ -390,8 +460,8 @@ static void menu()
                 text(8, 90, "Low-speed HID BOOT mice only. No hubs.");
                 text(8, 104, "GUI keys: Command. Alt: Option.");
                 text(8, 118, "Left mouse button; wheel ignored.");
-                text(8, 132, "ROM / media changes need cold boot.");
-                text(8, 146, "Whole SCSI disk, not floppy/raw HFS.");
+                text(8, 132, "ROM / SCSI changes need cold boot.");
+                text(8, 146, "Floppy: 400/800 KB raw, read-only.");
                 text(8, 160, "F12 pauses CPU, sound and disk access.");
                 portENTER_CRITICAL(&mouseLock);
                 const bool connected = mouseConnected;
@@ -517,6 +587,13 @@ void loop()
     mouseMove(dx, dy, button);
     tmeRunFrame();
     if (disk.takeActivity()) diskActivity.record(millis());
+    if (iwmTakeActivity()) floppyActivity.record(millis());
+    if (floppy.hasImage() && !floppy.inserted()) {
+        Serial.printf("MACPLUS: Macintosh ejected floppy %s\n", floppyPath);
+        floppy.close();
+        floppyPath[0] = 0;
+        floppyActivity.clear();
+    }
     if (frames++ % (settings.frameSkip + 1) == 0) present();
     else presentDiskActivity();
     if (audioReady && settings.sound) {

@@ -3,6 +3,20 @@
 This log tracks user-visible changes to the ESP32 Macintosh Plus emulator firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.03 - Unreleased
+
+### Added
+
+- Added one read-only internal floppy drive for raw 400 KB and 800 KB .dsk/.img files, with F12 browsing, live insertion and ejection after SCSI boot, and Macintosh-requested ejection.
+- Added Macintosh GCR sector reads and drive status, stepping, side selection, motor and write-protection behavior while preserving the unmodified ROM.
+- Added a separate F activity icon beside SCSI 6, preserving the monitor-safe margins and frame-skip-independent updates.
+- Added optional native verification of a runtime-inserted floppy, sector checks across all tracks and sides, and automatic creation of the floppy SD-card directory.
+
+### Notes
+
+- Kept SCSI as the supported boot path and retained existing saved boot settings; floppy assignments were runtime-only and cleared on cold boot.
+- Limited floppy support to already formatted, uncompressed raw images; floppy writing, formatting, Disk Copy/NDIF images and 1.44 MB media were not supported.
+
 ## 1.02 - Unreleased
 
 ### Added

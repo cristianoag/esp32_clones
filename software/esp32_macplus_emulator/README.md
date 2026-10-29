@@ -63,7 +63,9 @@ macplus/
     macplus.rom
   disks/
     hd.img
-ESP32_MACPLUS-1.02.FLH
+  floppies/
+    application.dsk
+ESP32_MACPLUS-1.03.FLH
 ```
 
 Use your own **unmodified, raw 128 KiB Macintosh Plus ROM**. Its word-sum
@@ -88,15 +90,45 @@ read-only access for the next cold boot. Runtime I/O faults are reported and
 open the F12 menu.
 
 A blinking green disk icon marked **6** appears in the lower-right VGA border
-for SCSI reads and writes, matching the CP400 and Apple II indicator style.
-It stays visible for 200 ms after the last successful sector transfer and
-updates even when Mac video frames are skipped. Status polling, rejected
-writes and other SD-card operations do not light it. F12 and cold boot
-clear the indicator; it never covers the native Macintosh image.
+for SCSI reads and writes; **F** beside it shows floppy reads. Both match
+the CP400 and Apple II style, hold for 200 ms and update even when Mac
+video frames are skipped. Status polling, rejected writes and other
+SD-card operations do not light them. F12 and cold boot clear the
+indicators; neither covers the native Macintosh image.
 
 Clearing the disk assignment boots with no SCSI disk, leaving the Mac's
-missing-boot-media screen. IWM floppy insertion is not implemented.
+missing-boot-media screen.
 The `macplus` folder can coexist with other emulators' SD folders.
+
+### Read-only floppy insertion
+
+Version 1.03 provides one internal floppy drive for **raw 400 KB or 800 KB**
+images: exactly **409,600 or 819,200 bytes**, with `.dsk` or `.img` names.
+Images must already contain a formatted Macintosh disk. Disk Copy headers,
+compressed/NDIF images, 1.44 MB disks and flux/bitstream images are unsupported.
+No conversion is performed by renaming a file.
+
+Boot the Mac from its SCSI disk, then use **F12 > Floppy > Enter** to browse
+and insert an image. The Mac resumes automatically and sees the inserted
+disk without a reboot. The full image is cached in PSRAM, exposed as
+write-protected and never opened for writing. Saving or formatting a
+floppy is not supported.
+
+As with a physically locked disk, Finder may complain that it cannot create
+or update a missing Desktop file. Dismiss the alert; prepare the image's
+Desktop metadata in another emulator first if the warning interferes with
+use. This firmware does not silently unlock or modify the image.
+
+For swapping, prefer **Eject** in the Macintosh first. Mac-requested
+ejection is reflected in F12. If needed, **Delete** on the F12 Floppy row
+or in its submenu forces ejection and resumes the Mac; an application
+still using the disk may ask for it again. Reopen F12 to insert the next
+disk. Inserting a replacement while a disk is still present is rejected.
+
+Floppy assignments are runtime-only: they are not saved with boot settings
+and are cleared by cold boot or firmware restart. SCSI remains the supported
+boot path; floppy boot is not part of this release. Existing saved ROM,
+SCSI, audio and rendering settings remain compatible.
 
 Create the local SD layout and a blank 100 MiB image, or import your own
 authorized ROM and already prepared disk:
@@ -110,7 +142,7 @@ The importer checks ROM size/checksum and verifies copied files with SHA-256.
 It refuses to replace differing files unless `-Force` is explicitly supplied;
 an existing disk is preserved when no replacement is provided. A newly
 created blank image has **no partition map, driver or operating system** and
-is not bootable. The entire local `sdcard` folder and ROM/IMG extensions are
+is not bootable. The entire local `sdcard` folder and ROM/IMG/DSK extensions are
 excluded from Git. Never force-add these private assets.
 
 ### Gray or black screen during startup
@@ -134,9 +166,9 @@ followed by **Cold boot selected configuration**, to test the ROM without
 an attached disk.
 
 The center disk icon is drawn by the Macintosh ROM, not the host file
-browser or the corner activity indicator. This firmware boots SCSI ID 6
-only; there is no floppy-image insertion menu. If a valid whole SCSI disk
-is assigned but the corner icon never lights, install a current 1.02 build
+browser or the corner activity indicator. Boot from SCSI ID 6 before using
+the runtime floppy menu. If a valid whole SCSI disk
+is assigned but the corner icon never lights, install version 1.02 or later
 with the Plus ROM-address-decoding fix. Earlier builds mirrored the ROM
 into the model-detection probe windows, causing the ROM to identify a
 non-SCSI Macintosh and never try the attached disk. UART now reports the
@@ -155,6 +187,8 @@ Esc/F12 resumes an already running machine.
 - Resume or boot the Macintosh.
 - Browse SD directories for a `.rom` or whole-disk `.img`.
 - Delete on the SCSI row clears the next-boot disk assignment.
+- Open the Floppy submenu to insert a read-only raw disk while running;
+  Delete ejects it and resumes the Mac.
 - Set disk read-only/read-write access for the next cold boot.
 - Toggle sound and adjust volume with left/right.
 - Toggle automatic boot with Enter; left/right on that row selects
@@ -181,7 +215,7 @@ make test
 make upload
 ```
 
-`make firmware` builds and verifies `dist\ESP32_MACPLUS-1.02.FLH`.
+`make firmware` builds and verifies `dist\ESP32_MACPLUS-1.03.FLH`.
 The platform is pinned to `espressif32@6.11.0`. Board definitions and libraries
 are local, so the directory can be compiled independently.
 `make test` also requires native `gcc` and `g++` on PATH.
@@ -191,12 +225,18 @@ English-language, installed whole SCSI disk:
 
 ```powershell
 .\tools\Test-Core.ps1 -Rom 'C:\MyMac\Mac-Plus.ROM' -Disk 'C:\MyMac\bootable.img'
+.\tools\Test-Core.ps1 -Rom 'C:\MyMac\Mac-Plus.ROM' -Disk 'C:\MyMac\bootable.img' -Floppy 'C:\MyMac\application.dsk'
 ```
 
 This runs this firmware's CPU/peripheral core, not MAME, and requires
 Finder to stay running for 1200 frames after actual SCSI transfers.
 The disk is copied to temporary storage first; the original is never
 written. No ROM or operating-system assets are included in the tests.
+With `-Floppy`, the test inserts the image after SCSI/Finder startup and
+requires the Macintosh to mount its named volume through the floppy drive.
+Add `-SwapFloppy 'C:\MyMac\second.dsk'` to exercise Macintosh-requested
+ejection and insertion of a second disk; both test floppies should already
+have Desktop metadata so Finder does not stop at a write-protection alert.
 This headless check does not validate the board's VGA, USB or audio.
 
 The partition table is the shared dual 4 MiB OTA layout. FLH framing and the
@@ -230,12 +270,13 @@ This is an initial integration, not a claim of complete cycle accuracy or
 full-speed emulation. CPU budgets target 7.8336 MHz and 60.15 Hz; actual speed
 depends on PSRAM, VGA and SD performance and is reported on UART. Audio is
 sampled from the Macintosh sound buffer through the shared mono PWM driver.
-There is no floppy-media support, LocalTalk, serial networking, sleep,
+There is no floppy writing or supported floppy boot, LocalTalk, serial networking, sleep,
 save-state support or ROM-screen patching.
 
 Default native tests use generated 68000 instructions, not Apple ROM bytes, and cover
 the bus, ROM protection, buffer selection, pixel polarity, audio, keyboard,
-mouse, settings, SCSI and updater failures. The optional native boot test
+mouse, settings, SCSI, raw floppy loading, all GCR sectors/tracks and updater
+failures. The optional native boot test
 checks the supplied ROM and installed system disk through this firmware's
 core. Neither test establishes that a particular mouse enumerates or that
 VGA, audio and firmware switching work on the physical board. Those hardware
@@ -246,6 +287,10 @@ a verified hardware release.
 
 - [MAME Macintosh driver](https://github.com/mamedev/mame/blob/master/src/mame/apple/mac128.cpp):
   non-mirrored Plus ROM probe-window behavior used for SCSI model detection.
+- MAME's [Sony drive model](https://github.com/mamedev/mame/blob/master/src/devices/imagedev/floppy.cpp)
+  and [Macintosh GCR encoding](https://github.com/mamedev/mame/blob/master/src/lib/formats/flopimg.cpp):
+  adapted read-only drive controls and sector encoding. The BSD-3-Clause
+  notice is retained in [the IWM implementation](src/tme/iwm.c).
 - [epatel/esp32_mac](https://github.com/epatel/esp32_mac), revision
   `eaffb010eee2267672f1f766fcc4c5eb80cb5baa`: imported peripherals and bundled
   Musashi, adapted bus, stepping, resets, interrupts, keyboard, bounds and RTC.

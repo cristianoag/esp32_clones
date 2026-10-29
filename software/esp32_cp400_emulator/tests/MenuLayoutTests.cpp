@@ -8,7 +8,7 @@
 #include "Mode.h"
 #include "CP400Roms.h"
 
-#define FW_VERSION "1.16"
+#define FW_VERSION "1.17"
 
 struct TestVga
 {

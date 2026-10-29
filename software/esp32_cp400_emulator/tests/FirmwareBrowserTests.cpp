@@ -1,5 +1,6 @@
 #include "Cp400SdBrowser.h"
 #include "Cp400Flh.h"
+#include "Cp400DiskActivity.h"
 #include "Arduino.h"
 #include "SD_MMC.h"
 #include <assert.h>
@@ -55,6 +56,7 @@ template<typename... Args> void DrawSelectableRow(Args...) {}
 struct { uint8_t Name_Disk[4][256]; } Disk_Drive;
 struct { uint8_t FileList[69][11]; } FileArray;
 bool SD_Card_Mounted = true;
+Cp400DiskActivity::State DiskActivity;
 constexpr size_t DISK_SIZE = 256 * 18 * 35;
 uint8_t RAM_Disk0[DISK_SIZE], RAM_Disk1[DISK_SIZE], RAM_Disk2[DISK_SIZE], RAM_Disk3[DISK_SIZE];
 enum class DiskRomSelection : uint8_t { CP400, CoCo2 };
@@ -142,7 +144,9 @@ void TestDiskBrowsing()
     selectedDiskRom = DiskRomSelection::CoCo2;
     for (uint8_t drive = 0; drive < 4; ++drive)
     {
+        DiskActivity.record(drive, 0);
         assignDisk(drive, {MENU_ENTER, MENU_DOWN, MENU_ENTER, MENU_DOWN, MENU_ENTER});
+        assert(!DiskActivity.active(drive, 0));
         assert(!strcmp((const char*)Disk_Drive.Name_Disk[drive], nestedPath));
         assert(!memcmp(FileArray.FileList[0], "NESTED  BAS", 11));
     }

@@ -25,6 +25,7 @@
 #include "esp_system.h"
 
 #include "CP400Emulator.h"
+#include "Cp400DiskActivity.h"
 
 #include "ESP32S3vga.h"
 #include <GfxWrapper.h>
@@ -197,6 +198,7 @@ struct DiskAccessStruct
 };
 
 DiskAccessStruct DiskAccess;
+static Cp400DiskActivity::State DiskActivity;
 
 
 DriveStruct Disk_Drive;
@@ -323,7 +325,7 @@ bool ReadCP400DiskImage(const char* filename, uint8_t DriveNumber)
     Serial.println(DriveNumber);
 #endif
     f.close();
-    
+    if (DriveNumber < Cp400DiskActivity::DriveCount) DiskActivity.clear(DriveNumber);
 
     return true;
 }
@@ -494,6 +496,7 @@ bool EjectCP400Disk(uint8_t DriveNumber)
     sf.PHYSICAL_Drive_Must_Be_Saved = false;
   }
 
+  DiskActivity.clear(DriveNumber);
   return true;
 }
 
@@ -1304,6 +1307,39 @@ void loop()
 
 #define CP400_GRAPH_MODE_64X64X4 0b10000001  //
 
+static void DrawDiskActivity(void)
+{
+  const unsigned left = vga->mode.hRes - Cp400DiskActivity::Width - Cp400DiskActivity::RightMargin;
+  const unsigned top = vga->mode.vRes - Cp400DiskActivity::Height - Cp400DiskActivity::BottomMargin;
+  const uint8_t background = vga->getPixel(left, top - 1);
+  const uint32_t now = millis();
+  uint8_t drives = 0;
+  for (unsigned drive = 0; drive < Cp400DiskActivity::DriveCount; ++drive)
+  {
+    if (Disk_Drive.Name_Disk[drive][0] && DiskActivity.active(drive, now))
+      drives |= 1u << drive;
+  }
+  const bool bright = !(now & 128);
+  for (unsigned y = 0; y < Cp400DiskActivity::Height; ++y)
+  {
+    for (unsigned x = 0; x < Cp400DiskActivity::Width; ++x)
+    {
+      const uint8_t color = Cp400DiskActivity::pixel(x, y, drives, bright);
+      vga->dot(left + x, top + y, color ? color : background);
+    }
+  }
+}
+
+static void ClearDiskActivity(void)
+{
+  DiskActivity.clear();
+  for (unsigned buffer = 0; buffer < 2; ++buffer)
+  {
+    DrawDiskActivity();
+    vga->show();
+  }
+}
+
 
 #ifdef DEBUG_ALL
 #define WAIT_VSYNCH_LOW()  while(gpio_get_level(VSYNC_PORT) != 0) {DEBUG1_SET;}DEBUG1_CLR
@@ -1323,6 +1359,7 @@ void IRAM_ATTR VideoCore(void *pvParameters)
       sf.CPU_HALTED_BY_EMULATOR = true;
       vTaskDelay(1);
 
+      ClearDiskActivity();
       EMULATOR_Menu();
       CPU_in_WAIT_STATE = false;
       sf.CPU_HALTED_BY_EMULATOR = false;
@@ -1397,6 +1434,7 @@ break;
     }*/
 
 
+    DrawDiskActivity();
     WAIT_VSYNCH_LOW();
     Field_Synch_Interrupt_Flag();
   
@@ -2854,6 +2892,9 @@ void ManagePeripherals_Read(uint16_t address)
 
 uint8_t ReadDiskByte(uint32_t BytePos)
 {
+  if (DiskAccess.DriveSelected < Cp400DiskActivity::DriveCount &&
+      Disk_Drive.Name_Disk[DiskAccess.DriveSelected][0])
+    DiskActivity.record(DiskAccess.DriveSelected, millis());
   uint8_t ByteRead;
   switch (DiskAccess.DriveSelected)
   {
@@ -2878,6 +2919,9 @@ uint8_t ReadDiskByte(uint32_t BytePos)
 
 void WriteDiskByte(uint32_t BytePos, uint8_t ByteData)
 {
+  if (DiskAccess.DriveSelected < Cp400DiskActivity::DriveCount &&
+      Disk_Drive.Name_Disk[DiskAccess.DriveSelected][0])
+    DiskActivity.record(DiskAccess.DriveSelected, millis());
 
   switch (DiskAccess.DriveSelected)
   {
@@ -3144,6 +3188,7 @@ void InitDisks(void)
         break;
       case DSKCMD_WRITE_SECTOR:
         DISKETTE_LED_ON();  
+        DiskAccess.DriveSelected = GetDriveNumber(rom[ROM_FF40]);
         DiskAccess.IsInWriteProcess = true;
         DiskAccess.RW_Process_ByteRemainingCounter = 257; //Init the loop counter for data to be transfered;
         DiskAccess.TrackPos = rom[ROM_FF49];

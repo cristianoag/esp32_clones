@@ -13,8 +13,15 @@ public:
                   size_t capacity, char *error, size_t errorSize);
     uint32_t blocks() const { return blockCount; }
     bool readOnly() const { return protectedDisk; }
+    bool takeActivity()
+    {
+        const bool active = activityPending;
+        activityPending = false;
+        return active;
+    }
 private:
     FILE *file = nullptr;
     uint32_t blockCount = 0;
     bool protectedDisk = true;
+    bool activityPending = false;
 };

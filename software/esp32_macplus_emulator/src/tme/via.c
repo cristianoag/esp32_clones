@@ -182,13 +182,13 @@ void viaWrite(unsigned int addr, unsigned int val) {
 	unsigned int pc=m68k_get_reg(NULL, M68K_REG_PC);
 	if (addr==0x0) {
 		//ORB
+		via.outb=val;
 		viaCbPortBWrite(val);
-		via.inb=(via.inb&~via.ddrb)|(val&via.ddrb);
 		accessPort(1);
 	} else if (addr==0x1) {
 		//ORA
+		via.outa=val;
 		viaCbPortAWrite(val);
-		via.ina=(via.ina&~via.ddra)|(val&via.ddra);
 		accessPort(0);
 	} else if (addr==0x2) {
 		//DDRB
@@ -260,8 +260,8 @@ void viaWrite(unsigned int addr, unsigned int val) {
 		viaCheckIrq();
 	} else if (addr==0xf) {
 		//ORA
+		via.outa=val;
 		viaCbPortAWrite(val);
-		via.ina=(via.ina&~via.ddra)|(val&via.ddra);
 	}
 //	printf("PC %x VIA write %s val %x\n", pc, viaRegNames[addr], val);
 }
@@ -272,11 +272,11 @@ unsigned int viaRead(unsigned int addr) {
 	unsigned int val=0;
 	if (addr==0x0) {
 		//ORB
-		val=via.inb;
+		val=(via.inb&~via.ddrb)|(via.outb&via.ddrb);
 		accessPort(1);
 	} else if (addr==0x1) {
 		//ORA
-		val=via.ina;
+		val=(via.ina&~via.ddra)|(via.outa&via.ddra);
 		accessPort(0);
 	} else if (addr==0x2) {
 		//DDRB
@@ -325,7 +325,7 @@ unsigned int viaRead(unsigned int addr) {
 		val=via.ier;
 	} else if (addr==0xf) {
 		//ORA
-		val=via.ina;
+		val=(via.ina&~via.ddra)|(via.outa&via.ddra);
 	}
 //	printf("PC %x VIA read %s val %x\n", pc, viaRegNames[addr], val);
 	return val;

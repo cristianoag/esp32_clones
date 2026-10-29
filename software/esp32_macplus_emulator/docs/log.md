@@ -3,6 +3,21 @@
 This log tracks user-visible changes to the ESP32 Macintosh Plus emulator firmware.
 Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
+## 1.02 - Unreleased
+
+### Added
+
+- Added a blinking green disk icon marked 6 in the lower-right VGA border for SCSI reads and writes, with a 200 ms hold and updates independent of frame skipping, matching the CP400 and Apple II indicators without covering the Macintosh display.
+- Added cold-boot UART details for the attached SCSI 6 path, sector count and access mode.
+- Added an optional native ROM/disk boot test that checked sustained Finder execution without modifying the supplied disk image.
+
+### Fixed
+
+- Corrected VGA horizontal porch and line-length timing so the full picture and F12 menus were no longer shifted right, and moved the disk activity icon farther inside the lower-right border to avoid monitor-edge clipping.
+- Fixed the Plus ROM's model detection so a valid SCSI 6 disk was actually accessed instead of being ignored while the central missing-boot-media icon appeared and the corner activity indicator stayed dark.
+- Fixed the gray-then-black startup screen by preserving VIA output values written before the ROM configured the port directions, so later disk-control updates no longer selected an unused screen buffer.
+- Restricted VIA accesses to the upper byte of the Macintosh data bus so word writes no longer overwrote control registers with their lower byte and unused-byte reads no longer cleared interrupts.
+
 ## 1.01 - Unreleased
 
 ### Changed

@@ -20,6 +20,13 @@ with this repository's shared board, F12 menu and firmware-update conventions.
 The board supplies USB VBUS. Use the UART connector for uploads and the
 115200-baud console, not the native USB keyboard connector.
 
+The VGA output uses separate front- and back-porch timing so the complete
+picture, including F12 menus, is not shifted right by an extra front porch.
+The native Mac image retains equal 64-pixel horizontal and 69-line vertical
+borders. The disk indicator is inset 24 pixels from the right and 12 lines
+from the bottom to reduce monitor-edge clipping. After updating from an
+earlier build, use the monitor's VGA Auto Adjust function if available.
+
 ### Mouse compatibility
 
 Use a **direct low-speed HID boot mouse** in the second joystick connector.
@@ -56,7 +63,7 @@ macplus/
     macplus.rom
   disks/
     hd.img
-ESP32_MACPLUS-1.01.FLH
+ESP32_MACPLUS-1.02.FLH
 ```
 
 Use your own **unmodified, raw 128 KiB Macintosh Plus ROM**. Its word-sum
@@ -80,6 +87,13 @@ default**, and writes are flushed to SD. Keep a backup. F12 can select
 read-only access for the next cold boot. Runtime I/O faults are reported and
 open the F12 menu.
 
+A blinking green disk icon marked **6** appears in the lower-right VGA border
+for SCSI reads and writes, matching the CP400 and Apple II indicator style.
+It stays visible for 200 ms after the last successful sector transfer and
+updates even when Mac video frames are skipped. Status polling, rejected
+writes and other SD-card operations do not light it. F12 and cold boot
+clear the indicator; it never covers the native Macintosh image.
+
 Clearing the disk assignment boots with no SCSI disk, leaving the Mac's
 missing-boot-media screen. IWM floppy insertion is not implemented.
 The `macplus` folder can coexist with other emulators' SD folders.
@@ -98,6 +112,40 @@ an existing disk is preserved when no replacement is provided. A newly
 created blank image has **no partition map, driver or operating system** and
 is not bootable. The entire local `sdcard` folder and ROM/IMG extensions are
 excluded from Git. Never force-add these private assets.
+
+### Gray or black screen during startup
+
+The unmodified ROM tests all 4 MiB of RAM before showing its boot icons.
+At about 36 emulated fps this can take roughly 40 seconds; changing gray
+patterns during that test are normal. Allow at least a minute after cold
+boot before judging the result.
+
+If the picture then becomes solid black while F12 still works and UART
+continues reporting FPS, install firmware version 1.02 or later with the VIA
+output-latch fix. Earlier builds lost the ROM's initial display-control value and
+displayed the unused screen buffer. The fix preserves the values written
+before the ROM configures the VIA port directions.
+
+A gray checkerboard with a pointer and a flashing question-mark disk means
+the ROM has reached its missing-boot-media screen. Supply a prepared,
+bootable whole SCSI disk as described above; the importer's blank image
+does not contain a system. F12 can clear the SCSI assignment with Delete,
+followed by **Cold boot selected configuration**, to test the ROM without
+an attached disk.
+
+The center disk icon is drawn by the Macintosh ROM, not the host file
+browser or the corner activity indicator. This firmware boots SCSI ID 6
+only; there is no floppy-image insertion menu. If a valid whole SCSI disk
+is assigned but the corner icon never lights, install a current 1.02 build
+with the Plus ROM-address-decoding fix. Earlier builds mirrored the ROM
+into the model-detection probe windows, causing the ROM to identify a
+non-SCSI Macintosh and never try the attached disk. UART now reports the
+attached SCSI path, sector count and access mode at each cold boot.
+
+If F12 does not work, capture the UART console at 115200 baud from reset
+using the UART connector. Include startup errors and subsequent `MACPLUS`
+messages when reporting the problem. FPS reports alone confirm frame
+stepping, not that the ROM or operating system has booted.
 
 ## F12 menu
 
@@ -133,10 +181,23 @@ make test
 make upload
 ```
 
-`make firmware` builds and verifies `dist\ESP32_MACPLUS-1.01.FLH`.
+`make firmware` builds and verifies `dist\ESP32_MACPLUS-1.02.FLH`.
 The platform is pinned to `espressif32@6.11.0`. Board definitions and libraries
 are local, so the directory can be compiled independently.
 `make test` also requires native `gcc` and `g++` on PATH.
+
+An optional native boot regression can use your authorized ROM and an
+English-language, installed whole SCSI disk:
+
+```powershell
+.\tools\Test-Core.ps1 -Rom 'C:\MyMac\Mac-Plus.ROM' -Disk 'C:\MyMac\bootable.img'
+```
+
+This runs this firmware's CPU/peripheral core, not MAME, and requires
+Finder to stay running for 1200 frames after actual SCSI transfers.
+The disk is copied to temporary storage first; the original is never
+written. No ROM or operating-system assets are included in the tests.
+This headless check does not validate the board's VGA, USB or audio.
 
 The partition table is the shared dual 4 MiB OTA layout. FLH framing and the
 updater match CP400, MSX, TK95 and Apple II: any compatible `.FLH` filename is
@@ -172,16 +233,19 @@ sampled from the Macintosh sound buffer through the shared mono PWM driver.
 There is no floppy-media support, LocalTalk, serial networking, sleep,
 save-state support or ROM-screen patching.
 
-Native tests use generated 68000 instructions, not Apple ROM bytes, and cover
+Default native tests use generated 68000 instructions, not Apple ROM bytes, and cover
 the bus, ROM protection, buffer selection, pixel polarity, audio, keyboard,
-mouse, settings, SCSI and updater failures. Build and host-test success does
-**not** establish that a real Mac ROM boots an installed system, that a
-particular mouse enumerates, or that VGA, audio and firmware switching work
-on the physical board. Those hardware and user-ROM/disk checks remain
-necessary before this can be treated as a verified hardware release.
+mouse, settings, SCSI and updater failures. The optional native boot test
+checks the supplied ROM and installed system disk through this firmware's
+core. Neither test establishes that a particular mouse enumerates or that
+VGA, audio and firmware switching work on the physical board. Those hardware
+and on-board ROM/disk checks remain necessary before this can be treated as
+a verified hardware release.
 
 ## References and provenance
 
+- [MAME Macintosh driver](https://github.com/mamedev/mame/blob/master/src/mame/apple/mac128.cpp):
+  non-mirrored Plus ROM probe-window behavior used for SCSI model detection.
 - [epatel/esp32_mac](https://github.com/epatel/esp32_mac), revision
   `eaffb010eee2267672f1f766fcc4c5eb80cb5baa`: imported peripherals and bundled
   Musashi, adapted bus, stepping, resets, interrupts, keyboard, bounds and RTC.

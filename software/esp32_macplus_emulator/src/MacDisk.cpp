@@ -30,6 +30,7 @@ void MacDisk::close()
     if (file && fclose(file)) fprintf(stderr, "MACPLUS: closing SCSI image failed\n");
     file = nullptr;
     blockCount = 0;
+    activityPending = false;
 }
 
 bool MacDisk::transfer(bool write, uint32_t lba, uint32_t count, uint8_t *data,
@@ -48,5 +49,6 @@ bool MacDisk::transfer(bool write, uint32_t lba, uint32_t count, uint8_t *data,
     } else if (fread(data, 1, bytes, file) != bytes) {
         return fail(error, errorSize, "SCSI image read failed. Check the SD card.");
     }
+    if (bytes) activityPending = true;
     return true;
 }

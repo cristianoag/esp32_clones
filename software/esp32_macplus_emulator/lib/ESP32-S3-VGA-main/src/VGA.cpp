@@ -4,6 +4,7 @@
 #include <esp_rom_gpio.h>
 #include <esp_rom_sys.h>
 #include <hal/gpio_hal.h>
+#include <hal/lcd_ll.h>
 #include <driver/periph_ctrl.h>
 #include <driver/gpio.h>
 #include <soc/lcd_cam_struct.h>
@@ -16,16 +17,6 @@
 #ifndef max
 #define max(a,b)((a)>(b)?(a):(b))
 #endif
-
-//borrowed from esp code
-#define HAL_FORCE_MODIFY_U32_REG_FIELD(base_reg, reg_field, field_val)    \
-{                                                           \
-	uint32_t temp_val = base_reg.val;                       \
-	typeof(base_reg) temp_reg;                              \
-	temp_reg.val = temp_val;                                \
-	temp_reg.reg_field = (field_val);                       \
-	(base_reg).val = temp_reg.val;                          \
-}
 
 VGA::VGA()
 {
@@ -113,10 +104,8 @@ bool VGA::init(const PinConfig pins, const Mode mode, int bits)
     LCD_CAM.lcd_misc.lcd_vfk_cyclelen = 0;
     LCD_CAM.lcd_misc.lcd_vbk_cyclelen = 0;
 
-	LCD_CAM.lcd_ctrl2.lcd_hsync_width = mode.hSync - 1;				//7 bit
-    LCD_CAM.lcd_ctrl.lcd_hb_front = mode.blankHorizontal() - 1;		//11 bit
-    LCD_CAM.lcd_ctrl1.lcd_ha_width = mode.hRes - 1;					//12 bit
-    LCD_CAM.lcd_ctrl1.lcd_ht_width = mode.totalHorizontal();			//12 bit
+	// With HSYNC at zero, only sync and back porch precede the active image.
+	lcd_ll_set_horizontal_timing(&LCD_CAM, mode.hSync, mode.hBack, mode.hRes, mode.hFront);
 
 	LCD_CAM.lcd_ctrl2.lcd_vsync_width = mode.vSync - 1;				//7bit
     HAL_FORCE_MODIFY_U32_REG_FIELD(LCD_CAM.lcd_ctrl1, lcd_vb_front, mode.vSync + mode.vBack - 1);		//8bit
@@ -124,7 +113,7 @@ bool VGA::init(const PinConfig pins, const Mode mode, int bits)
     LCD_CAM.lcd_ctrl.lcd_vt_height = mode.totalVertical() - 1;		//10 bit
 
 	LCD_CAM.lcd_ctrl2.lcd_hs_blank_en = 1;
-	HAL_FORCE_MODIFY_U32_REG_FIELD(LCD_CAM.lcd_ctrl2, lcd_hsync_position, 0);//mode.hFront);
+	HAL_FORCE_MODIFY_U32_REG_FIELD(LCD_CAM.lcd_ctrl2, lcd_hsync_position, 0);
 
 	LCD_CAM.lcd_misc.lcd_next_frame_en = 1; //?? limitation
 
@@ -234,10 +223,7 @@ bool VGA::Reinit(const PinConfig pins, const Mode mode, int bits)
     LCD_CAM.lcd_misc.lcd_vfk_cyclelen = 0;
     LCD_CAM.lcd_misc.lcd_vbk_cyclelen = 0;
 
-	LCD_CAM.lcd_ctrl2.lcd_hsync_width = mode.hSync - 1;				//7 bit
-    LCD_CAM.lcd_ctrl.lcd_hb_front = mode.blankHorizontal() - 1;		//11 bit
-    LCD_CAM.lcd_ctrl1.lcd_ha_width = mode.hRes - 1;					//12 bit
-    LCD_CAM.lcd_ctrl1.lcd_ht_width = mode.totalHorizontal();			//12 bit
+	lcd_ll_set_horizontal_timing(&LCD_CAM, mode.hSync, mode.hBack, mode.hRes, mode.hFront);
 
 	LCD_CAM.lcd_ctrl2.lcd_vsync_width = mode.vSync - 1;				//7bit
     HAL_FORCE_MODIFY_U32_REG_FIELD(LCD_CAM.lcd_ctrl1, lcd_vb_front, mode.vSync + mode.vBack - 1);		//8bit
@@ -245,7 +231,7 @@ bool VGA::Reinit(const PinConfig pins, const Mode mode, int bits)
     LCD_CAM.lcd_ctrl.lcd_vt_height = mode.totalVertical() - 1;		//10 bit
 
 	LCD_CAM.lcd_ctrl2.lcd_hs_blank_en = 1;
-	HAL_FORCE_MODIFY_U32_REG_FIELD(LCD_CAM.lcd_ctrl2, lcd_hsync_position, 0);//mode.hFront);
+	HAL_FORCE_MODIFY_U32_REG_FIELD(LCD_CAM.lcd_ctrl2, lcd_hsync_position, 0);
 
 	LCD_CAM.lcd_misc.lcd_next_frame_en = 1; //?? limitation
 

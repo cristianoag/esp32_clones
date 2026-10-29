@@ -13,6 +13,7 @@
 #include "MacAudio.h"
 #include "MacFirmwareUpdate.h"
 #include "MacScsi.h"
+#include "MacDiskActivity.h"
 #include "MacVideo.h"
 #include "MacRom.h"
 extern "C" {
@@ -27,6 +28,7 @@ static VGA video;
 static Preferences preferences;
 static MacSettings settings;
 static MacDisk disk;
+static MacDiskActivity::State diskActivity;
 static MacMouseState mouseInput;
 static portMUX_TYPE mouseLock = portMUX_INITIALIZER_UNLOCKED;
 static bool acceptMouse = false, mouseConnected = false;
@@ -239,6 +241,8 @@ static bool boot()
     MacAudioEnable(false);
     running = false;
     machineFault = false;
+    diskActivity.clear();
+    disk.takeActivity();
     if (!mountSd()) return false;
     File file = SD_MMC.open(settings.rom, FILE_READ);
     if (!file || file.isDirectory() || file.size() != TME_ROMSIZE)
@@ -262,6 +266,10 @@ static bool boot()
         return false;
     }
     if (!settings.disk[0]) disk.close();
+    if (settings.disk[0])
+        Serial.printf("MACPLUS: SCSI 6: %s (%u sectors, %s)\n", settings.disk,
+                      unsigned(disk.blocks()), settings.readOnly ? "read-only" : "read/write");
+    else Serial.println("MACPLUS: SCSI 6: no disk attached.");
     free(romData);
     romData = candidate;
     rtcInit(pram);
@@ -305,9 +313,28 @@ static void mouseEnabled(bool enabled)
     portEXIT_CRITICAL(&mouseLock);
 }
 
+static void presentDiskActivity(bool force = false)
+{
+    static uint8_t previous = 255;
+    const uint32_t now = millis();
+    const bool active = diskActivity.active(now);
+    const bool bright = !(now & 128);
+    const uint8_t state = active ? (bright ? 3 : 1) : 0;
+    if (!force && previous == state) return;
+    previous = state;
+    for (unsigned y = 0; y < MacDiskActivity::Height; ++y) {
+        uint8_t *line = video.dmaBuffer->getLineAddr8(MacDiskActivity::Y + y) + MacDiskActivity::X;
+        for (unsigned x = 0; x < MacDiskActivity::Width; ++x)
+            line[x] = MacDiskActivity::pixel(x, y, active, bright);
+        video.dmaBuffer->flush(0, MacDiskActivity::Y + y);
+    }
+}
+
 static void menu()
 {
     MacAudioEnable(false);
+    diskActivity.clear();
+    disk.takeActivity();
     MacKeyboardEmulation(false);
     mouseEnabled(false);
     mouseMove(0, 0, 0);
@@ -381,6 +408,7 @@ static void menu()
     MacKeyboardEmulation(true);
     mouseEnabled(true);
     video.clear(0);
+    presentDiskActivity(true);
     MacAudioEnable(audioReady && settings.sound);
 }
 
@@ -393,6 +421,7 @@ static void present()
         memcpy(video.dmaBuffer->getLineAddr8(y), line, sizeof(line));
         video.dmaBuffer->flush(0, y);
     }
+    presentDiskActivity(true);
     video.show();
 }
 
@@ -487,7 +516,9 @@ void loop()
     portEXIT_CRITICAL(&mouseLock);
     mouseMove(dx, dy, button);
     tmeRunFrame();
+    if (disk.takeActivity()) diskActivity.record(millis());
     if (frames++ % (settings.frameSkip + 1) == 0) present();
+    else presentDiskActivity();
     if (audioReady && settings.sound) {
         int16_t samples[370];
         tmeAudio(samples, settings.volume);

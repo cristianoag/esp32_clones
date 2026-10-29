@@ -38,6 +38,8 @@ static uint8_t peripheral(unsigned address, unsigned value, int write)
         if (write) iwmWrite((address >> 9) & 15, value);
         else return iwmRead((address >> 9) & 15);
     } else if (address >= 0xe80000 && address < 0xf00000) {
+        // The VIA is connected only to the upper (even-addressed) data lane.
+        if (address & 1) return 0xff;
         if (write) viaWrite((address >> 9) & 15, value);
         else return viaRead((address >> 9) & 15);
     } else if (address >= 0xf00000 && address < 0xf80000) {
@@ -51,7 +53,14 @@ unsigned m68k_read_memory_8(unsigned address)
     address &= 0xffffff;
     if (address < 0x400000)
         return overlay ? macRom[address & (TME_ROMSIZE - 1)] : macRam[address];
-    if (address < 0x500000) return macRom[address & (TME_ROMSIZE - 1)];
+    if (address < 0x500000) {
+        const unsigned offset = address - 0x400000;
+        if (offset < TME_ROMSIZE) return macRom[offset];
+        // Match MAME's non-mirrored Plus ROM probe windows; identical mirrors disable SCSI.
+        if ((offset & ~1u) == 0x20000) return 0xff;
+        if ((offset & ~1u) == 0x40000) return 0xaa;
+        return 0;
+    }
     if (address >= 0x600000 && address < 0x700000)
         return macRam[address & (TME_RAMSIZE - 1)];
     return peripheral(address, 0, 0);

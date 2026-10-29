@@ -3,6 +3,17 @@
 This log tracks user-visible changes to the ESP32 CP400 emulator firmware.
 Versions use one major digit and two minor digits, for example 1.10 and 1.11.
 
+## 1.17 - Unreleased
+
+### Fixed
+
+- Honored the selected disk drive when writing a sector, even when the previous read used a different drive.
+
+### Added
+
+- Added Apple II-style pulsing green floppy icons for drives 0 through 3 in the lower-right VGA border during emulated disk reads and writes, with a 200 ms hold after the last transfer, without covering the computer picture or F12 menu.
+- Added host regression checks for disk-activity timing, drive selection, border cleanup and menu isolation in all four VGA modes.
+
 ## 1.16 - Unreleased
 
 ### Fixed

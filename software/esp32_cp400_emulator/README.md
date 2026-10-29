@@ -40,7 +40,7 @@ Packaging requires Python; host tests require PowerShell and native G++.
 Set the upload and monitor ports in [platformio.ini](platformio.ini) to
 the board's UART port before using `make upload`.
 
-`make firmware` builds and verifies `dist\ESP32_CP400-1.16.FLH`.
+`make firmware` builds and verifies `dist\ESP32_CP400-1.17.FLH`.
 The board definition, libraries and updater are local, so this folder
 remains independently buildable. The updater follows the same validated
 FLH/OTA implementation as the other clone-series firmware projects.
@@ -71,6 +71,13 @@ including the leading `/`) are saved and restored on restart.
 Delete ejects the selected disk and saves the empty assignment.
 F12 also provides Disk ROM selection, artifact
 colors, joystick calibration, reboot and firmware updates.
+
+During emulation, pulsing green floppy icons numbered **0-3** appear in the
+lower-right VGA border when the corresponding drive reads or writes data.
+They remain visible for 200 ms after the last transfer, then disappear,
+restoring the current border color. Like the Apple II indicator, they stay
+outside the computer picture. Opening F12 clears them from both buffers;
+browsing or mounting images does not count as emulated disk activity.
 
 ### F12 menu alignment
 
@@ -134,6 +141,6 @@ message alone does not establish that a keyboard is connected.
 See the [firmware change log](docs/log.md) for version history.
 
 `make test` covers nested firmware browsing, pagination, updater failures,
-startup and F12 menu alignment.
+startup, F12 menu alignment and disk-activity indicators.
 From `software`, `.\Test-FirmwareCompatibility.ps1` verifies all 64
 cross-emulator installation combinations using the built FLH files and mock OTA.

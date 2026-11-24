@@ -273,7 +273,7 @@ Only prepare the profiles you intend to use.
 | Firmware | Required boot files on the card |
 | --- | --- |
 | CP400 | `cp400\bios\extbas11.rom` and `bas13.rom`, plus the selected `cp400dsk.rom` or `disk11.rom`; each is 8,192 bytes. |
-| MSX | A supported profile under `msx\bios`: Omega uses `omega\OMEGA.ROM`; Expert/Hotbit use `expert\MSX.ROM` / `hotbit\MSX.ROM`; Panasonic profiles use their own `PANASONIC.ROM`. See the [MSX setup reference](../software/esp32_msx_emulator/README.md#prepare-the-sd-card) for imports. |
+| MSX | A supported profile under `msx\bios`: Omega uses `omega\OMEGA.ROM`; Expert/Hotbit use `expert\MSX.ROM` / `hotbit\MSX.ROM`; Panasonic profiles use their own `PANASONIC.ROM`. See the [MSX setup reference](../software/esp32__s3_msx/README.md#prepare-the-sd-card) for imports. |
 | MSX TurboR | `msxturbor\bios\fs-a1st\fs-a1st_firmware.rom` (4,194,304 bytes) and `fs-a1st_kanjifont.rom` (262,144 bytes). FS-A1GT firmware is not supported. |
 | TK90X / TK95 | Selected model's `tk\bios\tk90.rom` or `tk95.rom`, exactly 16,384 bytes. Default model is TK95. |
 | Apple II | Selected model's `apple2\bios\apple2plus.rom` (12,288 bytes) or `apple2e.rom` (16,384 bytes), plus `disk2.rom` (256 bytes). Use an **original**, not enhanced, IIe ROM. |
@@ -358,7 +358,7 @@ and RAM. Machine/profile changes require a cold boot.
 Sound hardware is a separate **Media > Audio** setting, not a cartridge
 mapper. PSG/SCC/FM requirements vary. FM-PAC/MSX-MUSIC modes need a
 compatible user-supplied audio BIOS, normally `msx\audio\FMPAC.ROM`.
-See the [MSX audio reference](../software/esp32_msx_emulator/README.md#audio-profiles-and-fm-pac--msx-music).
+See the [MSX audio reference](../software/esp32__s3_msx/README.md#audio-profiles-and-fm-pac--msx-music).
 Unsupported special mappers are not made compatible by renaming the ROM.
 
 #### Disk games
@@ -721,11 +721,11 @@ are available through the UART console.
 These developer/setup guides provide import tools, exact ROM requirements,
 build/upload commands and detailed implementation limits:
 
-- [CP400 / CoCo 2](../software/esp32_cp400_emulator/README.md)
-- [MSX / fMSX](../software/esp32_msx_emulator/README.md)
-- [MSX TurboR / FS-A1ST](../software/esp32_msxturbor_emulator/README.md)
-- [TK90X / TK95](../software/esp32_tk95_emulator/README.md)
-- [Apple II+ / original Apple IIe](../software/esp32_apple2_emulator/README.md)
-- [Macintosh Plus](../software/esp32_macplus_emulator/README.md)
-- [Sega Master System](../software/esp32_sms_emulator/README.md)
-- [Commodore 64](../software/esp32_c64_emulator/README.md)
+- [CP400 / CoCo 2](../software/esp32__s3_cp400/README.md)
+- [MSX / fMSX](../software/esp32__s3_msx/README.md)
+- [MSX TurboR / FS-A1ST](../software/esp32__s3_msxturbor/README.md)
+- [TK90X / TK95](../software/esp32__s3_tk95/README.md)
+- [Apple II+ / original Apple IIe](../software/esp32__s3_apple2/README.md)
+- [Macintosh Plus](../software/esp32__s3_macplus/README.md)
+- [Sega Master System](../software/esp32__s3_sms/README.md)
+- [Commodore 64](../software/esp32__s3_c64/README.md)

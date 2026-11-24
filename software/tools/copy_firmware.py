@@ -4,14 +4,14 @@ from shutil import copy2
 
 
 def copy_firmware(root: Path) -> None:
-    projects = sorted(path for path in root.glob("esp32_*_emulator") if path.is_dir())
+    projects = sorted(path for path in root.glob("esp32__s3_*") if path.is_dir())
     if not projects:
         raise SystemExit(f"No emulator projects found in {root}.")
 
     packages = []
     missing = []
     for project in projects:
-        prefix = project.name.removesuffix("_emulator").upper()
+        prefix = "ESP32_" + project.name.removeprefix("esp32__s3_").upper()
         pattern = re.compile(rf"{re.escape(prefix)}-(\d)\.(\d{{2}})\.FLH")
         candidates = []
         for path in project.joinpath("dist").glob("*.FLH"):

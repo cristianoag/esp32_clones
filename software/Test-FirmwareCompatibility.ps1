@@ -1,13 +1,13 @@
 $ErrorActionPreference = 'Stop'
 $projects = @(
-    @{ Folder = 'esp32_cp400_emulator'; Prefix = 'ESP32_CP400' },
-    @{ Folder = 'esp32_msx_emulator'; Prefix = 'ESP32_MSX' },
-    @{ Folder = 'esp32_tk95_emulator'; Prefix = 'ESP32_TK95' },
-    @{ Folder = 'esp32_apple2_emulator'; Prefix = 'ESP32_APPLE2' },
-    @{ Folder = 'esp32_msxturbor_emulator'; Prefix = 'ESP32_MSXTURBOR' },
-    @{ Folder = 'esp32_macplus_emulator'; Prefix = 'ESP32_MACPLUS' },
-    @{ Folder = 'esp32_sms_emulator'; Prefix = 'ESP32_SMS' },
-    @{ Folder = 'esp32_c64_emulator'; Prefix = 'ESP32_C64' }
+    @{ Folder = 'esp32__s3_cp400'; Prefix = 'ESP32_CP400' },
+    @{ Folder = 'esp32__s3_msx'; Prefix = 'ESP32_MSX' },
+    @{ Folder = 'esp32__s3_tk95'; Prefix = 'ESP32_TK95' },
+    @{ Folder = 'esp32__s3_apple2'; Prefix = 'ESP32_APPLE2' },
+    @{ Folder = 'esp32__s3_msxturbor'; Prefix = 'ESP32_MSXTURBOR' },
+    @{ Folder = 'esp32__s3_macplus'; Prefix = 'ESP32_MACPLUS' },
+    @{ Folder = 'esp32__s3_sms'; Prefix = 'ESP32_SMS' },
+    @{ Folder = 'esp32__s3_c64'; Prefix = 'ESP32_C64' }
 )
 $expectedLayout = @(
     'nvs,data,nvs,0x9000,0x5000,',

@@ -1,7 +1,7 @@
 param([string[]]$Projects = @(
-    'esp32_msx_emulator', 'esp32_msxturbor_emulator', 'esp32_apple2_emulator',
-    'esp32_c64_emulator', 'esp32_sms_emulator', 'esp32_tk95_emulator',
-    'esp32_macplus_emulator'
+    'esp32__s3_msx', 'esp32__s3_msxturbor', 'esp32__s3_apple2',
+    'esp32__s3_c64', 'esp32__s3_sms', 'esp32__s3_tk95',
+    'esp32__s3_macplus'
 ))
 $ErrorActionPreference = 'Stop'
 $compiler = (Get-Command gcc -ErrorAction Stop).Source
@@ -17,7 +17,7 @@ function Section([string]$Text, [string]$Start, [string]$End) {
     return $Text.Substring($a, $b - $a)
 }
 try {
-    $reference = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'esp32_msx_emulator\lib\MsxSoftUsb\upstream\msx_receive.h')).Replace("`r", '')
+    $reference = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'esp32__s3_msx\lib\MsxSoftUsb\upstream\msx_receive.h')).Replace("`r", '')
     foreach ($project in $Projects) {
         $projectRoot = Join-Path $PSScriptRoot $project
         $usb = Join-Path $projectRoot 'lib\MsxSoftUsb\upstream'
@@ -36,14 +36,14 @@ try {
             (Section $source 'void fsm_Mashine()' 'void IRAM_ATTR setPins'),
             $source.Substring($source.IndexOf('void printState()')).Replace('#pragma GCC diagnostic pop', '')
         )
-        if ($project -eq 'esp32_c64_emulator') {
+        if ($project -eq 'esp32__s3_c64') {
             $logic += Section $source 'void timerCallBack()' 'void Request( '
         }
         [IO.File]::WriteAllText((Join-Path $root 'UsbLogic.inc'), ($logic -join "`n"))
         $output = Join-Path $root 'usb.exe'
         $mode = @()
-        if ($project -eq 'esp32_macplus_emulator') { $mode = @('-DMACPLUS_MOUSE') }
-        if ($project -eq 'esp32_c64_emulator') { $mode = @('-DC64_USB_CONTROL') }
+        if ($project -eq 'esp32__s3_macplus') { $mode = @('-DMACPLUS_MOUSE') }
+        if ($project -eq 'esp32__s3_c64') { $mode = @('-DC64_USB_CONTROL') }
         & $compiler -std=c11 -Wall -Wextra -Werror "-I$root" "-I$usb" @mode `
             (Join-Path $PSScriptRoot 'tests\UsbHostEnumerationTests.c') -o $output
         if ($LASTEXITCODE -ne 0) { throw "USB state-machine test compilation failed: $project" }

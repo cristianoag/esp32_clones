@@ -7,7 +7,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
-- Renamed the project folder to `esp32__s3_tk95` while preserving SD-card preparation and existing firmware package names.
+- Renamed the project folder to `esp32_s3_tk95` while preserving SD-card preparation and existing firmware package names.
 - Changed the parent-folder `make` and `make firmware` commands to clear FLH files from the shared SD-card root and copy only the latest TK95 package there, leaving emulator project roots and build archives unchanged.
 
 ### Fixed

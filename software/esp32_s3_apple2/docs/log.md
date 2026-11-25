@@ -12,7 +12,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
-- Renamed the project folder to `esp32__s3_apple2` while preserving SD-card preparation and existing firmware package names.
+- Renamed the project folder to `esp32_s3_apple2` while preserving SD-card preparation and existing firmware package names.
 - Reduced CPU emulation overhead with indexed instruction dispatch and batched work between audio samples, while retaining the original CPU clock and sample timing.
 - Avoided rebuilding unchanged memory maps and limited bank-switch updates to the affected pages, reducing overhead during disk loading and language-card use.
 - Cached each drive's current track in internal RAM to reduce contention between disk reads and VGA output, while preserving disk-byte timing, write protection and the motor-stop delay.

@@ -1,5 +1,5 @@
 /******************************************************************************
- * Project      : esp32__s3_cp400
+ * Project      : esp32_s3_cp400
  * File         : FileSystemUtils.h
  * Last Updated : 2026-08-17
  *

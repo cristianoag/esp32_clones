@@ -7,7 +7,7 @@ Versions use one major digit and two minor digits, for example 1.00 and 1.01.
 
 ### Changed
 
-- Renamed the project folder to `esp32__s3_macplus` while preserving SD-card preparation and existing firmware package names.
+- Renamed the project folder to `esp32_s3_macplus` while preserving SD-card preparation and existing firmware package names.
 
 ### Added
 

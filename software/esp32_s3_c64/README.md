@@ -64,7 +64,7 @@ CPU regressions also check the NMOS original-value and final-value writes
 for all 66 memory read-modify-write opcodes, unchanged instruction cycle
 counts, accumulator forms and raster-interrupt acknowledgment.
 From the parent software directory, run
-`.\Test-UsbJoysticks.ps1 -Projects esp32__s3_c64` to also exercise
+`.\Test-UsbJoysticks.ps1 -Projects esp32_s3_c64` to also exercise
 production USB control handling, delayed configuration status/replay,
 bounded timeouts, STALL responses and packet capture on both connectors.
 Physical VGA, audio, USB enumeration, sustained emulation speed and actual

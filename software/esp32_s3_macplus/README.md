@@ -303,7 +303,7 @@ a verified hardware release.
   model/test commands, raw scan codes and arrow/keypad prefixes.
 - [Mac Plus hardware notes](http://www.mac.linux-m68k.org/devel/plushw.php.html):
   VIA screen and sound buffer selection.
-- [Existing Apple II firmware](../esp32__s3_apple2/README.md): board
+- [Existing Apple II firmware](../esp32_s3_apple2/README.md): board
   drivers, native keyboard transport, software USB scheduling/flash pause,
   mono audio, menu conventions, FLH updater and tests. The new local software
   USB copy selects a boot mouse on port 2 rather than a gamepad.

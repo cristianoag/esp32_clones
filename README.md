@@ -19,14 +19,14 @@ At the moment the series includes eight emulator builds, all for the ESP32-S3 bo
 
 | Firmware | Covered machines | ESP32-S3 | ESP32-P4 |
 | --- | --- | --- | --- |
-| CP400 | Prologica CP400 / CoCo 2 | [Setup guide](software/esp32__s3_cp400/README.md) and [change log](software/esp32__s3_cp400/docs/log.md) | Not available yet |
-| MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32__s3_msx/README.md) and [change log](software/esp32__s3_msx/docs/log.md) | Not available yet |
-| MSX TurboR (experimental) | Panasonic FS-A1ST | [Setup guide](software/esp32__s3_msxturbor/README.md), [license report](software/esp32__s3_msxturbor/docs/licenses.md) and [change log](software/esp32__s3_msxturbor/docs/log.md) | Not available yet |
-| TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32__s3_tk95/README.md) and [change log](software/esp32__s3_tk95/docs/log.md) | Not available yet |
-| Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32__s3_apple2/README.md) and [change log](software/esp32__s3_apple2/docs/log.md) | Not available yet |
-| Macintosh Plus | Apple Macintosh Plus | [Setup guide](software/esp32__s3_macplus/README.md) and [change log](software/esp32__s3_macplus/docs/log.md) | Not available yet |
-| Sega Master System | Sega Master System (NTSC / PAL) | [Setup guide](software/esp32__s3_sms/README.md) and [change log](software/esp32__s3_sms/docs/log.md) | Not available yet |
-| Commodore 64 | Commodore 64 (PAL) | [Setup guide](software/esp32__s3_c64/README.md), [licenses](software/esp32__s3_c64/docs/licenses.md) and [change log](software/esp32__s3_c64/docs/log.md) | Not available yet |
+| CP400 | Prologica CP400 / CoCo 2 | [Setup guide](software/esp32_s3_cp400/README.md) and [change log](software/esp32_s3_cp400/docs/log.md) | Not available yet |
+| MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32_s3_msx/README.md) and [change log](software/esp32_s3_msx/docs/log.md) | Not available yet |
+| MSX TurboR (experimental) | Panasonic FS-A1ST | [Setup guide](software/esp32_s3_msxturbor/README.md), [license report](software/esp32_s3_msxturbor/docs/licenses.md) and [change log](software/esp32_s3_msxturbor/docs/log.md) | Not available yet |
+| TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32_s3_tk95/README.md) and [change log](software/esp32_s3_tk95/docs/log.md) | Not available yet |
+| Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32_s3_apple2/README.md) and [change log](software/esp32_s3_apple2/docs/log.md) | Not available yet |
+| Macintosh Plus | Apple Macintosh Plus | [Setup guide](software/esp32_s3_macplus/README.md) and [change log](software/esp32_s3_macplus/docs/log.md) | Not available yet |
+| Sega Master System | Sega Master System (NTSC / PAL) | [Setup guide](software/esp32_s3_sms/README.md) and [change log](software/esp32_s3_sms/docs/log.md) | Not available yet |
+| Commodore 64 | Commodore 64 (PAL) | [Setup guide](software/esp32_s3_c64/README.md), [licenses](software/esp32_s3_c64/docs/licenses.md) and [change log](software/esp32_s3_c64/docs/log.md) | Not available yet |
 
 > **Development status:** all firmwares are under active development and at different maturity stages. The CP400 and MSX firmwares are the most mature; the others (including the experimental MSX TurboR) are earlier-stage and may be incomplete or change significantly.
 
@@ -66,7 +66,7 @@ against mock OTA storage. Physical-board switching still needs validation.
 
 ## Commodore 64
 
-The [C64 firmware](software/esp32__s3_c64/README.md) adapts the
+The [C64 firmware](software/esp32_s3_c64/README.md) adapts the
 CPU, CIA, VIC-II and SID from
 [retroelec/T-HMI-C64](https://github.com/retroelec/T-HMI-C64) to the shared
 VGA board. It includes a USB C64 keyboard matrix, two calibrated USB
@@ -86,21 +86,21 @@ The project sits between hardware design, emulator work, and preservation. It ke
 
 The Prologica CP400 was one of the more recognizable Brazilian home computers of the 1980s. It was compatible with the Tandy/Radio Shack TRS-80 Color Computer 2, but it had its own industrial design, Brazilian-language software ecosystem, and local hardware expectations.
 
-The [CP400 firmware](software/esp32__s3_cp400/README.md) recreates that environment on ESP32-S3 hardware, including MC6809 emulation, VGA output, native USB keyboard support, joystick inputs, SD storage, virtual floppy handling, and the F12 configuration/update menu.
+The [CP400 firmware](software/esp32_s3_cp400/README.md) recreates that environment on ESP32-S3 hardware, including MC6809 emulation, VGA output, native USB keyboard support, joystick inputs, SD storage, virtual floppy handling, and the F12 configuration/update menu.
 
 ## MSX
 
 The MSX has a very special place in Brazilian computing history. It officially arrived in Brazil in 1985 through two locally produced machines: the HotBit, from Sharp/Epcom, and the Expert, from Gradiente. At a time when Brazil’s computer market was heavily restricted and imported machines were difficult and expensive to obtain, the MSX became one of the country’s most important home-computing platforms. Its standardized architecture, large software library, expandability, and built-in BASIC introduced an entire generation not only to games, but also to programming, electronics, and computer technology. 
 
-The [MSX firmware](software/esp32__s3_msx/README.md) runs the original fMSX core on the same shared board. It includes multiple BIOS profiles for Omega MSX2+, Gradiente Expert 1.1, Sharp Hotbit 1.2, and Panasonic FS-A1WSX / FS-A1F / FS-A1FX.
+The [MSX firmware](software/esp32_s3_msx/README.md) runs the original fMSX core on the same shared board. It includes multiple BIOS profiles for Omega MSX2+, Gradiente Expert 1.1, Sharp Hotbit 1.2, and Panasonic FS-A1WSX / FS-A1F / FS-A1FX.
 
 The software supports the core MSX experience with USB keyboard input, graphics, sound, cartridge booting, and firmware updates through the on-screen menu. and... USB joystick support, of course.
 
-The F12 Media menu attaches writable `.dsk` images to drives A/B and read-only `.cas` tapes, with ejection, tape rewind and optional saved boot defaults. Disk access requires a compatible user-supplied disk BIOS; see the [disk and tape setup guide](software/esp32__s3_msx/README.md#disk-and-tape-images).
+The F12 Media menu attaches writable `.dsk` images to drives A/B and read-only `.cas` tapes, with ejection, tape rewind and optional saved boot defaults. Disk access requires a compatible user-supplied disk BIOS; see the [disk and tape setup guide](software/esp32_s3_msx/README.md#disk-and-tape-images).
 
 ## MSX TurboR / Panasonic FS-A1ST
 
-The experimental [MSX TurboR firmware](software/esp32__s3_msxturbor/README.md)
+The experimental [MSX TurboR firmware](software/esp32_s3_msxturbor/README.md)
 recreates the Panasonic FS-A1ST using a source subset of blueMSX, separate
 from the ordinary fMSX-based MSX build. It includes Z80/R800 switching,
 DRAM mode, V9958 graphics, PSG, MSX-MUSIC, PCM output and writable
@@ -108,29 +108,29 @@ DRAM mode, V9958 graphics, PSG, MSX-MUSIC, PCM output and writable
 
 Supply your own FS-A1ST firmware and Kanji ROMs under
 `msxturbor/bios/fs-a1st` on the FAT32 card. See the
-[SD card and ROM setup](software/esp32__s3_msxturbor/README.md#prepare-the-sd-card),
-[scope and limitations](software/esp32__s3_msxturbor/README.md#implementation-scope-and-limitations)
-and [licenses and provenance](software/esp32__s3_msxturbor/docs/licenses.md).
+[SD card and ROM setup](software/esp32_s3_msxturbor/README.md#prepare-the-sd-card),
+[scope and limitations](software/esp32_s3_msxturbor/README.md#implementation-scope-and-limitations)
+and [licenses and provenance](software/esp32_s3_msxturbor/docs/licenses.md).
 The original BIOS boots into MSX BASIC in host tests; physical-board
 performance, VGA/audio quality and firmware switching still require
 validation. A1GT/MIDI and full-speed emulation are not claimed.
 
 ## TK90X / TK95
 
-The Microdigital TK90X and TK95 brought the ZX Spectrum family of computers to Brazilian homes. The [TK firmware](software/esp32__s3_tk95/README.md) emulates the TK95 and 48 KiB TK90X on the same shared ESP32-S3 board, using
+The Microdigital TK90X and TK95 brought the ZX Spectrum family of computers to Brazilian homes. The [TK firmware](software/esp32_s3_tk95/README.md) emulates the TK95 and 48 KiB TK90X on the same shared ESP32-S3 board, using
 the cycle-stepped chips Z80 core.
 
 The firmware includes VGA output, USB keyboard input, beeper audio and two USB joystick ports with calibration and selectable Kempston, Sinclair 1/2 or Cursor interfaces. The F12 menu brings together machine and ROM selection, 50/60 Hz Microdigital ULA timing, Portuguese/Spanish ROM language selection, sound and volume, saved boot defaults, reset options and firmware updates.
 
 Media support includes read-only standard `.tap` playback and loading 48K `.sna` and `.z80` snapshots. Supply legally obtained, raw 16 KiB ROMs at `tk\bios\tk95.rom` and `tk\bios\tk90.rom` on the FAT32 card; the `tk` folder can sit alongside `msx` and `cp400`. No ROM bytes are embedded in the firmware.
 
-See the [SD card and ROM setup](software/esp32__s3_tk95/README.md#sd-card-and-roms) and [keyboard guide](software/esp32__s3_tk95/README.md#keyboard-and-joysticks) for the original TK keyword-entry conventions.
+See the [SD card and ROM setup](software/esp32_s3_tk95/README.md#sd-card-and-roms) and [keyboard guide](software/esp32_s3_tk95/README.md#keyboard-and-joysticks) for the original TK keyword-entry conventions.
 
 The initial release does not include AY audio, Betadisk, TZX, tape recording or snapshot saving, and does not claim full cycle accuracy. 
 
 ## Apple II
 
-The [Apple II firmware](software/esp32__s3_apple2/README.md) adds generic
+The [Apple II firmware](software/esp32_s3_apple2/README.md) adds generic
 Apple II+ (64 KiB with language card) and original Apple IIe (128 KiB)
 profiles. It follows the shared standalone PlatformIO, board-driver, F12
 configuration and FLH firmware-update conventions.
@@ -146,12 +146,12 @@ Supply machine and Disk II ROMs under `apple2/bios` on SD. No ROMs or games
 are distributed. Enhanced IIe/65C02 and Brazilian TK2000, TK3000/Compact,
 MC-4000/Exato and Exato IIe profiles are not claimed as supported without
 their required hardware and verified ROMs. See the
-[scope and limitations](software/esp32__s3_apple2/README.md#supported-media-and-limitations).
+[scope and limitations](software/esp32_s3_apple2/README.md#supported-media-and-limitations).
 Physical-board validation is still pending.
 
 ## Macintosh Plus
 
-The [Macintosh Plus firmware](software/esp32__s3_macplus/README.md)
+The [Macintosh Plus firmware](software/esp32_s3_macplus/README.md)
 integrates a Musashi 68000 and Macintosh peripheral core with 4 MiB of
 emulated RAM, a native 512x342 monochrome image centered on 640x480 VGA,
 USB keyboard input, mono audio and the shared F12 menu and FLH updater.
@@ -161,9 +161,9 @@ full-speed-only mice and USB hubs are unsupported.
 Supply an unmodified 128 KiB Macintosh Plus ROM and a bootable whole
 SCSI disk image under `macplus/bios` and `macplus/disks` on the FAT32 card.
 No Apple ROM, operating system or disk image is bundled. See the
-[SD card, ROM and disk setup](software/esp32__s3_macplus/README.md#sd-card-and-rom),
-[mouse compatibility](software/esp32__s3_macplus/README.md#mouse-compatibility)
-and [scope and validation](software/esp32__s3_macplus/README.md#scope-and-validation).
+[SD card, ROM and disk setup](software/esp32_s3_macplus/README.md#sd-card-and-rom),
+[mouse compatibility](software/esp32_s3_macplus/README.md#mouse-compatibility)
+and [scope and validation](software/esp32_s3_macplus/README.md#scope-and-validation).
 This is an initial integration, not a claim of full-speed or cycle-accurate
 emulation; floppy-media support is not implemented.
 
@@ -175,12 +175,12 @@ hardware/esp32_s3_clones/libraries Local KiCad symbols and footprints
 hardware/esp32_s3_clones/bom       Interactive BOM and BOM assets
 hardware/esp32_p4_clones/          KiCad PCB for the ESP32-P4 (stereo audio) variant, see its README
 hardware/cases/standard/       Parametric printed base, acrylic lid and manufacturing exports
-software/esp32__s3_cp400/  PlatformIO firmware for the CP400 build
-software/esp32__s3_msx/    MSX firmware and setup files
-software/esp32__s3_msxturbor/ MSX TurboR / Panasonic FS-A1ST firmware and setup files
-software/esp32__s3_tk95/   TK90X/TK95 firmware and setup files
-software/esp32__s3_apple2/ Apple II+/original IIe firmware and setup files
-software/esp32__s3_macplus/ Macintosh Plus firmware and setup files
+software/esp32_s3_cp400/  PlatformIO firmware for the CP400 build
+software/esp32_s3_msx/    MSX firmware and setup files
+software/esp32_s3_msxturbor/ MSX TurboR / Panasonic FS-A1ST firmware and setup files
+software/esp32_s3_tk95/   TK90X/TK95 firmware and setup files
+software/esp32_s3_apple2/ Apple II+/original IIe firmware and setup files
+software/esp32_s3_macplus/ Macintosh Plus firmware and setup files
 images/                         Generated images and project documentation assets
 ```
 
@@ -250,7 +250,7 @@ The ESP32-S3 board is built around an ESP32-S3 DevKitC-style N16R8 module with 1
 
 The ESP32-P4 board keeps the same outline, VGA output, USB-A ports, SD card slot and connector positions, but uses the Waveshare ESP32-P4-Core-DEV-KIT (32 MB flash, 32 MB PSRAM) and adds a stereo audio output.
 
-The ESP32-S3 board is used by all eight firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32__s3_msx/README.md#hardware), the [MSX TurboR hardware section](software/esp32__s3_msxturbor/README.md#hardware-and-dependencies), the [TK hardware section](software/esp32__s3_tk95/README.md#hardware), the [Apple II hardware section](software/esp32__s3_apple2/README.md#hardware) and the [Macintosh Plus hardware section](software/esp32__s3_macplus/README.md#hardware).
+The ESP32-S3 board is used by all eight firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32_s3_msx/README.md#hardware), the [MSX TurboR hardware section](software/esp32_s3_msxturbor/README.md#hardware-and-dependencies), the [TK hardware section](software/esp32_s3_tk95/README.md#hardware), the [Apple II hardware section](software/esp32_s3_apple2/README.md#hardware) and the [Macintosh Plus hardware section](software/esp32_s3_macplus/README.md#hardware).
 
 ## BOM and purchasing
 
@@ -278,23 +278,23 @@ This is the current BOM for the board as defined in the KiCad project. The table
 
 ## Firmware build notes
 
-Firmware project folders use `software/esp32__s3_<name>`, while update packages
+Firmware project folders use `software/esp32_s3_<name>`, while update packages
 retain their existing `ESP32_<NAME>-X.YY.FLH` names.
 
 All six firmware projects use PlatformIO with the Arduino framework and a pinned `espressif32@6.11.0` platform. From the project directory you want to use, run:
 
 ```powershell
-Set-Location .\software\esp32__s3_cp400
+Set-Location .\software\esp32_s3_cp400
 # or:
-# Set-Location .\software\esp32__s3_msx
+# Set-Location .\software\esp32_s3_msx
 # or:
-# Set-Location .\software\esp32__s3_msxturbor
+# Set-Location .\software\esp32_s3_msxturbor
 # or:
-# Set-Location .\software\esp32__s3_tk95
+# Set-Location .\software\esp32_s3_tk95
 # or:
-# Set-Location .\software\esp32__s3_apple2
+# Set-Location .\software\esp32_s3_apple2
 # or:
-# Set-Location .\software\esp32__s3_macplus
+# Set-Location .\software\esp32_s3_macplus
 
 make firmware
 ```
@@ -319,7 +319,7 @@ All six still require PlatformIO and the configured ESP32 toolchain.
 
 Original CP400, CoCo, MSX, MSX TurboR, TK90X/TK95, ZX Spectrum, Apple II, Macintosh Plus, BASIC, cartridge, cassette, floppy and hard-disk software may still be copyrighted. This repository is for original hardware, firmware, and project files. Use legally obtained ROMs and software images when needed.
 
-The CP400 firmware loads its BIOS files from `software/esp32__s3_cp400/sdcard/cp400/bios`. Copy the `cp400` folder to the root of the microSD card so the firmware can read the BASIC, Extended BASIC, and CP400 or CoCo disk controller ROM selected in the F12 menu.
+The CP400 firmware loads its BIOS files from `software/esp32_s3_cp400/sdcard/cp400/bios`. Copy the `cp400` folder to the root of the microSD card so the firmware can read the BASIC, Extended BASIC, and CP400 or CoCo disk controller ROM selected in the F12 menu.
 
 ## Historical notes
 

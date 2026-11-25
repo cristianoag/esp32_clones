@@ -23,7 +23,7 @@ SD uses a one-bit SD/MMC interface rather than SPI. Connect a USB HID keyboard d
 
 The firmware is self-contained: its board definition lives in `boards`, and
 its VGA, Adafruit GFX, BusIO and USB transport sources live in `lib`.
-The entire `esp32__s3_msx` folder can be copied and built on its own;
+The entire `esp32_s3_msx` folder can be copied and built on its own;
 the CP400 firmware folder is not required. PlatformIO and the pinned ESP32
 platform/toolchain are still required.
 

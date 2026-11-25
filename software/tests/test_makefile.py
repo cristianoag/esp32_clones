@@ -24,7 +24,7 @@ class MakefileTests(unittest.TestCase):
         )
 
     def package(self, emulator, version="1.00", payload=b"firmware"):
-        project = self.root / f"esp32__s3_{emulator}"
+        project = self.root / f"esp32_s3_{emulator}"
         project.joinpath("dist").mkdir(parents=True, exist_ok=True)
         package = project / "dist" / f"ESP32_{emulator.upper()}-{version}.FLH"
         package.write_bytes(payload)
@@ -52,13 +52,13 @@ class MakefileTests(unittest.TestCase):
         latest.parent.joinpath("ESP32_MSX-9.99.FLH").write_bytes(b"wrong emulator")
         latest.parent.joinpath("ESP32_CP400-latest.FLH").write_bytes(b"invalid name")
         latest.parent.joinpath("ESP32_CP400-9.99.FLH").mkdir()
-        self.root.joinpath("esp32__s3_not_a_project").write_text("not a folder")
+        self.root.joinpath("esp32_s3_not_a_project").write_text("not a folder")
 
         result = self.make("firmware")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for emulator in EMULATORS:
-            project = self.root / f"esp32__s3_{emulator}"
+            project = self.root / f"esp32_s3_{emulator}"
             self.assertEqual(list(project.glob("*.FLH")), [])
             source = (
                 latest
@@ -114,24 +114,24 @@ class MakefileTests(unittest.TestCase):
         self.seed_packages()
         for emulator in ("sms", "tk95"):
             self.package(emulator).unlink()
-        self.root.joinpath("esp32__s3_tk95", "dist").rmdir()
+        self.root.joinpath("esp32_s3_tk95", "dist").rmdir()
 
         result = self.make("firmware")
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Missing firmware packages", result.stderr)
-        self.assertIn("esp32__s3_sms", result.stderr)
-        self.assertIn("esp32__s3_tk95", result.stderr)
+        self.assertIn("esp32_s3_sms", result.stderr)
+        self.assertIn("esp32_s3_tk95", result.stderr)
         self.assertFalse(self.root.joinpath("sdcard").exists())
         for emulator in EMULATORS:
             self.assertEqual(
-                list(self.root.joinpath(f"esp32__s3_{emulator}").glob("*.FLH")),
+                list(self.root.joinpath(f"esp32_s3_{emulator}").glob("*.FLH")),
                 [],
             )
 
     def test_missing_packages_fail_before_existing_sdcard_firmware_is_deleted(self):
         source = self.package("cp400")
-        self.root.joinpath("esp32__s3_sms").mkdir()
+        self.root.joinpath("esp32_s3_sms").mkdir()
         sdcard = self.root / "sdcard"
         sdcard.mkdir()
         existing = sdcard / "ESP32_CP400-0.99.FLH"
@@ -153,7 +153,7 @@ class MakefileTests(unittest.TestCase):
 
     def test_default_target_also_preserves_sdcard_merge_behavior(self):
         self.seed_packages()
-        local = self.root / "esp32__s3_cp400" / "sdcard" / "cp400"
+        local = self.root / "esp32_s3_cp400" / "sdcard" / "cp400"
         local.mkdir(parents=True)
         local.joinpath("shared.txt").write_text("local content")
         destination = self.root / "sdcard" / "cp400"
@@ -167,7 +167,7 @@ class MakefileTests(unittest.TestCase):
         self.assertEqual(destination.joinpath("shared.txt").read_text(), "local content")
         self.assertEqual(destination.joinpath("keep.txt").read_text(), "destination only")
         for emulator in EMULATORS:
-            project = self.root / f"esp32__s3_{emulator}"
+            project = self.root / f"esp32_s3_{emulator}"
             self.assertEqual(list(project.glob("*.FLH")), [])
             source = project / "dist" / f"ESP32_{emulator.upper()}-1.00.FLH"
             self.assertEqual(
@@ -199,17 +199,17 @@ class MakefileTests(unittest.TestCase):
         self.assertEqual(local.joinpath("ESP32_CP400-1.13.FLH").read_bytes(), b"older local copy")
 
     def test_sdcard_target_does_not_require_firmware(self):
-        self.root.joinpath("esp32__s3_cp400").mkdir()
+        self.root.joinpath("esp32_s3_cp400").mkdir()
 
         result = self.make("sdcard")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(self.root.joinpath("sdcard", "cp400", "bios").is_dir())
-        self.assertFalse(self.root.joinpath("esp32__s3_cp400", "dist").exists())
+        self.assertFalse(self.root.joinpath("esp32_s3_cp400", "dist").exists())
 
     def test_sdcard_target_merges_all_renamed_project_trees(self):
         for emulator in EMULATORS:
-            local = self.root / f"esp32__s3_{emulator}" / "sdcard" / emulator
+            local = self.root / f"esp32_s3_{emulator}" / "sdcard" / emulator
             local.mkdir(parents=True)
             local.joinpath("local.txt").write_text(emulator)
 
@@ -222,7 +222,7 @@ class MakefileTests(unittest.TestCase):
                 self.root.joinpath("sdcard", emulator, "local.txt").read_text(),
                 emulator,
             )
-            self.assertFalse(self.root.joinpath(f"esp32__s3_{emulator}", "dist").exists())
+            self.assertFalse(self.root.joinpath(f"esp32_s3_{emulator}", "dist").exists())
 
 
 if __name__ == "__main__":

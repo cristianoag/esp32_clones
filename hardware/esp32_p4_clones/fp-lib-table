@@ -1,0 +1,8 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "COCO2") (type "KiCad") (uri "${KIPRJMOD}/libraries/footprints/COCO2.pretty") (options "") (descr ""))
+	(lib (name "ESP32") (type "KiCad") (uri "${KIPRJMOD}/libraries/footprints/ESP32.pretty") (options "") (descr ""))
+	(lib (name "PJ307") (type "KiCad") (uri "${KIPRJMOD}/libraries/footprints/PJ307.pretty") (options "") (descr ""))
+	(lib (name "PS-22F05") (type "KiCad") (uri "${KIPRJMOD}/libraries/footprints/PS-22F05.pretty") (options "") (descr ""))
+	(lib (name "TRH") (type "KiCad") (uri "${KIPRJMOD}/libraries/footprints/TRH.pretty") (options "") (descr ""))
+)

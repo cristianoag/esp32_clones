@@ -1,25 +1,36 @@
 ﻿# The Retro Hacker Clone Series
 
-The Retro Hacker Clone Series brings together hardware designs and source-available firmware to recreate and emulate classic computers from the 1980s and 1990s using modern ESP32-S3 based hardware.
+The Retro Hacker Clone Series brings together hardware designs and source-available firmware to recreate and emulate classic computers from the 1980s and 1990s using modern ESP32 based hardware.
 
  The board is designed to feel like a small retro computer rather than a bare dev board, and the firmwares are built to be practical, tweakable, and easy to build from a standard Git checkout.
 
-At the moment the series includes eight emulator builds on the same ESP32-S3 board:
+## Hardware versions
 
-| Firmware | Covered machines | Project |
-| --- | --- | --- |
-| CP400 | Prologica CP400 / CoCo 2 | [Setup guide](software/esp32__s3_cp400/README.md) and [change log](software/esp32__s3_cp400/docs/log.md) |
-| MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32__s3_msx/README.md) and [change log](software/esp32__s3_msx/docs/log.md) |
-| MSX TurboR (experimental) | Panasonic FS-A1ST | [Setup guide](software/esp32__s3_msxturbor/README.md), [license report](software/esp32__s3_msxturbor/docs/licenses.md) and [change log](software/esp32__s3_msxturbor/docs/log.md) |
-| TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32__s3_tk95/README.md) and [change log](software/esp32__s3_tk95/docs/log.md) |
-| Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32__s3_apple2/README.md) and [change log](software/esp32__s3_apple2/docs/log.md) |
-| Macintosh Plus | Apple Macintosh Plus | [Setup guide](software/esp32__s3_macplus/README.md) and [change log](software/esp32__s3_macplus/docs/log.md) |
-| Sega Master System | Sega Master System (NTSC / PAL) | [Setup guide](software/esp32__s3_sms/README.md) and [change log](software/esp32__s3_sms/docs/log.md) |
-| Commodore 64 | Commodore 64 (PAL) | [Setup guide](software/esp32__s3_c64/README.md), [licenses](software/esp32__s3_c64/docs/licenses.md) and [change log](software/esp32__s3_c64/docs/log.md) |
+The series now has two hardware versions that share the same outline, mounting holes and connector layout:
+
+| Version | Module | Audio | KiCad project |
+| --- | --- | --- | --- |
+| ESP32-S3 | ESP32-S3 dev board (N16R8) | Mono | [hardware/esp32_s3_clones](hardware/esp32_s3_clones) |
+| ESP32-P4 | Waveshare ESP32-P4-Core-DEV-KIT | Stereo | [hardware/esp32_p4_clones](hardware/esp32_p4_clones/README.md) |
+
+## Software
+
+At the moment the series includes eight emulator builds, all for the ESP32-S3 board. There is no firmware for the ESP32-P4 board yet.
+
+| Firmware | Covered machines | ESP32-S3 | ESP32-P4 |
+| --- | --- | --- | --- |
+| CP400 | Prologica CP400 / CoCo 2 | [Setup guide](software/esp32__s3_cp400/README.md) and [change log](software/esp32__s3_cp400/docs/log.md) | Not available yet |
+| MSX | MSX1, MSX2, and MSX2+ | [Setup guide](software/esp32__s3_msx/README.md) and [change log](software/esp32__s3_msx/docs/log.md) | Not available yet |
+| MSX TurboR (experimental) | Panasonic FS-A1ST | [Setup guide](software/esp32__s3_msxturbor/README.md), [license report](software/esp32__s3_msxturbor/docs/licenses.md) and [change log](software/esp32__s3_msxturbor/docs/log.md) | Not available yet |
+| TK90X / TK95 | Microdigital TK90X (48 KiB) and TK95 | [Setup guide](software/esp32__s3_tk95/README.md) and [change log](software/esp32__s3_tk95/docs/log.md) | Not available yet |
+| Apple II | Generic Apple II+ and original Apple IIe | [Setup guide](software/esp32__s3_apple2/README.md) and [change log](software/esp32__s3_apple2/docs/log.md) | Not available yet |
+| Macintosh Plus | Apple Macintosh Plus | [Setup guide](software/esp32__s3_macplus/README.md) and [change log](software/esp32__s3_macplus/docs/log.md) | Not available yet |
+| Sega Master System | Sega Master System (NTSC / PAL) | [Setup guide](software/esp32__s3_sms/README.md) and [change log](software/esp32__s3_sms/docs/log.md) | Not available yet |
+| Commodore 64 | Commodore 64 (PAL) | [Setup guide](software/esp32__s3_c64/README.md), [licenses](software/esp32__s3_c64/docs/licenses.md) and [change log](software/esp32__s3_c64/docs/log.md) | Not available yet |
 
 > **Development status:** all firmwares are under active development and at different maturity stages. The CP400 and MSX firmwares are the most mature; the others (including the experimental MSX TurboR) are earlier-stage and may be incomplete or change significantly.
 
-All eight builds share the same board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
+All eight builds share the same ESP32-S3 board, VGA output, USB keyboard input, SD-card storage, and a simple F12 menu for setup and firmware updates.
 
 ## User guides
 
@@ -159,9 +170,10 @@ emulation; floppy-media support is not implemented.
 ## Repository layout
 
 ```text
-hardware/esp32_clones/          KiCad PCB and shared board files
-hardware/esp32_clones/libraries Local KiCad symbols and footprints
-hardware/esp32_clones/bom       Interactive BOM and BOM assets
+hardware/esp32_s3_clones/          KiCad PCB and shared board files
+hardware/esp32_s3_clones/libraries Local KiCad symbols and footprints
+hardware/esp32_s3_clones/bom       Interactive BOM and BOM assets
+hardware/esp32_p4_clones/          KiCad PCB for the ESP32-P4 (stereo audio) variant, see its README
 hardware/cases/standard/       Parametric printed base, acrylic lid and manufacturing exports
 software/esp32__s3_cp400/  PlatformIO firmware for the CP400 build
 software/esp32__s3_msx/    MSX firmware and setup files
@@ -229,14 +241,16 @@ The PCB below is the current KiCad board layout for the shared ESP32 clone board
   <img src="images/2026-10-05_15-47_1.png" width="48%" alt="ESP32 clone board back" />
 </div>
 
-For the full component-by-component assembly view, open the [interactive BOM](https://htmlpreview.github.io/?https://raw.githubusercontent.com/cristianoag/esp32_clones/blob/main/hardware/esp32_clones/bom/ibom.html).
+For the full component-by-component assembly view, open the [interactive BOM](https://htmlpreview.github.io/?https://raw.githubusercontent.com/cristianoag/esp32_clones/blob/main/hardware/esp32_s3_clones/bom/ibom.html).
 
 
 ## Hardware summary
 
-The board is built around an ESP32-S3 DevKitC-style N16R8 module with 16 MB flash and 8 MB OPI PSRAM. It includes VGA output, a USB keyboard port, SD/MMC storage, a mono audio output, and a compact layout intended to behave more like a small computer than a bare dev board.
+The ESP32-S3 board is built around an ESP32-S3 DevKitC-style N16R8 module with 16 MB flash and 8 MB OPI PSRAM. It includes VGA output, a USB keyboard port, SD/MMC storage, a mono audio output, and a compact layout intended to behave more like a small computer than a bare dev board.
 
-The shared board is used by all six firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32__s3_msx/README.md#hardware), the [MSX TurboR hardware section](software/esp32__s3_msxturbor/README.md#hardware-and-dependencies), the [TK hardware section](software/esp32__s3_tk95/README.md#hardware), the [Apple II hardware section](software/esp32__s3_apple2/README.md#hardware) and the [Macintosh Plus hardware section](software/esp32__s3_macplus/README.md#hardware).
+The ESP32-P4 board keeps the same outline, VGA output, USB-A ports, SD card slot and connector positions, but uses the Waveshare ESP32-P4-Core-DEV-KIT (32 MB flash, 32 MB PSRAM) and adds a stereo audio output.
+
+The ESP32-S3 board is used by all eight firmware projects, and the pin mapping is documented in the [MSX hardware section](software/esp32__s3_msx/README.md#hardware), the [MSX TurboR hardware section](software/esp32__s3_msxturbor/README.md#hardware-and-dependencies), the [TK hardware section](software/esp32__s3_tk95/README.md#hardware), the [Apple II hardware section](software/esp32__s3_apple2/README.md#hardware) and the [Macintosh Plus hardware section](software/esp32__s3_macplus/README.md#hardware).
 
 ## BOM and purchasing
 

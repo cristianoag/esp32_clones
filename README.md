@@ -76,12 +76,6 @@ Supply your own BASIC, KERNAL and character ROMs. The initial version
 does not emulate a 1541 drive, cartridges or tapes, and does not claim
 cycle accuracy or verified physical-board performance.
 
-## Why this exists
-
-The goal is not to produce a display piece. This is meant to be a useful, buildable retro-computing emulation based platform: something that captures the character of a classic computer without needing a pile of original hardware on the bench.
-
-The project sits between hardware design, emulator work, and preservation. It keeps the board layout, software, and documentation together in one place so someone can build, test, and modify it without digging through a dozen disconnected repos.
-
 ## CP400
 
 The Prologica CP400 was one of the more recognizable Brazilian home computers of the 1980s. It was compatible with the Tandy/Radio Shack TRS-80 Color Computer 2, but it had its own industrial design, Brazilian-language software ecosystem, and local hardware expectations.
